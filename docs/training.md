@@ -340,8 +340,9 @@ know the capacity. Free buffer stays unidentified either way (R^2 0.02).
 expliCCit's released net1 was scored on all 283k steps of the
 144-episode campaign of section 1 (without the loss condition), none of
 which it saw in training. It had R^2 1.000 on one-way delay, which
-confirms that its "mRTT" is the one-way delay, and 0.594 on queue, 0.361
-on capacity, -0.743 on busy fraction and -59.0 on free buffer. Its
+confirms that its "mRTT" is the one-way delay, 0.899 on receive rate,
+0.847 on mean queueing delay, 0.594 on queue, 0.361 on capacity, -0.743
+on busy fraction and -59.0 on free buffer. Its
 ground-truth definitions are not in its code, so part of that gap may be
 definitional.
 
