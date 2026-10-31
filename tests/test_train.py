@@ -237,7 +237,9 @@ def test_patched_graph_takes_the_named_lcfs_from_the_truth(intervals: bool) -> N
         assert torch.equal(patched(obs, truth), actor(z))
         oracle = fit.policy_graph(net1, actor, 1.0, truth=frozenset(EXPLICCIT_LCFS))
         assert torch.equal(oracle(obs, truth), oracle(torch.randn(5, OBS_DIM), truth))
-        assert torch.isfinite(oracle(obs, truth)).all()  # NaN truth is zeroed like a target
+        # A NaN truth maps as a NaN training target does: the scaler zeroes it
+        # in physical units, then scales it.
+        assert torch.isfinite(oracle(obs, truth)).all()
     model = onnx.load_from_string(to_onnx(oracle))
     assert [i.name for i in model.graph.input] == ["obs", "truth"]
     assert not {"IsInf", "IsNaN"} & {n.op_type for n in model.graph.node}
@@ -339,3 +341,13 @@ def test_online_loop_runs_an_iteration(build: object, tmp_path: Path) -> None:
     assert entry["rollouts"]["ok"] == 2 and entry["new_transitions"] > 400
     assert entry["eval"]["ok"] == 1
     assert (tmp_path / "out" / "policy.onnx").exists()
+
+
+def test_online_spec_rejects_an_oracle_net2(tmp_path: Path) -> None:
+    spec = {
+        "paths_from": str(tmp_path),
+        "net1_from": str(tmp_path),
+        "net2": {"inputs": "true_lcfs"},
+    }
+    with pytest.raises(ValueError, match="net1"):
+        OnlineSpec.parse(json.dumps(spec))

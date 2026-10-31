@@ -21,7 +21,7 @@ from typing import Annotated, Any, Literal
 
 import numpy as np
 import torch
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt, model_validator
 
 from expliccit_env import campaign
 from expliccit_env.spec import AgentCC, CampaignSpec, EpisodeSpec, OnnxPolicy, PathSpec, paths_of
@@ -57,6 +57,15 @@ class OnlineSpec(BaseModel):
     eval_every: PositiveInt = 5
     replay_capacity: PositiveInt = 2_000_000
     seed: Annotated[int, Field(ge=0)] = 0
+
+    # ponytail: net2 acts on net1's beliefs only; online training of a net2
+    # on the true LCFs (the oracle arm) needs truth-reading rollouts and
+    # label states.
+    @model_validator(mode="after")
+    def _on_beliefs(self) -> OnlineSpec:
+        if self.net2.inputs != "net1":
+            raise ValueError('online training supports net2.inputs "net1" only')
+        return self
 
     @classmethod
     def parse(cls, text: str) -> OnlineSpec:

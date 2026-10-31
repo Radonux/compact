@@ -290,7 +290,7 @@ def main(argv: list[str] | None = None) -> int:
     ti.add_argument(
         "--as-deployed",
         action="store_true",
-        help="round beliefs and actions as expliCCit's deployed controller does",
+        help="clamp and round beliefs, and round actions, as expliCCit's deployed controller does",
     )
     ti.add_argument(
         "--truth",
