@@ -1,6 +1,6 @@
 """Online (closed-loop) training of net2 on a frozen net1.
 
-docs/methodology.md, section 4. Each iteration exports the current policy,
+docs/methodology.md, section 3. Each iteration exports the current policy,
 runs a batch of episodes over the training paths with seeded exploration
 noise, adds their transitions (reward from ground truth) to a replay
 buffer, and updates net2 off-policy. The noise-free policy is evaluated on
