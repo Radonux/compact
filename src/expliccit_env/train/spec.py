@@ -76,6 +76,10 @@ class Net1Spec(_Frozen):
     # all three.
     intervals: bool = False
     coverage: Annotated[float, Field(gt=0, lt=1)] = 0.9
+    # Report a probability distribution over this many fixed bins per LCF,
+    # trained with the log score (docs/methodology.md, section 3). net2
+    # then sees every bin's probability.
+    bins: Annotated[int, Field(ge=4, le=256)] | None = None
     width: PositiveInt = 512
     dropout: Annotated[float, Field(ge=0, lt=1)] = 0.3
     epochs: PositiveInt = 50
@@ -83,6 +87,12 @@ class Net1Spec(_Frozen):
     batch_size: PositiveInt = 1024
     lr: Annotated[float, Field(gt=0)] = 1e-3
     weight_decay: Annotated[float, Field(ge=0)] = 1e-4
+
+    @model_validator(mode="after")
+    def _one_output(self) -> Net1Spec:
+        if self.intervals and self.bins is not None:
+            raise ValueError("net1 reports intervals or bins, not both")
+        return self
 
 
 class Net2Spec(_Frozen):

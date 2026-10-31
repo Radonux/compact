@@ -83,6 +83,7 @@ of 0.95 (about 200 ms) barely sees that window.
 | `net1.scaling` | `robust` | `robust` clips to training quantiles, then standardizes; `minmax` is expliCCit's |
 | `net1.lcfs` | expliCCit's 7 | `queue_delay_mean_ns, queue_pkts, capacity_bps, free_buffer_pkts, busy_fraction, one_way_delay_ns, receive_rate_bps` |
 | `net1.intervals` | false | an interval per LCF (section 5) |
+| `net1.bins` | none | a probability distribution over this many bins per LCF, trained with the log score (section 5); excludes `intervals` |
 | `net2.algo` | `td3bc` | TD3+BC; `iql` is implicit Q-learning (`expectile`, `beta`); `bc` clones; `expliccit-v1` is expliCCit's objective, kept for comparison |
 | `net2.inputs` | `net1` | `true_lcfs` trains on the labels, and the exported policy reads the live truth (an oracle, section 3) |
 | `net2.reward` | `sage` | Sage's reward; `utility` is the ground-truth utility below |
@@ -212,7 +213,7 @@ in Python (run from the repository with the train extra):
     run = Path("out/model")
     spec = TrainSpec.parse((run / "train_spec.json").read_text())
     net1, _ = fit.load_net1(run / "net1.pt")
-    actor = NET2[spec.net2.arch](len(net1.lcfs) * (3 if net1.intervals else 1), spec.net2.hidden)
+    actor = NET2[spec.net2.arch](net1.width, spec.net2.hidden)
     actor.load_state_dict(torch.load(run / "net2.pt", map_location="cpu", weights_only=True))
     graph = fit.policy_graph(
         net1, actor.eval(), spec.net2.action_max, spec.net2.action_decimals,
@@ -245,7 +246,41 @@ for example:
     uv run expliccit train import-expliccit <expliCCit>/sage_rl/offline/models out/expliccit-busy \
         --as-deployed --truth busy_fraction
 
-## 5. Intervals instead of points
+## 5. Beliefs instead of points
+
+### Distributions
+
+With `"net1": {"bins": 32}`, net1 reports for each LCF a probability
+distribution over 32 bins of that quantity, and net2 sees every bin's
+probability. The bins are fitted once to the training targets, in the
+report units of `LCF_UNITS`. A quantity within [0, 1] gets equal bins.
+Any other gets one bin for zero and near-zero values, then log-spaced
+bins up to its 99.9th percentile, then a last bin that also takes
+everything above. net1 is trained with the log score: the negative log
+of the probability it gave the bin that holds the true value, which is
+lowest only when the stated probabilities are right.
+
+For each LCF, `report.json` gives:
+
+- accuracy of the median: error and R^2;
+- the log score, next to that of a forecast that ignores the measurements
+  (the training rows' bin frequencies), and the difference in bits: how
+  much the measurements tell net1;
+- coverage of central sets at 50, 80, 90 and 95%. It is tested on bins,
+  with the randomized probability integral transform, because net1 states
+  probabilities of bins; a value's position inside its bin is not part of
+  the claim;
+- sharpness: the entropy, and the width of the 90% interval a human reads,
+  which is accurate to one bin;
+- the log score, 90% coverage and width when the link is kept busy and
+  when it is not.
+
+`fit.quantiles` turns a distribution into the readings a human uses
+(median, intervals), spreading each bin's mass evenly within it. A truth
+patch on a distribution net1 puts all probability on the true value's bin,
+and keeps net1's own belief where the truth is NaN.
+
+### Intervals
 
 With `"net1": {"intervals": true, "coverage": 0.9}`, net1 reports a centre
 and an interval for each LCF, meant to hold the truth 90% of the time. It
@@ -257,8 +292,7 @@ Mbit/s". `report.json` gives each LCF's held-out coverage and mean width.
 It also gives the width when the link is kept busy (busy fraction at
 least 0.95) and when it is not (below 0.8): the identifiability check of
 `docs/methodology.md`, section 2. Results are in section 7. The plan
-replaces this with a probability distribution over bins per LCF
-(`docs/methodology.md`, section 3).
+replaces intervals with distributions (`docs/methodology.md`, section 3).
 
 ## 6. Online training
 

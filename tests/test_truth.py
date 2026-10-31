@@ -99,3 +99,35 @@ def test_exported_oracle_runs_in_the_guest(build: UmlBuild, tmp_path: Path) -> N
     applied = outcome.tables["steps"]["applied_action"].to_numpy()
     assert applied.size > 100 and np.isfinite(applied).all()
     assert np.allclose(applied, want, rtol=0, atol=1e-6)
+
+
+def test_exported_distribution_policy_runs_in_the_guest(build: UmlBuild, tmp_path: Path) -> None:
+    # A distribution net1 whose busy-fraction belief is patched from the
+    # truth: the guest must act as torch computes from the recorded steps.
+    torch = pytest.importorskip("torch")
+    from expliccit_env.train import fit  # noqa: PLC0415
+    from expliccit_env.train.export import to_onnx  # noqa: PLC0415
+    from expliccit_env.train.models import ExpliccitActor  # noqa: PLC0415
+    from expliccit_env.train.spec import EXPLICCIT_LCFS, Net1Spec  # noqa: PLC0415
+    from tests.test_train import synthetic  # noqa: PLC0415
+
+    torch.manual_seed(0)
+    steps = synthetic(n_episodes=10)
+    rng = np.random.default_rng(0)
+    steps.labels.update(
+        {n: rng.uniform(0, 1, steps.obs.shape[0]).astype(np.float32) for n in EXPLICCIT_LCFS}
+    )
+    spec = Net1Spec(width=64, epochs=1, batch_size=256, bins=16)
+    net1, _ = fit.fit_net1(spec, steps, seed=0)
+    graph = fit.policy_graph(
+        net1, ExpliccitActor(net1.width).eval(), 0.05, truth=frozenset({"busy_fraction"})
+    )
+    outcome, _ = run_raw(build, tmp_path, agent_spec(tmp_path, to_onnx(graph), "hold"))
+    steps_bin = load_steps(tmp_path / "work" / outcome.episode_id / "raw" / "steps.bin")
+    obs = torch.from_numpy(steps_bin["obs"].astype(np.float32))
+    truth = torch.from_numpy(steps_bin["truth"].astype(np.float32))
+    with torch.no_grad():
+        want = graph(obs, truth).numpy().ravel()
+    applied = outcome.tables["steps"]["applied_action"].to_numpy()
+    assert applied.size > 100 and np.isfinite(applied).all()
+    assert np.allclose(applied, want, rtol=0, atol=1e-6)

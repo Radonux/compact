@@ -136,7 +136,7 @@ def run_online(
     rng = np.random.default_rng(spec.seed)
     net1, net1_spec = fit.load_net1(spec.net1_from)
     fit.save_net1(net1, net1_spec, out / "net1.pt")
-    k = len(net1.lcfs) * (3 if net1.intervals else 1)
+    k = net1.width
     learner = fit.Learner(spec.net2, k)
     if spec.init_from is not None:
         state = torch.load(spec.init_from, map_location="cpu", weights_only=True)

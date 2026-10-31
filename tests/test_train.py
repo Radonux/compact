@@ -351,3 +351,87 @@ def test_online_spec_rejects_an_oracle_net2(tmp_path: Path) -> None:
     }
     with pytest.raises(ValueError, match="net1"):
         OnlineSpec.parse(json.dumps(spec))
+
+
+def test_quantiles_read_a_binned_distribution() -> None:
+    bounds = np.linspace(0, 10, 11, dtype=np.float32)[None, :]  # 10 bins of width 1
+    p = np.full((1, 1, 10), 0.1, np.float32)  # uniform on [0, 10]
+    q = fit.quantiles(p, bounds, (0.05, 0.5, 0.95))[0, 0]
+    assert np.allclose(q, [0.5, 5.0, 9.5], atol=1e-5)
+    one = np.zeros((1, 1, 10), np.float32)
+    one[0, 0, 3] = 1.0  # all mass in [3, 4)
+    assert np.allclose(fit.quantiles(one, bounds, (0.25, 0.75))[0, 0], [3.25, 3.75], atol=1e-5)
+
+
+def test_bins_cover_fractions_evenly_and_rates_on_a_log_scale() -> None:
+    rng = np.random.default_rng(0)
+    y = np.stack([rng.uniform(0, 1, 5000), rng.lognormal(3, 1, 5000)], 1).astype(np.float32)
+    y[:500, 1] = 0  # an idle link: zero receive rate
+    b = fit._bin_bounds(y, 16)
+    assert np.allclose(b[0], np.linspace(0, 1, 17))
+    assert b[1, 0] == 0 and np.all(np.diff(b[1]) > 0)
+    ratios = b[1, 2:-1] / b[1, 1:-2]
+    assert np.allclose(ratios, ratios[0], rtol=1e-4)  # log-spaced
+
+
+def _noisy(n_episodes: int = 60, sd_mbps: float = 2.0) -> data.Steps:
+    """synthetic() with capacity noise net1 cannot predict, of known spread."""
+    steps = synthetic(n_episodes=n_episodes)
+    rng = np.random.default_rng(1)
+    o = steps.obs
+    cap = (3 * o[:, 74] - 2 * o[:, 71] + 50 + rng.normal(0, sd_mbps, o.shape[0])) * 1e6
+    steps.labels["capacity_bps"] = cap.astype(np.float32)
+    return steps
+
+
+def test_distribution_net1_is_accurate_and_honest() -> None:
+    steps = _noisy()
+    spec = Net1Spec(
+        width=64, epochs=30, patience=5, batch_size=256, lcfs=("capacity_bps",), bins=32
+    )
+    net1, _ = fit.fit_net1(spec, steps, seed=0)
+    r = fit.report_net1(net1, steps, "test")["capacity_bps"]
+    d = r["distribution"]
+    # The noise caps R^2 at 13 / (13 + 4) = 0.76, and RMSE at its sd, 2.
+    assert r["net1"]["r2"] > 0.7 and r["net1"]["rmse"] < 2.4, r
+    # Ignoring the measurements leaves sd 4.1, the noise sd 2: at most about
+    # log2(4.1 / 2) = 1.04 bits to gain.
+    assert 0.6 < d["information_bits"] < 1.1, d
+    assert abs(d["coverage"]["0.9"] - 0.9) < 0.05 and abs(d["coverage"]["0.5"] - 0.5) < 0.07, d
+    # The 90% interval is about as wide as the noise allows: 2 x 1.645 sd.
+    assert 4.0 < d["width_90"] < 10.0, d
+    lo, hi = net1.bounds(steps.obs[:100])
+    assert np.all(lo <= hi)
+    assert net1.width == 32
+
+
+def test_distribution_net1_saves_patches_and_feeds_net2(tmp_path: Path) -> None:
+    torch.manual_seed(0)
+    steps = _noisy(n_episodes=20)
+    spec = Net1Spec(width=64, epochs=2, batch_size=256, lcfs=EXPLICCIT_LCFS, bins=16)
+    steps.labels.update(
+        {n: np.full(steps.obs.shape[0], np.nan, np.float32) for n in EXPLICCIT_LCFS}
+        | {"capacity_bps": steps.labels["capacity_bps"]}
+    )
+    net1, _ = fit.fit_net1(spec, steps, seed=0)
+    fit.save_net1(net1, spec, tmp_path / "net1.pt")
+    again, _ = fit.load_net1(tmp_path / "net1.pt")
+    obs = steps.obs[:8]
+    assert np.array_equal(again.beliefs(obs), net1.beliefs(obs))
+    actor, log = fit.fit_net2(
+        Net2Spec(hidden=32, steps=50, batch_size=64, algo="bc"), steps, net1, 0
+    )
+    assert log["transitions"] > 0
+    graph = fit.policy_graph(net1, actor, 0.1, truth=frozenset({"capacity_bps"}))
+    truth = torch.full((8, TRUTH_DIM), float("nan"))
+    cap = TRUTH_COLUMNS.index("capacity_bps")
+    truth[:4, cap] = 37e6  # in report units 37 Mbit/s
+    with torch.no_grad():
+        z = net1.net(net1.scaler(torch.from_numpy(obs))).reshape(8, 7, 16)
+        want = z.clone()
+        b = int(net1.net.bin_of(torch.full((1, 7), 37.0))[0, cap])
+        want[:4, cap] = torch.nn.functional.one_hot(torch.tensor(b), 16).float()
+        assert torch.equal(graph(torch.from_numpy(obs), truth), actor(want.reshape(8, -1)) * 0.1)
+    model = onnx.load_from_string(to_onnx(graph))
+    assert [i.name for i in model.graph.input] == ["obs", "truth"]
+    assert not {"IsInf", "IsNaN"} & {n.op_type for n in model.graph.node}

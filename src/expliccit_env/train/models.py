@@ -143,6 +143,36 @@ class IntervalNet1(nn.Module):
         return torch.cat([m, lo, hi], dim=1)
 
 
+class BinNet1(nn.Module):
+    """net1 reporting, for each LCF, a probability distribution over fixed
+    bins of that quantity, in report units. ``bounds[j]`` holds LCF j's
+    B + 1 bin boundaries: bin i is [bounds[j, i], bounds[j, i + 1]). For
+    classifying a value, the first bin also takes everything below and the
+    last everything above; the outer boundaries only serve to read
+    quantiles. Output: the K distributions in LCF order, each summing to 1.
+    """
+
+    bounds: torch.Tensor
+
+    def __init__(self, base: nn.Module, lcfs: int, bins: int) -> None:
+        super().__init__()
+        self.base, self.k, self.b = base, lcfs, bins
+        self.register_buffer("bounds", torch.zeros(lcfs, bins + 1))
+
+    def log_probs(self, x: torch.Tensor) -> torch.Tensor:
+        """[n, K, B] log-probabilities."""
+        return torch.log_softmax(self.base(x).reshape(-1, self.k, self.b), dim=2)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return torch.softmax(self.base(x).reshape(-1, self.k, self.b), dim=2).reshape(
+            -1, self.k * self.b
+        )
+
+    def bin_of(self, y: torch.Tensor) -> torch.Tensor:
+        """[n, K] bin index of each value; NaN lands in bin 0 (mask it)."""
+        return (y.unsqueeze(2) >= self.bounds[:, 1:-1]).sum(dim=2)
+
+
 class ExpliccitActor(nn.Module):
     """LCF beliefs -> a in [-1, 1] (two hidden ReLU layers, tanh)."""
 
@@ -203,11 +233,14 @@ class PolicyGraph(nn.Module):
     oracle), one or a few for a patched net1. The truth goes through the
     same LCF scaler as net1's training targets, so a patched belief is what
     a perfect net1 would have said; for an interval net1, its centre and
-    both bounds become the truth."""
+    both bounds become the truth; for a distribution net1, all probability
+    goes to the truth's bin, except where the truth is NaN, which keeps
+    net1's own belief."""
 
     truth_cols: torch.Tensor
     truth_units: torch.Tensor
     from_truth: torch.Tensor
+    truth_bounds: torch.Tensor
 
     def __init__(
         self,
@@ -228,16 +261,25 @@ class PolicyGraph(nn.Module):
         self.register_buffer("truth_cols", torch.zeros(0, dtype=torch.long))
         self.register_buffer("truth_units", torch.zeros(0))
         self.register_buffer("from_truth", torch.zeros(0, dtype=torch.bool))
+        self.register_buffer("truth_bounds", torch.zeros(0))
 
     def take_from_truth(
-        self, cols: list[int], units: list[float], mask: list[bool], reps: int
+        self,
+        cols: list[int],
+        units: list[float],
+        mask: list[bool],
+        reps: int,
+        bounds: torch.Tensor | None = None,
     ) -> None:
         """Per LCF in net1's order: its column of the truth input, the factor
         to net1's target units, and whether to take it from the truth;
-        ``reps`` is 3 for an interval net1 (centres, lower, upper), else 1."""
+        ``reps`` is 3 for an interval net1 (centres, lower, upper), else 1;
+        ``bounds`` are a distribution net1's bin boundaries."""
         self.truth_cols = torch.tensor(cols, dtype=torch.long)
         self.truth_units = torch.tensor(units, dtype=torch.float32)
         self.from_truth = torch.tensor(mask * reps, dtype=torch.bool)
+        if bounds is not None:
+            self.truth_bounds = bounds.clone()
 
     @property
     def uses_truth(self) -> bool:
@@ -245,7 +287,14 @@ class PolicyGraph(nn.Module):
 
     def forward(self, obs: torch.Tensor, truth: torch.Tensor | None = None) -> torch.Tensor:
         z = self.net1(self.scaler(obs))
-        if truth is not None and self.uses_truth:
+        if truth is not None and self.uses_truth and self.truth_bounds.numel():
+            y = truth.index_select(1, self.truth_cols) * self.truth_units
+            k, b = self.truth_bounds.shape[0], self.truth_bounds.shape[1] - 1
+            idx = (y.unsqueeze(2) >= self.truth_bounds[:, 1:-1]).sum(dim=2, keepdim=True)
+            onehot = (idx == torch.arange(b)).to(z.dtype)
+            take = self.from_truth.reshape(1, k, 1) & (torch.abs(y) < _BIG).unsqueeze(2)
+            z = torch.where(take, onehot, z.reshape(-1, k, b)).reshape(-1, k * b)
+        elif truth is not None and self.uses_truth:
             zt = self.lcf_scaler(truth.index_select(1, self.truth_cols) * self.truth_units)
             reps = self.from_truth.shape[0] // zt.shape[1]
             z = torch.where(self.from_truth, zt.repeat(1, reps), z)

@@ -110,10 +110,10 @@ truthfully.
   link is busy and where it is not, because average calibration can hide
   over-confidence exactly where identifiability fails.
 
-Status: the current net1 predicts the 5th, 50th and 95th percentiles
-(pinball loss, then a conformal correction on validation paths). The
-histogram head, the minimal set of quantities, the varied controllers and
-the ensemble are UNRUN.
+Status: the histogram head and its report are implemented (`net1.bins`,
+`docs/training.md`, section 5); their tuning on the teacher data is in
+progress. The minimal set of quantities, the varied controllers and the
+ensemble are UNRUN.
 
 ### net2: what a good congestion controller optimizes
 
@@ -273,7 +273,7 @@ they set the baseline it must beat.
 | Policies of any network design, with recurrent state | yes (contract `sage-v1`) |
 | The true LCFs as a policy input (arm A1, patches) | yes, equal to the labels at every step; the full state beyond the LCFs (A0) not yet |
 | Offline and online training, evaluation with bootstrap intervals over paths | yes |
-| net1 as a distribution over bins, trained with the log score | not yet (it predicts three percentiles) |
+| net1 as a distribution over bins, trained with the log score | yes (`net1.bins`); tuning in progress |
 | Varied controllers for net1's data | not yet (the kernel's controllers and BBRv3 are available) |
 | One decision per RTT, exploration held over an RTT | not yet |
 | Log-throughput reward; several learned flows on one bottleneck | not yet (one agent per kernel) |

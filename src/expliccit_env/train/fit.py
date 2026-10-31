@@ -24,6 +24,7 @@ from expliccit_env.train.data import Split, Steps
 from expliccit_env.train.models import (
     NET1,
     NET2,
+    BinNet1,
     Critic,
     ExpliccitActor,
     ExpliccitNet1,
@@ -56,18 +57,79 @@ class Net1:
         ]
         return torch.cat(out).numpy() if out else np.zeros((0, len(self.lcfs)), np.float32)
 
+    @property
+    def width(self) -> int:
+        """Numbers per row that net1 hands net2."""
+        if isinstance(self.net, BinNet1):
+            return self.net.k * self.net.b
+        return len(self.lcfs) * (3 if self.intervals else 1)
+
+    def distributions(self, obs: F32) -> F32:
+        """[n, K, B] bin probabilities (distribution net1 only)."""
+        assert isinstance(self.net, BinNet1)
+        return self.beliefs(obs).reshape(-1, self.net.k, self.net.b)
+
     def predict(self, obs: F32) -> F32:
-        """LCFs in report units (LCF_UNITS): the centres."""
+        """LCFs in report units (LCF_UNITS): the centres, or the medians."""
+        if isinstance(self.net, BinNet1):
+            return quantiles(self.distributions(obs), self.net.bounds.numpy(), (0.5,))[:, :, 0]
         z = self.beliefs(obs)[:, : len(self.lcfs)]
         return self.lcf_scaler.inverse(torch.from_numpy(np.ascontiguousarray(z))).numpy()
 
-    def bounds(self, obs: F32) -> tuple[F32, F32]:
-        """Lower and upper bounds in report units (intervals only)."""
+    def bounds(self, obs: F32, level: float = 0.9) -> tuple[F32, F32]:
+        """Lower and upper bounds in report units: an interval net1's, or a
+        distribution net1's central interval holding ``level`` of its mass."""
+        if isinstance(self.net, BinNet1):
+            tail = (1 - level) / 2
+            q = quantiles(self.distributions(obs), self.net.bounds.numpy(), (tail, 1 - tail))
+            return q[:, :, 0], q[:, :, 1]
         k, z = len(self.lcfs), self.beliefs(obs)
         inv = self.lcf_scaler.inverse
         lo = inv(torch.from_numpy(np.ascontiguousarray(z[:, k : 2 * k]))).numpy()
         hi = inv(torch.from_numpy(np.ascontiguousarray(z[:, 2 * k :]))).numpy()
         return lo, hi
+
+
+def quantiles(p: F32, bounds: F32, qs: tuple[float, ...]) -> F32:
+    """[n, K, len(qs)] quantiles of binned distributions [n, K, B] with bin
+    boundaries [K, B + 1], the mass spread evenly within each bin."""
+    p64 = p.astype(np.float64)
+    upto = np.cumsum(p64, axis=2)
+    out = np.empty((*p.shape[:2], len(qs)))
+    last = p.shape[2] - 1
+    for j, q in enumerate(qs):
+        crossed = upto >= q * upto[:, :, -1:] - 1e-12
+        i = np.where(crossed.any(axis=2), crossed.argmax(axis=2), last)[:, :, None]
+        mass = np.take_along_axis(p64, i, axis=2)[:, :, 0]
+        below = np.take_along_axis(upto, i, axis=2)[:, :, 0] - mass
+        frac = np.clip((q * upto[:, :, -1] - below) / np.where(mass > 0, mass, 1), 0, 1)
+        lo = np.take_along_axis(np.broadcast_to(bounds[:, :-1], p.shape), i, axis=2)[:, :, 0]
+        hi = np.take_along_axis(np.broadcast_to(bounds[:, 1:], p.shape), i, axis=2)[:, :, 0]
+        out[:, :, j] = lo + frac * (hi - lo)
+    return out.astype(np.float32)
+
+
+def _bin_bounds(y: F32, bins: int) -> F32:
+    """Per LCF, B + 1 bin boundaries fitted to the training targets. A
+    quantity within [0, 1] gets B equal bins. Any other gets bin 0 below
+    the 0.1% quantile of its positive values (zero and near zero),
+    log-spaced bins up to its 99.9% quantile, and one more log step as the
+    last bin, which also takes everything above."""
+    out = np.empty((y.shape[1], bins + 1), np.float64)
+    for j in range(y.shape[1]):
+        v = y[:, j][np.isfinite(y[:, j])].astype(np.float64)
+        pos = v[v > 0]
+        if v.size and v.min() >= 0 and v.max() <= 1:
+            out[j] = np.linspace(0.0, 1.0, bins + 1)
+            continue
+        lo = float(np.quantile(pos, 0.001)) if pos.size else 1.0
+        hi = float(np.quantile(v, 0.999)) if v.size else lo * 10
+        if hi <= lo:  # a constant quantity: any small range will do
+            hi = lo * 2
+        inner = np.geomspace(lo, hi, bins - 1)
+        step = inner[1] / inner[0]
+        out[j] = [min(0.0, float(v.min()) if v.size else 0.0), *inner, hi * step]
+    return out.astype(np.float32)
 
 
 def targets(steps: Steps, lcfs: tuple[str, ...]) -> F32:
@@ -109,8 +171,11 @@ def report_net1(net1: Net1, steps: Steps, split: Split | None = None) -> dict[st
     out: dict[str, Any] = {}
     lo, hi = net1.bounds(steps.obs[rows]) if net1.intervals else (pred, pred)
     busy = steps.labels["busy_fraction"][rows]
+    dist = _report_distributions(net1, steps, rows) if isinstance(net1.net, BinNet1) else {}
     for k, name in enumerate(net1.lcfs):
         out[name] = {"unit": LCF_UNITS[name][1], "net1": _metrics(pred[:, k], true[:, k])}
+        if name in dist:
+            out[name]["distribution"] = dist[name]
         if name in base:
             out[name]["baseline"] = _metrics(base[name], true[:, k])
         if net1.intervals:
@@ -128,8 +193,86 @@ def report_net1(net1: Net1, steps: Steps, split: Split | None = None) -> dict[st
     return out
 
 
-def _mean_where(x: F32, rows: npt.NDArray[np.bool_]) -> float:
+def _mean_where(x: npt.NDArray[np.floating[Any]], rows: npt.NDArray[np.bool_]) -> float:
     return float(x[rows].mean()) if rows.any() else float("nan")
+
+
+_LEVELS: Final = (0.5, 0.8, 0.9, 0.95)
+
+
+def _regime(
+    m: npt.NDArray[np.bool_],
+    nll: npt.NDArray[np.float64],
+    hit90: npt.NDArray[np.float64],
+    width90: npt.NDArray[np.float32],
+) -> dict[str, float]:
+    return {
+        "n": int(m.sum()),
+        "log_loss": _mean_where(nll, m),
+        "coverage_90": _mean_where(hit90, m),
+        "width_90": _mean_where(width90, m),
+    }
+
+
+def _report_distributions(
+    net1: Net1, steps: Steps, rows: npt.NDArray[np.bool_]
+) -> dict[str, dict[str, Any]]:
+    """Honesty and sharpness of a distribution net1, per LCF: the log score
+    (nats) against a forecast that ignores the measurements (the training
+    rows' bin frequencies), the information that difference amounts to,
+    the coverage of central sets at several levels, the entropy and the
+    90% interval's width; then the same split by whether the link was kept
+    busy (busy fraction at least 0.95) or not (below 0.8).
+
+    net1 states probabilities of bins, so coverage is tested on bins: with
+    the randomized probability integral transform u = P(below the true
+    bin) + V P(true bin), V uniform, u is uniform exactly when the bin
+    probabilities are right, and a central set holds the truth when u lies
+    within it. The width is the interpolated interval a human reads, which
+    is accurate to one bin."""
+    assert isinstance(net1.net, BinNet1)
+    bounds = net1.net.bounds.numpy()
+    p = net1.distributions(steps.obs[rows]).astype(np.float64)
+    y = targets(steps, net1.lcfs)
+    with torch.no_grad():
+        idx = net1.net.bin_of(torch.from_numpy(np.nan_to_num(y))).numpy()
+    train = steps.rows("train") if steps.rows("train").any() else np.ones_like(rows)
+    qs = sorted({q for lv in _LEVELS for q in ((1 - lv) / 2, (1 + lv) / 2)})
+    qv = quantiles(p.astype(np.float32), bounds, tuple(qs))
+    busy = steps.labels["busy_fraction"][rows]
+    rng = np.random.default_rng(0)
+    out: dict[str, dict[str, Any]] = {}
+    for k, name in enumerate(net1.lcfs):
+        ok = np.isfinite(y[rows, k])
+        if not ok.any():
+            continue
+        i = idx[rows, k]
+        seen = np.isfinite(y[train, k])
+        clim = np.bincount(idx[train, k][seen], minlength=net1.net.b) + 1.0
+        clim = clim / clim.sum()
+        p_true = np.take_along_axis(p[:, k], i[:, None], 1)[:, 0]
+        nll = -np.log(np.clip(p_true, 1e-12, None))
+        below = np.take_along_axis(np.cumsum(p[:, k], 1), i[:, None], 1)[:, 0] - p_true
+        u = below + rng.uniform(size=p_true.size) * p_true
+        ent = -(p[:, k] * np.log2(np.clip(p[:, k], 1e-12, None))).sum(axis=1)
+
+        inside = {lv: np.abs(u - 0.5) <= lv / 2 for lv in _LEVELS}
+        width90 = qv[:, k, qs.index((1 + 0.9) / 2)] - qv[:, k, qs.index((1 - 0.9) / 2)]
+        cov = {str(lv): _mean_where(inside[lv].astype(np.float64), ok) for lv in _LEVELS}
+        clim_nll = _mean_where(-np.log(clim[i]), ok)
+        hit90 = inside[0.9].astype(np.float64)
+        out[name] = {
+            "log_loss": _mean_where(nll, ok),
+            "log_loss_without_measurements": clim_nll,
+            "information_bits": (clim_nll - _mean_where(nll, ok)) / np.log(2),
+            "coverage": cov,
+            "coverage_error": float(np.mean([abs(cov[str(lv)] - lv) for lv in _LEVELS])),
+            "entropy_bits": _mean_where(ent, ok),
+            "width_90": _mean_where(width90, ok),
+            "busy": _regime(ok & (busy >= 0.95), nll, hit90, width90),
+            "idle": _regime(ok & (busy < 0.8), nll, hit90, width90),
+        }
+    return out
 
 
 def _masked_mse(pred: torch.Tensor, y: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
@@ -189,11 +332,19 @@ def fit_net1(spec: Net1Spec, steps: Steps, seed: int) -> tuple[Net1, dict[str, A
 
     (xt, yt, mt), (xv, yv, mv) = tensors(tr), tensors(va)
     net = _net1_module(spec)
+    if isinstance(net, BinNet1):
+        net.bounds.copy_(torch.from_numpy(_bin_bounds(y[tr], net.b)))
+        with torch.no_grad():  # targets become bin indices
+            yt = net.bin_of(torch.from_numpy(np.nan_to_num(y[tr]))).float()
+            yv = net.bin_of(torch.from_numpy(np.nan_to_num(y[va]))).float()
 
-    def loss_of(pred: torch.Tensor, y: torch.Tensor, m: torch.Tensor) -> torch.Tensor:
+    def loss_of(x: torch.Tensor, y: torch.Tensor, m: torch.Tensor) -> torch.Tensor:
+        if isinstance(net, BinNet1):  # the log score of the true bin
+            lp = net.log_probs(x).gather(2, y.long().unsqueeze(2)).squeeze(2)
+            return -(lp * m).sum() / m.sum().clamp(min=1)
         if spec.intervals:
-            return _masked_pinball(pred, y, m, spec.coverage)
-        return _masked_mse(pred, y, m)
+            return _masked_pinball(net(x), y, m, spec.coverage)
+        return _masked_mse(net(x), y, m)
 
     opt = torch.optim.AdamW(net.parameters(), lr=spec.lr, weight_decay=spec.weight_decay)
     best, best_state, stale = float("inf"), copy.deepcopy(net.state_dict()), 0
@@ -205,14 +356,14 @@ def fit_net1(spec: Net1Spec, steps: Steps, seed: int) -> tuple[Net1, dict[str, A
             b = order[i : i + spec.batch_size]
             if b.numel() < 2:
                 continue
-            loss = loss_of(net(xt[b]), yt[b], mt[b])
+            loss = loss_of(xt[b], yt[b], mt[b])
             opt.zero_grad()
             loss.backward()
             nn.utils.clip_grad_norm_(net.parameters(), 1.0)
             opt.step()
         net.eval()
         with torch.no_grad():
-            val = float(loss_of(net(xv), yv, mv)) if xv.shape[0] else float("nan")
+            val = float(loss_of(xv, yv, mv)) if xv.shape[0] else float("nan")
         history.append(val)
         if val < best:
             best, best_state, stale = val, copy.deepcopy(net.state_dict()), 0
@@ -476,6 +627,8 @@ def load_net1(path: Path) -> tuple[Net1, Net1Spec]:
 
 def _net1_module(spec: Net1Spec) -> nn.Module:
     k, f = len(spec.lcfs), len(spec.obs_cols)
+    if spec.bins is not None:
+        return BinNet1(NET1[spec.arch](f, k, spec.width, spec.dropout, spec.bins), k, spec.bins)
     if not spec.intervals:
         return NET1[spec.arch](f, k, spec.width, spec.dropout)
     return IntervalNet1(NET1[spec.arch](f, k, spec.width, spec.dropout, 3), k)
@@ -505,6 +658,7 @@ def policy_graph(
             [LCF_UNITS[n][0] for n in net1.lcfs],
             [n in truth for n in net1.lcfs],
             3 if net1.intervals else 1,
+            net1.net.bounds if isinstance(net1.net, BinNet1) else None,
         )
     return graph.eval()
 
