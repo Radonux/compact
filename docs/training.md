@@ -262,7 +262,14 @@ lowest only when the stated probabilities are right.
 
 For each LCF, `report.json` gives:
 
-- accuracy of the median: error and R^2;
+- accuracy: R^2 and RMSE of the distribution's mean, the estimate squared
+  error rewards (comparable with a single-value net1), and the absolute
+  error of its median;
+- the continuous ranked probability score (CRPS) and its skill against a
+  forecast that ignores the measurements. CRPS works on the distribution's
+  CDF, so it compares distributions over different bins, and it equals the
+  absolute error for a single value; it is what chooses the number of
+  bins;
 - the log score, next to that of a forecast that ignores the measurements
   (the training rows' bin frequencies), and the difference in bits: how
   much the measurements tell net1;

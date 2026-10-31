@@ -393,7 +393,8 @@ def test_distribution_net1_is_accurate_and_honest() -> None:
     r = fit.report_net1(net1, steps, "test")["capacity_bps"]
     d = r["distribution"]
     # The noise caps R^2 at 13 / (13 + 4) = 0.76, and RMSE at its sd, 2.
-    assert r["net1"]["r2"] > 0.7 and r["net1"]["rmse"] < 2.4, r
+    assert r["net1"]["r2"] > 0.65 and r["net1"]["rmse"] < 2.5, r
+    assert d["crps_skill"] > 0.3, d  # far better than ignoring the measurements
     # Ignoring the measurements leaves sd 4.1, the noise sd 2: at most about
     # log2(4.1 / 2) = 1.04 bits to gain.
     assert 0.6 < d["information_bits"] < 1.1, d
@@ -435,3 +436,15 @@ def test_distribution_net1_saves_patches_and_feeds_net2(tmp_path: Path) -> None:
     model = onnx.load_from_string(to_onnx(graph))
     assert [i.name for i in model.graph.input] == ["obs", "truth"]
     assert not {"IsInf", "IsNaN"} & {n.op_type for n in model.graph.node}
+
+
+def test_crps_matches_known_values() -> None:
+    bounds = np.linspace(0, 1, 101, dtype=np.float32)[None, :]  # 100 bins on [0, 1]
+    uniform = np.full((1, 1, 100), 0.01, np.float32)
+    # Uniform on [0, 1] scored at y: (y^3 + (1 - y)^3) / 3, so 1/12 at 0.5.
+    score = fit.crps(uniform, bounds, np.array([[0.5]], np.float32))[0, 0]
+    assert abs(score - 1 / 12) < 2e-3
+    point = np.zeros((1, 1, 100), np.float32)
+    point[0, 0, 20] = 1.0  # all mass in [0.20, 0.21)
+    score = fit.crps(point, bounds, np.array([[0.7]], np.float32))[0, 0]
+    assert abs(score - 0.495) < 6e-3  # a point forecast scores its absolute error

@@ -70,9 +70,13 @@ class Net1:
         return self.beliefs(obs).reshape(-1, self.net.k, self.net.b)
 
     def predict(self, obs: F32) -> F32:
-        """LCFs in report units (LCF_UNITS): the centres, or the medians."""
+        """LCFs in report units (LCF_UNITS): the centres, or a distribution's
+        mean (each bin's mass at its midpoint), the estimate squared error
+        rewards."""
         if isinstance(self.net, BinNet1):
-            return quantiles(self.distributions(obs), self.net.bounds.numpy(), (0.5,))[:, :, 0]
+            b = self.net.bounds.numpy()
+            mid = ((b[:, :-1] + b[:, 1:]) / 2).astype(np.float32)
+            return (self.distributions(obs) * mid).sum(axis=2, dtype=np.float32)
         z = self.beliefs(obs)[:, : len(self.lcfs)]
         return self.lcf_scaler.inverse(torch.from_numpy(np.ascontiguousarray(z))).numpy()
 
@@ -107,6 +111,22 @@ def quantiles(p: F32, bounds: F32, qs: tuple[float, ...]) -> F32:
         hi = np.take_along_axis(np.broadcast_to(bounds[:, 1:], p.shape), i, axis=2)[:, :, 0]
         out[:, :, j] = lo + frac * (hi - lo)
     return out.astype(np.float32)
+
+
+_TAUS: Final = tuple((j + 0.5) / 50 for j in range(50))
+
+
+def crps(p: F32, bounds: F32, y: F32) -> F32:
+    """[n, K] continuous ranked probability score of binned distributions
+    against true values (report units; NaN where y is): twice the mean
+    pinball loss over 50 evenly spaced quantile levels. It is proper, works
+    on the distribution's CDF rather than its bins, so it compares
+    distributions over different bins, and equals the absolute error for a
+    point forecast."""
+    q = quantiles(p, bounds, _TAUS)
+    tau = np.array(_TAUS)
+    u = y[:, :, None] - q
+    return (2 * (u * (tau - (u < 0))).mean(axis=2)).astype(np.float32)
 
 
 def _bin_bounds(y: F32, bins: int) -> F32:
@@ -260,8 +280,17 @@ def _report_distributions(
         width90 = qv[:, k, qs.index((1 + 0.9) / 2)] - qv[:, k, qs.index((1 - 0.9) / 2)]
         cov = {str(lv): _mean_where(inside[lv].astype(np.float64), ok) for lv in _LEVELS}
         clim_nll = _mean_where(-np.log(clim[i]), ok)
+        t = np.where(ok, y[rows, k], 0).astype(np.float32)[:, None]
+        pk, bk = p[:, k : k + 1].astype(np.float32), bounds[k : k + 1]
+        score = crps(pk, bk, t)[:, 0]
+        clim_p = np.broadcast_to(clim.astype(np.float32), pk.shape)
+        clim_crps = _mean_where(crps(clim_p, bk, t)[:, 0], ok)
+        median_mae = _mean_where(np.abs(quantiles(pk, bk, (0.5,))[:, 0, 0] - t[:, 0]), ok)
         hit90 = inside[0.9].astype(np.float64)
         out[name] = {
+            "crps": _mean_where(score, ok),
+            "crps_skill": 1 - _mean_where(score, ok) / clim_crps if clim_crps > 0 else float("nan"),
+            "median_mae": median_mae,
             "log_loss": _mean_where(nll, ok),
             "log_loss_without_measurements": clim_nll,
             "information_bits": (clim_nll - _mean_where(nll, ok)) / np.log(2),
