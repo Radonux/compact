@@ -5,9 +5,10 @@
 //! it turns the reading into Sage's 77-value state message, writes it to
 //! steps.bin and, when a policy runs, asks it for the next action. This is a
 //! port of the step in Sage's sage_rl/src/sage.cc (CntThread, commit
-//! eedd281), so a policy sees exactly what Sage's actor would:
-//! tests/test_sage.py compiles that code unmodified and checks the two agree
-//! on the same TCP_INFO stream.
+//! eedd281), so a policy sees what Sage's actor would. tests/test_sage.py is
+//! written to compile that code, with only the clock and the TCP_INFO read
+//! stubbed, and check the two agree on the same TCP_INFO stream; it has not
+//! passed yet (UNRUN, docs/validation.md).
 //!
 //! Two message columns are not observations and are written as 0: column 1
 //! (Sage's nominal link capacity, taken from its command line) and column 75

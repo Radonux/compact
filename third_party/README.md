@@ -1,5 +1,15 @@
 # Third-party sources
 
+Two upstream trees are vendored here, so builds do not depend on fetching
+them. Each was imported unmodified in one commit, and every change we make
+to it is a later commit, so `git diff <import> -- <tree>` is exactly what
+we changed.
+
+| Tree | Import commit | Our changes | License |
+|---|---|---|---|
+| `linux/` | `e8eadca` | HZ, seeded randomness, Google's BBRv3 | GPL-2.0 (`linux/COPYING`) |
+| `mahimahi/` | `ac3c802` | Mahak's metric script | GPL-3.0 (`mahimahi/COPYING`) |
+
 ## linux/
 
 Upstream Linux 7.0, imported unmodified in commit
@@ -9,8 +19,7 @@ Upstream Linux 7.0, imported unmodified in commit
 matching kernel.org's `sha256sums.asc`, fetched 2026-10-30). That commit was
 checked with `diff -r` against a fresh extraction of the tarball.
 
-Every local kernel change is a later commit touching `third_party/linux`.
-To list them, or the combined patch:
+To list our kernel changes, or see them as one patch:
 
     git log --oneline e8eadca.. -- third_party/linux
     git diff e8eadca -- third_party/linux
@@ -19,16 +28,44 @@ To list them, or the combined patch:
 
 | Commits | What | Why |
 |---|---|---|
-| `dea41ac` | `um`: HZ 1000 | arch/um hard-codes 100, which makes TCP's jiffy timers 10x coarser than on an HZ=1000 host kernel. |
-| `12562c6` | `um`: `CONFIG_UML_SEEDED_RANDOM` | Bit-reproducible episodes. |
-| `3cb3ca7` .. `8eb2345` (12) | BBRv3 core prerequisites | Imported unchanged with `git am` from google/bbr branch `bbr-v3-2026-09-16-01` (commits `05406b11b` .. `c552eebe7`), original authors and messages kept. Listed in `linux-imports.txt`, so our style check skips them. |
+| `dea41ac` | `um`: HZ 1000 | arch/um hard-codes HZ at 100. TCP's jiffy timers (delayed ACK, RTO, BBR's min RTT and PROBE_RTT stamps) would then be 10x coarser than on an HZ=1000 host kernel. |
+| `12562c6` | `um`: `CONFIG_UML_SEEDED_RANDOM` | Bit-reproducible episodes. UML takes host entropy in three places: `setup_arch()`, `arch_get_random_longs()` at every CRNG reseed, and the kernel command line that `random_init_early()` mixes in. The option replaces host entropy with a stream seeded by `um_seed=` and keeps the command line out of the pool. It is not cryptographically secure; it is for simulation kernels only. |
+| `3cb3ca7` .. `8eb2345` (12) | BBRv3 core prerequisites | Imported unchanged with `git am` from google/bbr branch `bbr-v3-2026-09-16-01` (commits `05406b11b` .. `c552eebe7`), original authors and messages kept. |
 | `44162fe` | `tcp_bbr3` module | Same branch, commit `5dee74110`: BBRv3 as a separate congestion control `bbr3`, leaving BBRv1 as `bbr`. |
-| `814b1d9` | 7.0 port of `tcp_bbr3` | The branch targets a newer kernel with a `cwnd_event_tx_start` op. |
-| `56f58a1` | Opt-in app-limited checks | Keeps the rate samples of every non-BBRv3 congestion control as in plain 7.0. |
+| `814b1d9` | 7.0 port of `tcp_bbr3` | The branch targets a newer kernel with a dedicated `cwnd_event_tx_start` op. Linux 7.0 delivers `CA_EVENT_TX_START` through `cwnd_event`, so the port dispatches it there to the same, unchanged handler. Kernels from 7.3 on have the op again; revert this commit when moving past 7.0. |
+| `56f58a1` | Opt-in app-limited checks | The series adds app-limited checks on every ACK and write timer, for every socket. That changed the app-limited marks on other congestion controls' rate samples, which BBRv1's bandwidth filter reads. The checks now run only for congestion controls that set `TCP_CONG_BROAD_APP_LIMITED`; `tcp_bbr3` sets it, so every other congestion control behaves as in plain 7.0. |
 
-The branch is based on net-next of early June 2026; all 13 commits applied
-to 7.0 without conflicts. With BBRv3 built as a module and not loaded,
-seeded Cubic and BBRv1 episodes are byte-identical to the kernel without
-the series (`docs/validation.md`).
+The 13 commits from google/bbr are listed in `linux-imports.txt`, so
+`scripts/check-kernel.sh` does not style-check them. The branch is based on
+net-next of early June 2026; all 13 applied to 7.0 without conflicts.
 
-License: GPL-2.0 (`linux/COPYING`).
+What was checked: with BBRv3 built as a module and not loaded, seeded Cubic
+and BBRv1 episodes are byte-identical to those of the kernel without the
+series (`docs/validation.md`, M6). The check needs two kernel builds, so it
+is not in CI; rerun it when the patch set changes.
+
+### Adding a kernel patch
+
+- Our own change: one commit that touches only `third_party/linux`.
+  `scripts/check-kernel.sh` runs checkpatch `--strict` on it.
+- An upstream patch: import it with `git am`, keeping its author and
+  message (only the project's `Co-Authored-By` trailer is added), list it in
+  `linux-imports.txt`, and add it to the table above.
+
+## mahimahi/
+
+Upstream Mahimahi, imported unmodified in commit
+`ac3c802 Import Mahimahi source tree, unmodified`: a `git archive` of
+<https://github.com/ravinet/mahimahi> at
+`f1346c38c415abfc98626dd82450f49a57033603` (2025-04-14). The repository does not
+build it. `kernel/modules/sch_mmlink.c` ports its `src/frontend/link_queue.cc`,
+and `src/expliccit_env/mahimahi.py` holds an independent Python port of the
+same code that the tests use as the oracle for the kernel.
+
+| Commit | What | Why |
+|---|---|---|
+| `594599d` | `scripts/mm-th-delay` | Mahak's metric script, copied verbatim from <https://github.com/Ppazhooh/mahak> at `5077583` (sha256 `3c49fea6684fb848c696a073e072002bad3ea7818e73b44a50b53aa480ab458f`). It is Mahimahi's `scripts/mm-throughput-graph`, modified to accept drop lines and to print utilization and mean queueing delay, so it is kept as a change to the tree it derives from. `src/expliccit_env/mahimahi.py` is tested against it. |
+
+Comparing the link model with real Mahimahi is UNRUN: it needs a root host,
+and Mahak's `highbdp.patch` no longer applies to current Mahimahi and must
+be ported first (`docs/validation.md`).

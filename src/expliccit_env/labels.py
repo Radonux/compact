@@ -1,10 +1,11 @@
 """Ground-truth path labels (candidate LCFs), as pure functions of an
 episode's spec-derived constants and its records.
 
-Every label is aligned to the sender observations (one value per TCP_OBS
-row), so (obs, labels) is a supervised pair for net1. New candidate LCFs are
-added here and recomputed from stored data; nothing requires re-running an
-episode. All work is vectorized: O((n_obs + n_events) log n_events).
+``labels_at`` gives every label at any instants: the step rows net1 trains
+on (steps.py) and, through ``labels_table``, one row per TCP_OBS record. A
+new candidate LCF added here applies to new episodes; recomputing it for
+stored shards needs a reader for their link tables, which does not exist
+yet. All work is vectorized: O((n_obs + n_events) log n_events).
 
 Definitions (link 1 is the data-direction bottleneck):
   capacity_bps        trace delivery-opportunity bits/s over the trailing

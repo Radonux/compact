@@ -139,9 +139,10 @@ teach fairness, so training includes competing flows: stock controllers
 now, copies of the policy once the environment runs more than one agent
 per kernel.
 
-Training is online, in closed loop: the environment runs 1,868
-twenty-second episodes per core-hour, so offline training is not forced
-on us as it was on Sage, which emulated in real time. The results so far
+Training is online, in closed loop: the tuning in `docs/training.md` ran
+3,216 closed-loop episodes of 30 s in about 35 minutes on 4 cores, so
+offline training is not forced on us as it was on Sage, which emulated in
+real time. The results so far
 (`docs/training.md`) point to the design changes to make first:
 
 - Act once per RTT on an absolute target. The current action

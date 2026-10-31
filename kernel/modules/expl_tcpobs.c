@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * expl_tcpobs: sender-side observations for expliCCit's net1.
+ * expl_tcpobs: per-segment sender state of the observed flow (TCP_OBS).
  *
  * Attaches to the tcp:tcp_probe tracepoint (found by name, it is not exported)
  * and, for every segment arriving on a socket whose SO_MARK equals the "mark"

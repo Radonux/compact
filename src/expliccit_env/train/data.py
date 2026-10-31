@@ -24,7 +24,7 @@ type Split = Literal["train", "val", "test"]
 class Steps:
     """Rows of every recorded step, in episode then step order."""
 
-    obs: F32  # [n, 77], Sage's message as recorded (may hold inf and NaN)
+    obs: F32  # [n, 78], the step message as recorded (may hold inf and NaN)
     labels: dict[str, F32]  # label name -> [n], NaN where undefined
     action: F32  # [n], the action taken from the step; NaN on the last one
     reward: F32  # [n], Sage's reward at the step

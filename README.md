@@ -1,19 +1,36 @@
 # palaestra: the expliCCit experiment environment
 
-`expliccit-env` runs the real Linux 7.0 TCP stack over an emulated network
-path with Mahimahi's semantics. It produces:
+palaestra (Python package `expliccit-env`, command `expliccit`) runs the
+Linux 7.0 TCP stack in User-Mode Linux (UML), in virtual time. Each episode
+sends one bulk TCP flow, and optional cross traffic, through an emulated
+bottleneck with Mahimahi's semantics: a capacity trace, a one-way delay, a
+droptail buffer and optional random loss. The kernel records every arrival,
+drop and departure at the bottleneck, so the true state of the path is known
+at every instant.
 
-- labeled training data for expliCCit's net1: per-ACK sender observations
-  paired with exact ground truth about the path (capacity, queue, delay);
-- closed-loop rollouts for net2: learned policies (ONNX) driving the kernel's
-  congestion window;
-- Mahak-style performance maps (utilization, delay, power) for any congestion
-  control, with kernel-level fidelity: Mahak's own active-learning driver,
+It exists to test expliCCit's idea: split a learned congestion controller
+into an estimator, net1, and a decision maker, net2. net1 turns sender-side
+measurements into beliefs about a few physical properties of the path, the
+latent congestion factors (LCFs). net2 sets the congestion window from those
+beliefs alone. Testing this needs real kernel TCP, the true value of every
+LCF at every decision, and many episodes. `docs/methodology.md` states the
+claims, the plan and where the work stands.
+
+## What it produces
+
+- Labeled data for net1: per-ACK sender observations and, every 10 ms,
+  Sage's state message (what expliCCit's networks read), each paired with
+  the exact LCFs at that instant. The seven LCFs are capacity, queue
+  length, mean queueing delay, free buffer, busy fraction (the share of
+  capacity used), one-way delay and the flow's receive rate.
+- Closed-loop runs of learned policies. An ONNX graph sets the congestion
+  window at every step. It can also read the true LCFs (an oracle), or have
+  some of net1's beliefs replaced by them (a patch).
+- A trainer for net1 and net2 (cloning, offline RL, and online RL in closed
+  loop). It also imports expliCCit's released models.
+- Mahak-style performance maps (utilization, queueing delay, power) for any
+  of the kernel's congestion controls: Mahak's active-learning driver,
   ported, with UML episodes as its oracle.
-
-This README is the map for human collaborators: what the parts are, how
-data flows, which guarantees the system makes, and how to check them.
-Implementation detail lives in `docs/`.
 
 ## Architecture
 
@@ -25,12 +42,12 @@ Implementation detail lives in `docs/`.
                                                        ▼        │
   ┌───────────────────────── ONE UML KERNEL (Linux 7.0) ────────┴─────────────┐
   │  guest runner (Rust, static, guest/): builds the topology, runs traffic,  │
-  │  runs the policy, drains records to files                                 │
+  │  runs Sage's step and the policy, computes the true LCFs, drains records  │
   │                                                                           │
   │   [snd netns]  ── veth ──  [path netns]  ── veth ──  [rcv netns]          │
   │   TCP sender               sch_mmlink x2             TCP receiver         │
   │   (cubic | bbr | bbr3 |    (Mahimahi loss, link      cross receivers      │
-  │    tcp_agent)               and delay, each way)                          │
+  │    tcp_agent | ...)         and delay, each way)                          │
   │   cross TCP and UDP                                                       │
   │   senders                                                                 │
   │        │                         │                                        │
@@ -41,16 +58,16 @@ Implementation detail lives in `docs/`.
 
 | Part | Where | Responsibility |
 |---|---|---|
-| Specs and campaigns | `src/expliccit_env/spec.py`, `campaign.py` | What to run: path (trace, delay, buffer, random loss), congestion control, cross traffic, duration, seed; grids and samples of Mahak's space, each under a list of loss and cross-traffic conditions. |
-| Launcher | `uml.py` | Boot a UML guest in virtual time (`time-travel=inf-cpu`), seeded, under a wall-clock timeout. |
-| Guest runner | `guest/` (Rust) | Inside the kernel: namespaces, qdiscs, bulk TCP pair, cross-traffic flows, Sage's step loop and the ONNX policy, record collection. |
-| Policy contract | `policy.py`, `guest/src/step.rs` | `sage-v1`: Sage's 77-value state message in (a port of `sage.cc`), log2 of the window multiplier out, optional recurrent state, optional true state of the path (`guest/src/truth.rs`, for oracle and patched policies); the graph picks and scales its own inputs. |
-| Step data | `steps.py` | Each step with the labels at its instant, Sage's reward from the exact capacity, and the action taken: net1 and net2 training rows. |
-| Trainer | `train/` (optional `train` extra, PyTorch) | net1 supervised and net2 offline RL from step data, architectures chosen by name, one ONNX policy graph out; imports expliCCit's released models from a local copy. |
-| Link model | `kernel/modules/sch_mmlink.c` | The bottleneck: Mahimahi's `mm-link` + `mm-delay` (+ `mm-loss`), as a qdisc. |
+| Specs and campaigns | `src/expliccit_env/spec.py`, `campaign.py` | What to run: path (trace, delay, buffer, random loss), congestion control, cross traffic, duration, seed. A campaign is a grid or sample of Mahak's space, or any list of paths, each run under a list of loss and cross-traffic conditions. |
+| Launcher | `uml.py` | Boots a UML guest in virtual time (`time-travel=inf-cpu`), seeded, under a wall-clock timeout. |
+| Guest runner | `guest/` (Rust) | Inside the kernel: namespaces, qdiscs, the bulk TCP pair, cross-traffic flows, Sage's step loop and the ONNX policy, the live truth, record collection. |
+| Policy contract | `policy.py`, `guest/src/step.rs` | `sage-v1`. In: Sage's 77-value state message (a port of `sage.cc`) plus expliCCit's min RTT column, 78 values; an optional recurrent state; optionally the path's true LCFs (`guest/src/truth.rs`), for oracle and patched policies. Out: a, the log2 of the window multiplier. The graph selects and scales its own inputs. |
+| Step data | `steps.py` | Each step with the labels at its instant, Sage's reward from the exact capacity, and the action taken: the rows net1 and net2 train on. |
+| Trainer | `train/` (optional `train` extra, PyTorch) | net1 supervised (point estimates or intervals); net2 by cloning, TD3+BC, IQL or expliCCit's objective, offline or online in closed loop; one ONNX policy graph out. Imports expliCCit's released models from a local copy. |
+| Link model | `kernel/modules/sch_mmlink.c` | The bottleneck: Mahimahi's `mm-link` and `mm-delay` (and `mm-loss`), as a qdisc. |
 | Observation | `kernel/modules/expl_tcpobs.c` | Sender state at every ACK, for any congestion control. |
-| Agent controllers | `kernel/modules/tcp_agent.c` | `agent` (Sage-style) and `agent_reno` (Orca-style) driven by a policy. |
-| Records | `kernel/modules/expl_rec.c`, `expliccit_rec.h` | One ring, one sequence of events; the only kernel-to-host data path. |
+| Agent controllers | `kernel/modules/tcp_agent.c` | `agent` (Sage-style) and `agent_reno` (Orca-style), driven by a policy. |
+| Records | `kernel/modules/expl_rec.c`, `expliccit_rec.h` | One ring, one sequence of events: the only kernel-to-host data path. |
 | Decode, labels, metrics | `records.py`, `labels.py`, `mahimahi.py`, `episode.py` | Validate records, derive ground truth, compute Mahak's metrics. |
 | Mahak driver | `mahak.py` | Mahak's Gaussian-process active learning over its grid, querying UML episodes. |
 | Datasets | `dataset.py` | Parquet shards joined on `episode_id`. |
@@ -59,78 +76,11 @@ Implementation detail lives in `docs/`.
 ### Where it runs
 
 Everything runs in User-Mode Linux 7.0 with `time-travel=inf-cpu`. The
-kernel is an ordinary unprivileged process; time is virtual (CPU work is
-free, so a guest runs 8x to 53x faster than real time); and a seed fixes
-every random choice. It runs wherever x86_64 Linux runs, without root or
-KVM: laptops, Slurm clusters, GitHub Actions.
-
-A second, native tier (Linux 7.0 on Ubuntu 26.04 hosts, as root, in real
-time) was planned and dropped: no environment we have can easily boot a
-patched kernel, so it could never run BBRv3 or later kernel changes. The
-cost is that nothing checks UML's virtual time against a real-time kernel
-(`docs/architecture.md`, D19).
-
-## Guarantees, and how to check them
-
-These are the properties the system is built around. Each has a check you can
-run; a change that weakens one should say so in its commit message.
-
-1. **Real kernel TCP, unmodified congestion control.** Cubic, BBRv1 and Reno
-   are the kernel's own. Every change to the kernel is a separate commit on
-   top of the unmodified import: `git diff e8eadca -- third_party/linux`
-   (today: HZ set to 1000, seeded randomness, and Google's BBRv3 with its
-   core prerequisites). Adding BBRv3 left seeded Cubic and BBRv1 episodes
-   byte-identical (`docs/validation.md`).
-2. **The link model is Mahimahi's.** The kernel's arrivals, drops, departures
-   and opportunities equal an independent Python port of Mahimahi's
-   `LinkQueue`, event for event, also under random loss and cross traffic:
-   `pytest tests/test_uml.py -k "mahimahi_oracle or loss_and_cross"`.
-3. **Mahak's numbers are Mahak's.** Trace generation matches Mahak's
-   `helper.py` bit for bit, metrics match its Perl `mm-th-delay` exactly, and
-   the driver makes the same queries and the same map as Mahak's own
-   `mahak_online.py` given the same oracle:
-   `pytest tests/test_mahimahi.py tests/test_mahak.py`.
-4. **Episodes are reproducible.** Same build, spec and seed give byte-identical
-   records, random loss and cross traffic included:
-   `pytest tests/test_uml.py -k "bit_identical or loss_and_cross"`.
-5. **No silent data.** An episode that times out, overflows a buffer it must
-   not, drops records, or fails validation becomes a row with
-   `status = "failed"` and a reason, never metrics or labels.
-6. **Provenance.** Every episode row names the kernel source tree hash,
-   kernel config hash, repository commit and seed.
-7. **The oracle sees the labels.** The true state a policy can read
-   (`truth`) equals the labels its step is stored with, value for value:
-   `pytest tests/test_truth.py`.
-8. **The mRTT trap is explicit.** Mahak's "mRTT" is a one-way delay (base RTT
-   is twice it). A spec says `{"mahak_compat_mrtt_ms": 20}` or
-   `{"base_rtt_ms": 40}` (the same path) and cannot say both.
-
-Run all checks at once (the UML tests need a build, see below):
-
-    EXPLICCIT_UML_DIR=build/uml uv run pytest -q
-
-CI runs the same on every push (`.github/workflows/ci.yml`).
-
-## Status
-
-| Area | State |
-|---|---|
-| UML build, link model, observations, records, datasets, campaigns, CLI | done, tested (78 tests in all; 76 run, the 2 Sage comparisons UNRUN) |
-| Agent controllers with ONNX policies, closed loop (`sage-v1`) | done, tested |
-| The path's true state as a policy input (oracle and patched policies) | done, tested: equal to the labels at every step |
-| Sage's step and step training data (labels, reward, action per step) | done, tested; the comparison with `sage.cc`'s own code is UNRUN |
-| Trainer: net1, net2, export, expliCCit import | runs end to end; tuned over 214 offline runs and checked over seeds, it trains a controller with expliCCit's structure: on held-out paths TD3+BC reaches +0.64 utility and cloning +0.55, against BBRv1's +0.82 and expliCCit's released policy's +0.29 (`docs/training.md`) |
-| Online training, interval encoder | run end to end; intervals are calibrated and widen where capacity is unobservable; tuned over 48 online runs, online training no longer degrades the cloned policy but does not improve it (+0.03, 95% interval -0.13 to +0.16; `docs/training.md`) |
-| Mahak metrics, trace generation and active-learning driver | done, matched to the originals |
-| Slurm array scripts | generated and checked locally; not yet submitted to a cluster |
-| BBRv3 (Google's, as `bbr3`) | done, tested |
-| Random loss and cross traffic (TCP of any CC, constant-rate UDP), with their labels | done, tested |
-| Reference runs of real Mahimahi against the link model | not started (needs a root host and a port of Mahak's `highbdp.patch`) |
-| Native tier (real-time kernel) | dropped (D19) |
-
-Measured speed: 8x to 53x real time per core, about 5400 twenty-second
-episodes per core-hour on Mahak's ICNP'25 space; about 2.5 MB of Parquet per
-episode. Details and open items: `docs/validation.md`.
+kernel is an ordinary unprivileged process, and time is virtual: CPU work
+costs no time, so a guest runs 8x to 53x faster than real time. For a given
+build, a seed fixes every random choice. It needs x86_64 Linux but neither
+root nor KVM, so it runs on laptops and in GitHub Actions. Running it on a
+Slurm cluster is UNRUN.
 
 ## Running it
 
@@ -147,8 +97,9 @@ musl-tools, perl, rustup and uv; no root.
     # a campaign: plan once, run shards anywhere
     uv run expliccit campaign plan examples/campaign-smoke.json out/smoke
     uv run expliccit campaign run out/smoke --build build/uml --workers 4
+    uv run expliccit campaign summary out/smoke   # per-controller means, 95% intervals over paths
 
-    # a Slurm array job (one shard per task, one guest per core)
+    # a Slurm array job (one shard per task, one guest per core); never submitted (UNRUN)
     uv run expliccit campaign slurm out/smoke --build build/uml --shards 200 --cpus-per-task 32
 
     # Mahak's oracle_query(X, metric, CC), in UML
@@ -160,19 +111,148 @@ musl-tools, perl, rustup and uv; no root.
     uv run expliccit mahak --build build/uml --out out/map -cc cubic -budget 20 \
         -metric first_power -buffer 2,200,4 -mRTT 5,50,5 -bw 2,20,5 -change 0.1,2,0.1
 
-Each dataset shard holds `episodes.parquet` (one row per episode: parameters,
-status, metrics, provenance), `obs.parquet` (sender observations),
-`labels.parquet` (ground truth, row for row with `obs`), `link_events.parquet`
-and `link_opp.parquet` (the full bottleneck log, so new labels can be derived
-later without rerunning), and `agent_action.parquet`.
+    # train net1 and net2 offline, then net2 online (specs: docs/training.md)
+    uv sync --extra train
+    uv run expliccit train run train.json out/model
+    uv run expliccit train online online.json out/online --build build/uml --workers 4
+
+`docs/training.md` covers the whole path from teacher campaigns to a
+policy: the training specs, running a policy, oracle and patched policies,
+and importing expliCCit's released models.
+
+Each dataset shard holds `episodes.parquet` (one row per episode:
+parameters, status, metrics, provenance), `obs.parquet` (sender
+observations), `labels.parquet` (ground truth, row for row with `obs`),
+`link_events.parquet` and `link_opp.parquet` (the full bottleneck log),
+`agent_action.parquet`, and, for episodes that record Sage's steps or run a
+policy, `steps.parquet` (one row per step: the message, the labels at that
+instant, Sage's reward, the action). `campaign run --tables` keeps a
+subset.
+
+## Guarantees, and how to check them
+
+The system is built around these properties. Each has a check you can run;
+a change that weakens one should say so in its commit message. The UML tests
+need a build (above) and `EXPLICCIT_UML_DIR`; the Mahak comparisons need a
+Mahak checkout in `EXPLICCIT_MAHAK_DIR`.
+
+1. **Real kernel TCP, unmodified congestion control.** Cubic, BBRv1, Reno
+   and the other controllers Linux 7.0 ships are the kernel's own code;
+   BBRv3 is Google's. Every change to the kernel is a separate commit on top of the unmodified import: today HZ set
+   to 1000, seeded randomness, and Google's BBRv3 with its core
+   prerequisites (`third_party/README.md`). Adding BBRv3 left seeded Cubic
+   and BBRv1 episodes byte-identical (`docs/validation.md`). List the
+   changes with `git diff e8eadca -- third_party/linux`.
+2. **The link model is Mahimahi's.** The kernel's arrivals, drops,
+   departures and delivery opportunities equal those of an independent
+   Python port of Mahimahi's `LinkQueue`, event for event, also under random
+   loss and cross traffic:
+   `EXPLICCIT_UML_DIR=build/uml uv run pytest tests/test_uml.py -k "mahimahi_oracle or loss_and_cross"`.
+3. **Mahak's numbers are Mahak's.** Trace generation matches Mahak's
+   `helper.py` bit for bit, metrics match its Perl `mm-th-delay` exactly, and
+   the driver makes the same queries and the same map as Mahak's own
+   `mahak_online.py` given the same oracle:
+   `EXPLICCIT_MAHAK_DIR=/tmp/mahak uv run pytest tests/test_mahimahi.py tests/test_mahak.py`.
+4. **Episodes are reproducible.** The same build, spec and seed give
+   byte-identical records, random loss and cross traffic included:
+   `EXPLICCIT_UML_DIR=build/uml uv run pytest tests/test_uml.py -k "bit_identical or loss_and_cross"`.
+   Across guest versions they need not be (`docs/validation.md`, M10).
+5. **No silent data.** An episode that times out, overflows a buffer it must
+   not, drops records, or fails validation becomes a row with
+   `status = "failed"` and a reason, never metrics or labels. Checked in
+   part by `tests/test_records_abi.py` (sequence gaps, truncated files),
+   `tests/test_agent.py::test_bad_policy_output_fails_the_episode` and
+   `tests/test_mahak.py::test_failed_queries_never_become_labels`.
+6. **Provenance.** Every row of `episodes.parquet` names the kernel source
+   tree hash (`kernel_tree`), the kernel config hash (`config_sha256`), the
+   repository commit (`repo_commit`) and the seed.
+7. **The oracle sees the labels.** The true state a policy can read
+   (`truth`) equals the labels its step is stored with, value for value:
+   `EXPLICCIT_UML_DIR=build/uml uv run pytest tests/test_truth.py`.
+8. **The mRTT trap is explicit.** Mahak's "mRTT" is a one-way delay (the
+   base RTT is twice it). A spec says `{"mahak_compat_mrtt_ms": 20}` or
+   `{"base_rtt_ms": 40}` (the same path) and cannot say both:
+   `uv run pytest tests/test_spec.py`.
+
+Run every check at once:
+
+    uv sync --extra train
+    git clone https://github.com/Ppazhooh/mahak /tmp/mahak && git -C /tmp/mahak checkout 5077583
+    EXPLICCIT_UML_DIR=build/uml EXPLICCIT_MAHAK_DIR=/tmp/mahak uv run pytest -q
+
+Of the 78 tests, 76 run and pass. The other 2 compare our port of Sage's
+step with `sage.cc`'s own code; they need a Sage checkout and g++ and are
+UNRUN. CI runs the same checks on every push, split across jobs
+(`.github/workflows/ci.yml`).
+
+## Status
+
+### The environment
+
+| Area | State |
+|---|---|
+| UML build, link model, observations, records, datasets, campaigns, CLI | done, tested |
+| Random loss and cross traffic (TCP of any stock controller, constant-rate UDP), with their labels | done, tested |
+| BBRv3 (Google's, as `bbr3`) | done, tested |
+| Other Linux 7.0 controllers as teachers (BIC, CDG, HighSpeed, H-TCP, Hybla, Illinois, LP, NV, Scalable, Vegas, Veno, Westwood, YeAH), built as modules | done; Vegas, Veno, YeAH, LP and Westwood each ran an episode |
+| Agent controllers with ONNX policies, closed loop (`sage-v1`) | done, tested |
+| Sage's step and step training data (labels, reward, action per step) | done, tested; the comparison with `sage.cc`'s own code is UNRUN |
+| The true LCFs as a policy input (oracle and patched policies) | done, tested: equal to the labels at every step |
+| Mahak metrics, trace generation and active-learning driver | done, matched to the originals |
+| Trainer: net1, net2, export, expliCCit import; online training in closed loop | runs end to end, tested |
+| Slurm array scripts | generated and checked locally; never submitted to a cluster (UNRUN) |
+
+Measured speed, on 2026-10-30 with stock controllers, before BBRv3 and the
+step loop existed: 8x to 53x real time per core, and about 5400
+twenty-second episodes per core-hour on Mahak's ICNP'25 space, with about
+2.5 MB of Parquet per episode. Details: `docs/validation.md`.
+
+### Open items and limits
+
+| Item | State |
+|---|---|
+| Reference runs of real Mahimahi against the link model | UNRUN: needs a root host and a port of Mahak's `highbdp.patch` |
+| UML's virtual time against a real-time kernel | will not run: the native tier (Linux 7.0 on Ubuntu 26.04 hosts, as root, in real time) was dropped. No environment we have can easily boot a patched kernel, so it could never run BBRv3 or later kernel changes (`docs/architecture.md`, D19) |
+| Inference latency | not modelled: a policy's inference costs no virtual time; to be measured outside and added as a delay |
+| Labels recomputed from stored shards | not yet: `link_events` and `link_opp` hold what a new label needs, but nothing reads them back, so a new label means rerunning the episodes |
+| Several learned flows on one bottleneck | not yet: one agent per kernel |
+| The full true state of the path beyond the seven LCFs, as a policy input (arm A0) | not yet |
+| AQM or ECN, delay jitter, bursty loss, multiple bottlenecks | not supported |
+
+### The research
+
+`docs/methodology.md`, section 6, is the current status. A summary:
+
+**Reproduction.** expliCCit reports R^2 above 0.9 for every LCF; on
+held-out paths our net1 reaches 0.95 to 0.99 for 5 of the 7 (busy fraction
+0.45, free buffer 0.09). The cost of the split against Sage is UNRUN.
+expliCCit's case study, which traces under-utilization to a capacity
+belief 25% too low, did not reproduce: here the released policy's capacity
+belief is about right.
+
+**Results so far.** An interval version of net1 (one seed) reaches 0.84
+to 0.91 coverage at a nominal 0.90 for six LCFs, and 0.76 for mean
+queueing delay. Its capacity interval is 3.6 Mbit/s wide where the link is
+kept busy and 40.3 Mbit/s where it is not.
+
+Learned controllers are compared by utility, the trainer's reward:
+utilization minus penalties on queueing delay and drops
+(`docs/training.md`). Settings were chosen on validation paths over 214
+offline and 48 online runs, the winners checked over 4 or 5 seeds, and
+each reported once on 18 held-out test paths. TD3+BC reaches +0.64 and
+cloning +0.55, against +0.82 for BBRv1, +0.74 for Vegas, +0.70 for BBRv3
+and +0.29 for expliCCit's released policy. Online fine-tuning changes the
+cloned policy by +0.03 (95% interval -0.13 to +0.16). None of these runs
+uses the design in `docs/methodology.md`; they are the baseline it must
+beat.
 
 ## Working conventions
 
-- **Commits** go directly to `main`, in Conventional Commits form, each ending
-  with the single trailer
+- **Commits** go directly to `main`, in Conventional Commits form, each
+  ending with the single trailer
   `Co-Authored-By: Joe Fang <25814618+MinecraftFuns@users.noreply.github.com>`.
-  No session ids in commit messages. Force-push is disabled; history is never
-  rewritten.
+  No session ids in commit messages. Force-push is disabled; history is
+  never rewritten.
 - **Kernel changes** are their own commits under `third_party/linux`;
   `scripts/check-kernel.sh` style-checks them and our modules.
 - **Agent skills** come from [BTreeMap/SKILLs](https://github.com/BTreeMap/SKILLs),
@@ -186,10 +266,10 @@ later without rerunning), and `agent_action.parquet`.
 
 | Document | Contents |
 |---|---|
-| `docs/architecture.md` | Data flow and trust boundaries, exact link-model semantics, record ABI, time and determinism, decisions D1 to D23, known limits, how to extend |
-| `docs/training.md` | From teacher campaigns to a policy: train, run, import expliCCit's models, results so far |
-| `docs/methodology.md` | How to test the LCF idea from first principles: claims, identifiability and probing, experiment arms, online training |
+| `docs/methodology.md` | The research goal and plan: claims H1 to H6, why net1 reports beliefs, training net1 and net2, interpretability, experiment arms A0 to A4, and where things stand |
+| `docs/training.md` | From teacher campaigns to a policy: train, run and evaluate, oracle and patched policies, expliCCit's released models, online training, results so far |
+| `docs/architecture.md` | How one episode runs and why: the emulated path and its bottleneck, virtual time, records and the ground truth computed from them, the policy contract, known limits, decisions D1 to D23, how to extend |
 | `docs/validation.md` | Every check that ran, with commands and results, and what has not run |
-| `docs/m0-report.md` | Feasibility measurements: UML build, speed, memory, determinism, BPF |
+| `docs/m0-report.md` | The dated feasibility report (M0, 2026-10-30): UML build, virtual time, speed, memory, determinism, BPF |
 | `kernel/modules/README.md` | The kernel modules and their ABIs |
 | `third_party/README.md` | Vendored sources and our patches on them |

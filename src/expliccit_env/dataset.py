@@ -10,6 +10,8 @@
         link_events.parquet  bottleneck arrivals, drops, departures
         link_opp.parquet     processed delivery opportunities per ms
         agent_action.parquet actions accepted by tcp_agent (agent episodes)
+        steps.parquet        Sage's steps with their labels, reward and action
+                             (episodes that record steps)
         DONE                 written last; a shard without it is incomplete
 
 Tables share ``episode_id``. Files are written as ``*.tmp`` and renamed on

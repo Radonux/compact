@@ -43,15 +43,17 @@ Run what the change touches, and report only what actually ran:
 
 The goal is to prove that separating net1 (an estimator of physical path
 state, supervised by ground truth) from net2 (a decision maker that acts on
-net1's output alone) works. Work in two phases:
+net1's output alone) works. `docs/methodology.md` holds the claims, the plan
+and the current status. Work in two phases:
 
-- **Reproduction**, a short step: expliCCit's artifacts and setup on this
-  environment, every divergence named, to show that UML reproduces its setup
-  and roughly its results. Here be faithful.
-- **Everything after it**: reason from first principles toward the goal.
-  Algorithms, network sizes, rewards, action spaces, and offline or online
-  training are all free choices. Neither the inherited code nor the draft's
-  choices carry weight of their own; only the separation is the thesis.
+- **Reproduction**, a short step: run expliCCit's artifacts and setup in
+  this environment and name every divergence, to show that UML reproduces
+  its setup and roughly its results. Here, stay faithful to the original.
+- **Everything after it**: derive each choice from the problem itself and
+  the goal. Algorithms, network sizes, rewards, action spaces, and offline
+  or online training are all free choices. Neither the inherited code nor
+  the draft's choices carry weight of their own; only the separation is the
+  thesis.
 
 ## Engineering rules
 
