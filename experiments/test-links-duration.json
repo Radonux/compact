@@ -1,6 +1,6 @@
 {
   "title": "Test links at 20 s and 60 s: net2 on net1 v3 against all kernel controllers",
-  "description": "net2 on net1 v3 against all 17 kernel controllers on the 27 test links, with 20 s and 60 s episodes and the same episode seeds for every controller: does episode length change the ranking?",
+  "description": "net2 on net1 v3 against all 17 kernel controllers on the 27 test links, with 20 s and 60 s episodes in one campaign per length: does episode length change the ranking?",
   "uml": true,
   "inputs": {
     "models": "release:model-net1v3"
