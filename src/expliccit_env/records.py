@@ -19,7 +19,7 @@ from typing import Final
 import numpy as np
 import numpy.typing as npt
 
-ABI: Final = 3
+ABI: Final = 4
 MAGIC: Final = 0x52504C45
 
 _HDR: Final = [("type", "<u2"), ("len", "<u2"), ("seq", "<u4"), ("t_ns", "<u8")]
@@ -121,7 +121,16 @@ OBS: Final = np.dtype(
     ]
 )
 
-AGENT: Final = np.dtype([*_HDR, ("cwnd", "<u4"), ("action_seq", "<u4"), ("pacing_rate", "<u8")])
+AGENT: Final = np.dtype(
+    [
+        *_HDR,
+        ("cwnd", "<u4"),
+        ("action_seq", "<u4"),
+        ("pacing_rate", "<u8"),
+        ("sport", "<u2"),
+        ("pad", "<u2", (3,)),
+    ]
+)
 
 # EXPL_OBS_* flag bits.
 OBS_RATE_APP_LIMITED: Final = 0x1

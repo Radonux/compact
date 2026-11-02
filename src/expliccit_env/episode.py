@@ -35,7 +35,7 @@ from expliccit_env.spec import (
 from expliccit_env.steps import StepError, Steps, load_steps, step_table
 from expliccit_env.uml import UmlBuild, run_guest
 
-RESULT_VERSION: Final = 4
+RESULT_VERSION: Final = 5
 _SKIP_COLUMNS: Final = frozenset({"type", "len", "pad"})
 
 
@@ -57,15 +57,20 @@ class GuestEpisode(_Strict):
     softnet_dropped: int
     netdev_max_backlog: str
     agent_actions: int
-    # Bytes each cross flow's sender wrote, in spec order.
+    # Per cross flow, in spec order: bytes its sender wrote, the congestion
+    # control its socket ran ("" for UDP), steps and actions (0 unless an
+    # agent).
     cross_bytes_sent: list[int]
+    cross_cc: list[str]
+    cross_steps: list[int]
+    cross_actions: list[int]
     steps: int
 
 
 class GuestResult(_Strict):
     """result.json written by the guest runner (trust boundary)."""
 
-    result_version: Literal[4]
+    result_version: Literal[5]
     status: Literal["ok", "failed"]
     error: str | None
     kernel_release: str
@@ -117,9 +122,7 @@ def _spec_columns(spec: EpisodeSpec) -> dict[str, object]:
     return {
         "cc": spec.cc.name,
         # Which controller: the stock name, or the policy's mode and hash.
-        "controller": spec.cc.name
-        if isinstance(spec.cc, StockCC)
-        else f"{spec.cc.name}:{spec.cc.policy.sha256[:12]}",
+        "controller": spec.cc.name if isinstance(spec.cc, StockCC) else spec.cc.label,
         "trace_kind": trace.kind,
         "bw_mbps": trace.bw_mbps if isinstance(trace, MahakStep) else None,
         "step": trace.step if isinstance(trace, MahakStep) else None,
@@ -171,11 +174,25 @@ def validity_problems(result: GuestEpisode, rec: Records, spec: EpisodeSpec) -> 
             problems.append(f"{field}={n}")
     if rec.tcp_obs.size == 0:
         problems.append("no sender observations")
-    if len(result.cross_bytes_sent) != len(spec.cross):
-        problems.append(
-            f"{len(result.cross_bytes_sent)} cross flows ran, {len(spec.cross)} planned"
-        )
+    n = len(spec.cross)
+    if (
+        not len(result.cross_bytes_sent)
+        == len(result.cross_steps)
+        == len(result.cross_actions)
+        == n
+    ):
+        problems.append(f"{len(result.cross_bytes_sent)} cross flows ran, {n} planned")
+    planned = [c.cc_name if isinstance(c, TcpCross) else "" for c in spec.cross]
+    if result.cross_cc != planned:
+        problems.append(f"cross flows ran {result.cross_cc}, planned {planned}")
+    for i, c in enumerate(spec.cross):
+        if _is_agent(c) and (i >= len(result.cross_steps) or result.cross_steps[i] == 0):
+            problems.append(f"cross flow {i}: agent took no step")
     return problems
+
+
+def _is_agent(c: TcpCross | UdpCross) -> bool:
+    return isinstance(c, TcpCross) and isinstance(c.cc, AgentCC)
 
 
 def _metrics(
@@ -212,8 +229,9 @@ def _records_steps(spec: EpisodeSpec) -> bool:
 
 def _collect(
     raw: Path, returncode: int | None, timeout_s: float, spec: EpisodeSpec
-) -> tuple[GuestResult, GuestEpisode, Records, Steps | None] | str:
-    """The guest's validated result, records and steps, or why there are none."""
+) -> tuple[GuestResult, GuestEpisode, Records, Steps | None, dict[int, Steps]] | str:
+    """The guest's validated result, records, the observed flow's steps and
+    every agent cross flow's (by flow index), or why there are none."""
     if returncode is None:
         return f"timeout after {timeout_s} s"
     try:
@@ -225,14 +243,25 @@ def _collect(
     try:
         rec = load_records(raw)
         steps = load_steps(raw / "steps.bin") if _records_steps(spec) else None
+        cross = {
+            i: load_steps(raw / f"steps-cross{i}.bin")
+            for i, c in enumerate(spec.cross)
+            if _is_agent(c)
+        }
     except (OSError, RecordError, StepError) as e:
         return f"records: {e}"
-    problems = validity_problems(result.episode, rec, spec)
-    if steps is not None and (steps.size == 0 or steps.size != result.episode.steps):
-        problems.append(f"{steps.size} steps in steps.bin, guest reported {result.episode.steps}")
+    g = result.episode
+    problems = validity_problems(g, rec, spec)
+    if steps is not None and (steps.size == 0 or steps.size != g.steps):
+        problems.append(f"{steps.size} steps in steps.bin, guest reported {g.steps}")
+    for i, s in cross.items():
+        if i < len(g.cross_steps) and s.size != g.cross_steps[i]:
+            problems.append(
+                f"{s.size} steps in steps-cross{i}.bin, guest reported {g.cross_steps[i]}"
+            )
     if problems:
         return "invalid: " + "; ".join(problems)
-    return result, result.episode, rec, steps
+    return result, g, rec, steps, cross
 
 
 def run_episode(
@@ -267,7 +296,7 @@ def run_episode(
         match _collect(d / "raw", run.returncode, timeout_s, spec):
             case str(reason):
                 return failed(reason, **timing)
-            case (result, g, rec, steps):
+            case (result, g, rec, steps, cross_steps):
                 pass
         timing |= {"kernel_release": result.kernel_release, "kernel_version": result.kernel_version}
         trace = spec.path.trace.timestamps()
@@ -301,6 +330,11 @@ def run_episode(
             "bytes_sent": g.bytes_sent,
             "bytes_received": g.bytes_received,
             "cross_bytes_sent": g.cross_bytes_sent,
+            "cross_controllers": [
+                c.label if isinstance(c, TcpCross) else "udp_cbr" for c in spec.cross
+            ],
+            "cross_steps": g.cross_steps,
+            "cross_actions": g.cross_actions,
             "agent_actions": g.agent_actions,
             "n_steps": g.steps,
             "n_obs": rec.tcp_obs.size,
@@ -325,11 +359,38 @@ def run_episode(
                         )
                     }
                 ),
+                **(
+                    {
+                        "cross_steps": _with_id(
+                            _cross_steps(cross_steps, rec, trace, consts, spec), eid
+                        )
+                    }
+                    if cross_steps
+                    else {}
+                ),
             },
         )
     finally:
         if not keep_raw:
             shutil.rmtree(d, ignore_errors=True)
+
+
+def _cross_steps(
+    steps: dict[int, Steps],
+    rec: Records,
+    trace: mm.I64,
+    k: labels.PathConstants,
+    spec: EpisodeSpec,
+) -> pa.Table:
+    """Every agent cross flow's steps, as the steps table has the observed
+    flow's, with the flow's index in spec.cross; labels are the flow's own."""
+    tables: list[pa.Table] = []
+    for i, s in sorted(steps.items()):
+        t = step_table(
+            s, rec, trace, k, duration_ms=spec.duration_ms, sport=labels.CROSS_PORT_BASE + i
+        )
+        tables.append(t.add_column(0, "flow", pa.array(np.full(t.num_rows, i, np.int16))))
+    return pa.concat_tables(tables)
 
 
 def outcome_json(outcome: EpisodeOutcome) -> str:

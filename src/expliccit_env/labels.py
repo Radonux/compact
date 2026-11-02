@@ -59,8 +59,9 @@ DOWNLINK: Final = 1
 UPLINK: Final = 2
 NS_PER_MS: Final = 1_000_000
 # The observed flow's sender port (guest/src/traffic.rs SENDER_ADDR); cross
-# flows use other ports.
+# flow i sends from CROSS_PORT_BASE + i (guest/src/cross.rs).
 MAIN_SPORT: Final = 5001
+CROSS_PORT_BASE: Final = 6000
 
 type F64 = npt.NDArray[np.float64]
 
@@ -89,12 +90,20 @@ def capacity_bps(trace: mm.I64, base_ns: int, t_ns: mm.I64, window_ms: int, end_
 
 
 def cross_traffic_share(
-    rec: Records, trace: mm.I64, base_ns: int, t_ns: mm.I64, *, window_ms: int, end_ms: int
+    rec: Records,
+    trace: mm.I64,
+    base_ns: int,
+    t_ns: mm.I64,
+    *,
+    window_ms: int,
+    end_ms: int,
+    sport: int = MAIN_SPORT,
 ) -> F64:
-    """Cross traffic's share of the bottleneck capacity in each sample's
-    trailing window. Departures use opportunities, so it lies in [0, 1]."""
+    """The share of the bottleneck capacity every flow but ``sport`` used in
+    each sample's trailing window. Departures use opportunities, so it lies
+    in [0, 1]."""
     dep = rec.link(rec.link_depart, DOWNLINK)
-    cross = dep[dep["sport"] != MAIN_SPORT]
+    cross = dep[dep["sport"] != sport]
     cum = np.concatenate(([0], np.cumsum(cross["bytes"].astype(np.int64))))
     lo, hi = _window_ms(base_ns, t_ns, window_ms, end_ms)
     ms = cross["ms"].astype(np.int64)  # nondecreasing: departures are FIFO
@@ -153,18 +162,18 @@ def _accepted_delays(rec: Records, link_id: int) -> tuple[mm.I64, F64]:
     return acc_t, delay
 
 
-def _main_arrivals_and_drops(rec: Records) -> tuple[Table, Table]:
-    """The observed flow's packets that reached the bottleneck, and those the
-    full queue dropped (other drops happen before the link)."""
+def _flow_arrivals_and_drops(rec: Records, sport: int = MAIN_SPORT) -> tuple[Table, Table]:
+    """One flow's packets that reached the bottleneck, and those the full
+    queue dropped (other drops happen before the link)."""
     arr, drp = rec.link(rec.link_arrival, DOWNLINK), rec.link(rec.link_drop, DOWNLINK)
-    arr, drp = arr[arr["sport"] == MAIN_SPORT], drp[drp["sport"] == MAIN_SPORT]
+    arr, drp = arr[arr["sport"] == sport], drp[drp["sport"] == sport]
     return arr, drp[drp["reason"] == DROP_QUEUE_FULL]
 
 
 def drop_fraction(rec: Records, duration_ms: int) -> float:
     """The observed flow's packets the full queue dropped over those that
     reached the bottleneck in the episode; NaN if none reached it."""
-    arr, drp = _main_arrivals_and_drops(rec)
+    arr, drp = _flow_arrivals_and_drops(rec)
     n = int((arr["ms"] < duration_ms).sum())
     return int((drp["ms"] < duration_ms).sum()) / n if n else float("nan")
 
@@ -184,8 +193,11 @@ def labels_at(
     *,
     duration_ms: int,
     window_ms: int = 100,
+    sport: int = MAIN_SPORT,
 ) -> dict[str, npt.NDArray[np.generic]]:
-    """Every label at the instants ``t`` (CLOCK_MONOTONIC ns, nondecreasing)."""
+    """Every label at the instants ``t`` (CLOCK_MONOTONIC ns, nondecreasing)
+    for the flow with sender port ``sport``: its receive rate, drops and
+    competing share; the rest are the path's."""
     n = t.size
     ev_t, ev_pkts, ev_bytes = _queue_after_events(rec, DOWNLINK)
     i = np.searchsorted(ev_t, t, side="right") - 1
@@ -210,11 +222,11 @@ def labels_at(
     # FIFO: the i-th departure carries the i-th accepted arrival's delay.
     dep_delay = acc_delay[: dep.size]
     delay_sum, delay_n = _window_sums(dep_ms, dep_delay, lo, hi)
-    main = dep["sport"] == MAIN_SPORT
+    main = dep["sport"] == sport
     recv_bytes, _ = _window_sums(dep_ms[main], dep["bytes"][main].astype(np.float64), lo, hi)
     opp = rec.link(rec.link_opp, DOWNLINK)
     used, _ = _window_sums(opp["ms"].astype(np.int64), opp["used_bytes"].astype(np.float64), lo, hi)
-    arr, drp = _main_arrivals_and_drops(rec)
+    arr, drp = _flow_arrivals_and_drops(rec, sport)
     one = np.ones
     _, arrivals = _window_sums(arr["ms"].astype(np.int64), one(arr.size), lo, hi)
     _, drops = _window_sums(drp["ms"].astype(np.int64), one(drp.size), lo, hi)
@@ -241,7 +253,7 @@ def labels_at(
             "buffer_bytes": np.full(n, k.buffer_bytes, dtype=np.int64),
             "random_loss_rate": np.full(n, k.loss_downlink),
             "cross_traffic_share": cross_traffic_share(
-                rec, trace, k.base_ns, t, window_ms=window_ms, end_ms=duration_ms
+                rec, trace, k.base_ns, t, window_ms=window_ms, end_ms=duration_ms, sport=sport
             ),
         }
 

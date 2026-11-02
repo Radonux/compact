@@ -93,6 +93,9 @@ def test_condition_labels_name_cross_traffic_and_loss() -> None:
     assert score.condition(spec_json(0)) == "clean"
     assert score.condition(spec_json(0, loss=0.01)) == "loss 1%"
     assert score.condition(spec_json(0, cross=[udp])) == "UDP 3 Mbit/s from 5 s"
+    policy = {"path": "p.onnx", "sha256": "ab" * 32}
+    agent = {"kind": "tcp", "cc": {"kind": "agent", "policy": policy}, "start_ms": 0}
+    assert score.condition(spec_json(0, cross=[agent])) == "agent:abababababab from 0 s"
 
 
 def test_an_incomplete_shard_is_an_error_not_a_smaller_sample(tmp_path: Path) -> None:

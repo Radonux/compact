@@ -137,6 +137,14 @@ pub fn getsockopt_bytes(fd: BorrowedFd<'_>, level: i32, name: i32, buf: &mut [u8
     Ok(len as usize)
 }
 
+/// The congestion control a TCP socket runs (TCP_CONGESTION).
+pub fn congestion_control(fd: BorrowedFd<'_>) -> Result<String> {
+    let mut name = [0u8; 16];
+    let n = getsockopt_bytes(fd, libc::IPPROTO_TCP, libc::TCP_CONGESTION, &mut name)
+        .ctx("reading TCP_CONGESTION")?;
+    Ok(String::from_utf8_lossy(name.get(..n).unwrap_or_default()).trim_end_matches('\0').to_owned())
+}
+
 pub fn shutdown(fd: BorrowedFd<'_>) {
     // SAFETY: no pointer arguments. Errors (already closed) are irrelevant.
     unsafe { libc::shutdown(fd.as_raw_fd(), libc::SHUT_RDWR) };

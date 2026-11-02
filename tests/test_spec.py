@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -89,6 +90,56 @@ def test_loss_and_cross_reach_the_guest_plan() -> None:
     assert plan.cross == (TcpCrossPlan("bbr3", 1000, 5000), UdpCrossPlan(2_500_000, 0, 4000))
 
 
+def test_cross_flows_take_their_own_agents(tmp_path: Path) -> None:
+    # Two cross flows share one policy and a third has another: each gets
+    # its own agent section and noise stream, each file is written once,
+    # and a stock cross flow keeps its plain form, so old specs keep ids.
+    pol = {}
+    for name in ("a", "b"):
+        (tmp_path / name).write_bytes(name.encode() * 10)
+        pol[name] = {
+            "path": str(tmp_path / name),
+            "sha256": hashlib.sha256(name.encode() * 10).hexdigest(),
+        }
+    agent = {"kind": "agent", "policy": pol["a"], "noise_sigma": 0.1}
+    reno = {"kind": "agent", "mode": "reno", "policy": pol["b"]}
+    spec = EpisodeSpec.parse(
+        episode(
+            {"base_rtt_ms": 20},
+            duration_ms=3000,
+            seed=9,
+            cross=[
+                {"kind": "tcp", "cc": agent},
+                {"kind": "tcp", "cc": agent, "start_ms": 500},
+                {"kind": "tcp", "cc": reno},
+                {"kind": "tcp", "cc": "cubic"},
+            ],
+        )
+    )
+    assert [c.label for c in spec.cross if c.kind == "tcp"][2:] == [
+        f"agent_reno:{pol['b']['sha256'][:12]}",
+        "cubic",
+    ]
+    assert '"cc":"cubic"' in spec.canonical_json()
+    plan = spec.guest_plan()
+    agents = [c.agent for c in plan.cross if isinstance(c, TcpCrossPlan)]
+    assert [c.cc for c in plan.cross if isinstance(c, TcpCrossPlan)] == [
+        "agent",
+        "agent",
+        "agent_reno",
+        "cubic",
+    ]
+    assert agents[3] is None
+    seeds = [a.noise_seed for a in agents[:3] if a is not None]
+    assert len(set(seeds)) == 3 and agents[0] is not None and agents[0].noise_sigma == 0.1
+    plan.write(tmp_path / "plan")
+    raw = json.loads((tmp_path / "plan" / "plan.json").read_text())
+    files = [c["agent"]["policy_file"] for c in raw["cross"][:3]]
+    assert files[0] == files[1] != files[2]
+    assert raw["cross"][3]["agent"] is None
+    assert len(list((tmp_path / "plan").glob("policy-*.onnx"))) == 2
+
+
 @pytest.mark.parametrize(
     ("path_extra", "cross"),
     [
@@ -99,7 +150,7 @@ def test_loss_and_cross_reach_the_guest_plan() -> None:
         ({}, [{"kind": "udp_cbr", "rate_mbps": 0}]),
         ({}, [{"kind": "udp_cbr", "rate_mbps": 1, "cc": "cubic"}]),
         ({}, [{"kind": "tcp", "cc": "agent"}]),
-        ({}, [{"kind": "tcp", "cc": "cubic"}] * 17),
+        ({}, [{"kind": "tcp", "cc": "cubic"}] * 65),  # above MAX_CROSS
     ],
 )
 def test_rejects_bad_loss_and_cross(path_extra: dict[str, object], cross: object) -> None:

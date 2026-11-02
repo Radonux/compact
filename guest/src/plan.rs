@@ -8,10 +8,11 @@ use serde::Deserialize;
 use std::num::{NonZeroU32, NonZeroU64};
 use std::path::{Path, PathBuf};
 
-pub const PLAN_VERSION: u32 = 5;
-/// Cross-traffic flows per episode (ports 6000 to 6015). ponytail: 16 flows,
-/// all sender to receiver; widen the port range or add reverse flows if needed.
-pub const MAX_CROSS: usize = 16;
+pub const PLAN_VERSION: u32 = 6;
+/// Cross-traffic flows per episode (ports 6000 to 6063), all sender to
+/// receiver. ponytail: 64 flows; raise it with the guest's memory (each
+/// flow is two sockets and up to four threads), or add reverse flows.
+pub const MAX_CROSS: usize = 64;
 /// Largest trace that fits one netlink attribute next to the other options.
 pub const MAX_TRACE_BYTES: usize = 65_000;
 /// TCP_CA_NAME_MAX in include/net/tcp.h, including the NUL.
@@ -38,7 +39,7 @@ struct RawPlan {
 #[serde(tag = "kind", deny_unknown_fields)]
 enum RawCross {
     #[serde(rename = "tcp")]
-    Tcp { cc: String, start_ms: u32, stop_ms: u32 },
+    Tcp { cc: String, start_ms: u32, stop_ms: u32, agent: Option<RawAgent> },
     #[serde(rename = "udp_cbr")]
     UdpCbr { rate_bps: u64, start_ms: u32, stop_ms: u32 },
 }
@@ -77,8 +78,9 @@ pub struct Link {
 /// A competing flow through the same bottleneck, active over
 /// [start_ms, stop_ms) of trace time, with stop_ms <= the episode length.
 pub enum CrossFlow {
-    /// Bulk TCP with its own congestion control.
-    Tcp { cc: String, start_ms: u32, stop_ms: u32 },
+    /// Bulk TCP with its own congestion control, a stock one or an agent
+    /// one driven by its own policy.
+    Tcp { cc: String, start_ms: u32, stop_ms: u32, agent: Option<Agent> },
     /// Constant bit rate UDP, counted at the IP layer (1500-byte packets).
     Udp { rate_bps: NonZeroU64, start_ms: u32, stop_ms: u32 },
 }
@@ -90,12 +92,18 @@ pub struct Sysctl {
     pub value: String,
 }
 
-/// Who decides cwnd: the kernel's own congestion control, or a sage-v1
-/// policy driving tcp_agent ("agent" or "agent_reno") through
-/// /dev/expl_agent after every step.
+/// Who decides the observed flow's cwnd: the kernel's own congestion
+/// control, or an agent.
 pub enum Control {
     Stock,
-    Agent { policy: PathBuf, noise: Noise },
+    Agent(Agent),
+}
+
+/// A sage-v1 policy driving one socket's tcp_agent controller ("agent" or
+/// "agent_reno") through /dev/expl_agent after every step.
+pub struct Agent {
+    pub policy: PathBuf,
+    pub noise: Noise,
 }
 
 /// Exploration: Gaussian noise added to every action the policy takes,
@@ -134,32 +142,17 @@ impl Plan {
         if raw.cross.len() > MAX_CROSS {
             return fail(format!("{} cross flows, at most {MAX_CROSS}", raw.cross.len()));
         }
-        let cross =
-            raw.cross.into_iter().map(|c| CrossFlow::parse(c, raw.duration_ms)).collect::<Result<_>>()?;
-        let is_agent = matches!(raw.cc.as_str(), "agent" | "agent_reno");
-        let control = match (is_agent, raw.agent) {
-            (false, None) => Control::Stock,
-            (true, Some(a)) => {
-                if !(0.0..=2.0).contains(&a.noise_sigma) {
-                    return fail(format!("agent.noise_sigma {} outside [0, 2]", a.noise_sigma));
-                }
-                if a.noise_hold > 1000 {
-                    return fail(format!("agent.noise_hold {} above 1000", a.noise_hold));
-                }
-                Control::Agent {
-                    policy: dir.join(plain_file_name(&a.policy_file)?),
-                    noise: Noise {
-                        sigma: a.noise_sigma,
-                        seed: a.noise_seed,
-                        hold: nonzero(a.noise_hold, "agent.noise_hold")?,
-                    },
-                }
-            }
-            (true, None) => return fail(format!("cc {} needs an agent section", raw.cc)),
-            (false, Some(_)) => return fail(format!("cc {} takes no agent section", raw.cc)),
+        let cross = raw
+            .cross
+            .into_iter()
+            .map(|c| CrossFlow::parse(c, raw.duration_ms, dir))
+            .collect::<Result<_>>()?;
+        let control = match Agent::parse(&raw.cc, raw.agent, dir)? {
+            None => Control::Stock,
+            Some(a) => Control::Agent(a),
         };
         Ok(Plan {
-            steps: raw.steps || matches!(control, Control::Agent { .. }),
+            steps: raw.steps || matches!(control, Control::Agent(_)),
             control,
             cross,
             duration_ms: nonzero(raw.duration_ms, "duration_ms")?,
@@ -181,8 +174,45 @@ fn cc_name(cc: &str) -> Result<()> {
     if valid { Ok(()) } else { fail(format!("invalid congestion control name {cc:?}")) }
 }
 
+impl Agent {
+    /// The agent section for a socket running `cc`: present exactly when
+    /// `cc` is an agent controller.
+    fn parse(cc: &str, raw: Option<RawAgent>, dir: &Path) -> Result<Option<Agent>> {
+        let is_agent = matches!(cc, "agent" | "agent_reno");
+        match (is_agent, raw) {
+            (false, None) => Ok(None),
+            (true, Some(a)) => {
+                if !(0.0..=2.0).contains(&a.noise_sigma) {
+                    return fail(format!("agent.noise_sigma {} outside [0, 2]", a.noise_sigma));
+                }
+                if a.noise_hold > 1000 {
+                    return fail(format!("agent.noise_hold {} above 1000", a.noise_hold));
+                }
+                Ok(Some(Agent {
+                    policy: dir.join(plain_file_name(&a.policy_file)?),
+                    noise: Noise {
+                        sigma: a.noise_sigma,
+                        seed: a.noise_seed,
+                        hold: nonzero(a.noise_hold, "agent.noise_hold")?,
+                    },
+                }))
+            }
+            (true, None) => fail(format!("cc {cc} needs an agent section")),
+            (false, Some(_)) => fail(format!("cc {cc} takes no agent section")),
+        }
+    }
+}
+
 impl CrossFlow {
-    fn parse(raw: RawCross, duration_ms: u32) -> Result<CrossFlow> {
+    /// The flow's agent, when a policy drives it.
+    pub fn agent(&self) -> Option<&Agent> {
+        match self {
+            CrossFlow::Tcp { agent, .. } => agent.as_ref(),
+            CrossFlow::Udp { .. } => None,
+        }
+    }
+
+    fn parse(raw: RawCross, duration_ms: u32, dir: &Path) -> Result<CrossFlow> {
         let window = |start: u32, stop: u32| {
             if start < stop && stop <= duration_ms {
                 Ok(())
@@ -191,10 +221,11 @@ impl CrossFlow {
             }
         };
         match raw {
-            RawCross::Tcp { cc, start_ms, stop_ms } => {
+            RawCross::Tcp { cc, start_ms, stop_ms, agent } => {
                 cc_name(&cc)?;
                 window(start_ms, stop_ms)?;
-                Ok(CrossFlow::Tcp { cc, start_ms, stop_ms })
+                let agent = Agent::parse(&cc, agent, dir).ctx("cross flow")?;
+                Ok(CrossFlow::Tcp { cc, start_ms, stop_ms, agent })
             }
             RawCross::UdpCbr { rate_bps, start_ms, stop_ms } => {
                 window(start_ms, stop_ms)?;

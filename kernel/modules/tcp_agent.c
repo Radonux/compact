@@ -16,40 +16,49 @@
  *                 ponytail: Reno base, vendor Cubic's update if Orca
  *                 fidelity needs it.
  *
- * Every accepted action is reported to expl_rec as AGENT_ACTION.
- * ponytail: one global action for all agent sockets (one agent flow per
- * episode); key actions by socket if episodes ever carry several.
+ * Each action is for one socket: the writer names it by its own file
+ * descriptor, and the action is kept in that socket's congestion-control
+ * state, so any number of agent sockets run side by side. Every accepted
+ * action is reported to expl_rec as AGENT_ACTION with the socket's port.
  *
- * Locking: action_lock (irqsave) guards the published action. Readers run in
- * softirq or in socket-backlog processing (BH enabled); the writer runs in
- * process context. Socket state is only touched from the CC hooks, which run
- * with the socket locked.
+ * Locking: action_lock (irqsave) guards every socket's published action.
+ * Readers run in softirq or in socket-backlog processing (BH enabled); the
+ * writer runs in process context and holds a reference to the socket's
+ * file for the whole write. Socket state is only touched from the CC hooks,
+ * which run with the socket locked.
  */
 #include <linux/fs.h>
 #include <linux/miscdevice.h>
 #include <linux/module.h>
+#include <linux/net.h>
 #include <linux/spinlock.h>
 #include <linux/uaccess.h>
 #include <net/tcp.h>
 
 #include "expl_rec.h"
 
-static DEFINE_SPINLOCK(action_lock);	/* guards action and action_seq */
-static struct expl_agent_action action;
-static u32 action_seq;			/* 0: no action yet */
+static DEFINE_SPINLOCK(action_lock);	/* guards seq, cwnd and pacing_rate */
 
+/* In icsk_ca_priv, so each agent socket carries its own action. */
 struct agent_priv {
+	u32 seq;			/* actions accepted; 0: none yet */
 	u32 applied_seq;		/* agent_reno: last action applied */
+	u32 cwnd;
+	u32 pad;
+	u64 pacing_rate;
 };
 
-static u32 agent_current(struct expl_agent_action *out)
+/* This socket's latest action into *out; its seq (0: none yet). */
+static u32 agent_current(struct sock *sk, struct expl_agent_action *out)
 {
+	const struct agent_priv *p = inet_csk_ca(sk);
 	unsigned long flags;
 	u32 seq;
 
 	spin_lock_irqsave(&action_lock, flags);
-	*out = action;
-	seq = action_seq;
+	out->cwnd = p->cwnd;
+	out->pacing_rate = p->pacing_rate;
+	seq = p->seq;
 	spin_unlock_irqrestore(&action_lock, flags);
 	return seq;
 }
@@ -78,9 +87,12 @@ static void agent_apply(struct sock *sk, const struct expl_agent_action *a)
 static void agent_init(struct sock *sk)
 {
 	struct agent_priv *p = inet_csk_ca(sk);
+	unsigned long flags;
 
 	BUILD_BUG_ON(sizeof(struct agent_priv) > ICSK_CA_PRIV_SIZE);
-	p->applied_seq = 0;
+	spin_lock_irqsave(&action_lock, flags);
+	memset(p, 0, sizeof(*p));
+	spin_unlock_irqrestore(&action_lock, flags);
 }
 
 /* "agent": hold the latest action. */
@@ -89,7 +101,7 @@ static void agent_cong_control(struct sock *sk, u32 ack, int flag,
 {
 	struct expl_agent_action a;
 
-	if (agent_current(&a))
+	if (agent_current(sk, &a))
 		agent_apply(sk, &a);
 }
 
@@ -101,7 +113,7 @@ static void agent_reno_in_ack_event(struct sock *sk, u32 flags)
 {
 	struct agent_priv *p = inet_csk_ca(sk);
 	struct expl_agent_action a;
-	u32 seq = agent_current(&a);
+	u32 seq = agent_current(sk, &a);
 
 	if (seq != p->applied_seq) {
 		p->applied_seq = seq;
@@ -138,7 +150,16 @@ static struct tcp_congestion_ops tcp_agent_reno __read_mostly = {
 	.name = "agent_reno",
 };
 
-/* Context: process. Untrusted input: one whole, valid action per write. */
+static bool is_agent(const struct sock *sk)
+{
+	const struct tcp_congestion_ops *ops = READ_ONCE(inet_csk(sk)->icsk_ca_ops);
+
+	return ops == &tcp_agent || ops == &tcp_agent_reno;
+}
+
+/* Context: process. Untrusted input: one whole, valid action per write,
+ * for a TCP socket of the writer's that runs an agent congestion control.
+ */
 static ssize_t agent_write(struct file *file, const char __user *buf,
 			   size_t count, loff_t *ppos)
 {
@@ -146,7 +167,11 @@ static ssize_t agent_write(struct file *file, const char __user *buf,
 		.hdr = { .type = EXPL_REC_AGENT_ACTION, .len = sizeof(r) },
 	};
 	struct expl_agent_action a;
+	struct agent_priv *p;
+	struct socket *sock;
 	unsigned long flags;
+	struct sock *sk;
+	int err;
 
 	if (count != sizeof(a))
 		return -EINVAL;
@@ -155,15 +180,27 @@ static ssize_t agent_write(struct file *file, const char __user *buf,
 	if (a.abi != EXPL_AGENT_ABI || a.cwnd < 2 || a.cwnd > EXPL_AGENT_MAX_CWND ||
 	    a.pacing_rate > EXPL_AGENT_MAX_PACING)
 		return -EINVAL;
+	sock = sockfd_lookup(a.fd, &err);
+	if (!sock)
+		return err;
+	sk = sock->sk;
+	if (!sk || !sk_is_tcp(sk) || !is_agent(sk)) {
+		sockfd_put(sock);
+		return -EINVAL;
+	}
 
+	p = inet_csk_ca(sk);
 	spin_lock_irqsave(&action_lock, flags);
-	action = a;
-	r.action_seq = ++action_seq;
+	p->cwnd = a.cwnd;
+	p->pacing_rate = a.pacing_rate;
+	r.action_seq = ++p->seq;
 	spin_unlock_irqrestore(&action_lock, flags);
 
 	r.hdr.t_ns = ktime_get_ns();
 	r.cwnd = a.cwnd;
 	r.pacing_rate = a.pacing_rate;
+	r.sport = ntohs(inet_sk(sk)->inet_sport);
+	sockfd_put(sock);
 	expl_rec_emit(&r.hdr);
 	return count;
 }
@@ -184,7 +221,8 @@ static int __init tcp_agent_init(void)
 {
 	int err;
 
-	BUILD_BUG_ON(sizeof(struct expl_rec_agent_action) != 32);
+	BUILD_BUG_ON(sizeof(struct expl_rec_agent_action) != 40);
+	BUILD_BUG_ON(sizeof(struct expl_agent_action) != 24);
 	err = tcp_register_congestion_control(&tcp_agent);
 	if (err)
 		return err;

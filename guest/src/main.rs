@@ -35,7 +35,7 @@ use std::path::Path;
 use std::process::ExitCode;
 use sys::{Context, Result, fail};
 
-const RESULT_VERSION: u32 = 4;
+const RESULT_VERSION: u32 = 5;
 const SND_ADDR: [u8; 4] = [10, 0, 0, 1];
 const PATH_SND_ADDR: [u8; 4] = [10, 0, 0, 2];
 const RCV_ADDR: [u8; 4] = [10, 0, 1, 1];
@@ -71,7 +71,13 @@ struct Report {
     softnet_dropped: u64,
     netdev_max_backlog: &'static str,
     agent_actions: u64,
+    /// Per cross flow, in plan order: bytes its sender wrote, the congestion
+    /// control its socket ran ("" for UDP), and the steps written to
+    /// steps-cross<i>.bin and actions taken (0 unless a policy drove it).
     cross_bytes_sent: Vec<u64>,
+    cross_cc: Vec<String>,
+    cross_steps: Vec<u64>,
+    cross_actions: Vec<u64>,
     /// Steps written to steps.bin (0 when the step loop did not run).
     steps: u64,
 }
@@ -216,9 +222,13 @@ fn episode(plan_dir: &Path, out: &Path, module_dir: &Path) -> Result<Report> {
     let plan = Plan::load(plan_dir)?;
     load_modules(module_dir, &plan)?;
     std::fs::write("/proc/sys/net/core/netdev_max_backlog", NETDEV_MAX_BACKLOG).ctx("netdev_max_backlog")?;
-    // The step loop's true state comes from the downlink's records, so it
-    // exists whenever steps run.
-    let link_truth = plan.steps.then(|| {
+    // The step loops' true state comes from the downlink's records, so it
+    // exists whenever steps run, for the observed flow or a cross agent.
+    let n_cross_agents = plan.cross.iter().filter(|c| c.agent().is_some()).count();
+    let cross_agents = n_cross_agents > 0;
+    // Several step loops: each lets its instant settle before the truth.
+    let settle = n_cross_agents + usize::from(plan.steps) > 1;
+    let link_truth = (plan.steps || cross_agents).then(|| {
         let d = &plan.downlink;
         truth::LinkTruth::new(u64::from(plan.duration_ms.get()), d.trace.clone(), d.limit_pkts, d.delay_ns)
     });
@@ -259,32 +269,55 @@ fn episode(plan_dir: &Path, out: &Path, module_dir: &Path) -> Result<Report> {
         Ok((p0, p1))
     })?;
 
+    let end_ns = base_ns + u64::from(plan.duration_ms.get()) * 1_000_000;
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    // Each agent cross flow's step loop, set up (policy loaded, files open)
+    // before any traffic starts; it runs over the flow's own window.
+    let at = |ms: u32| base_ns + u64::from(ms) * 1_000_000;
+    let mut loops = Vec::with_capacity(plan.cross.len());
+    for (i, flow) in plan.cross.iter().enumerate() {
+        loops.push(match (flow, flow.agent(), &truth) {
+            (CrossFlow::Tcp { start_ms, stop_ms, .. }, Some(a), Some(truth)) => Some(step::Loop::new(
+                &out.join(format!("steps-cross{i}.bin")),
+                Some(step::Policy::load(&a.policy, a.noise).ctx(format!("cross flow {i}"))?),
+                truth.clone(),
+                cross::port(i)?,
+                at(*start_ms),
+                base_ns,
+                at(*stop_ms),
+                std::sync::Arc::clone(&stop),
+                settle,
+            )?),
+            _ => None,
+        });
+    }
     let sender = snd.within(&home, || traffic::start_sender(&plan.cc, plan.obs_mark.get()))?;
-    let cross = cross::start(&plan.cross, base_ns, &snd, &rcv, &home)?;
+    let cross = cross::start(&plan.cross, loops, base_ns, &snd, &rcv, &home)?;
     sys::sleep_until(base_ns);
     let receiver = rcv.within(&home, traffic::start_receiver)?;
     let Ok(conn) = sender.conn.recv() else {
         return traffic::join(sender.handle, "sender").and_then(|_| fail("sender exited before accepting"));
     };
-    let end_ns = base_ns + u64::from(plan.duration_ms.get()) * 1_000_000;
-    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let steps = if let Some(truth) = truth {
-        let policy = match &plan.control {
-            Control::Stock => None,
-            Control::Agent { policy, noise } => Some(step::Policy::load(policy, *noise)?),
-        };
-        Some(step::spawn(
-            std::sync::Arc::clone(&conn),
-            policy,
-            truth,
-            &out.join("steps.bin"),
-            base_ns,
-            base_ns,
-            end_ns,
-            std::sync::Arc::clone(&stop),
-        )?)
-    } else {
-        None
+    let steps = match (&truth, plan.steps) {
+        (Some(truth), true) => {
+            let policy = match &plan.control {
+                Control::Stock => None,
+                Control::Agent(a) => Some(step::Policy::load(&a.policy, a.noise)?),
+            };
+            let lp = step::Loop::new(
+                &out.join("steps.bin"),
+                policy,
+                truth.clone(),
+                traffic::SENDER_ADDR.port(),
+                base_ns,
+                base_ns,
+                end_ns,
+                std::sync::Arc::clone(&stop),
+                settle,
+            )?;
+            Some(step::spawn("steps", lp, std::sync::Arc::clone(&conn))?)
+        }
+        _ => None,
     };
     sys::sleep_until(end_ns);
     stop.store(true, std::sync::atomic::Ordering::Release);
@@ -296,7 +329,7 @@ fn episode(plan_dir: &Path, out: &Path, module_dir: &Path) -> Result<Report> {
     sys::shutdown(std::os::fd::AsFd::as_fd(&*receiver.conn));
     let sent = traffic::join(sender.handle, "sender")?;
     let received = traffic::join(receiver.handle, "receiver")?;
-    let cross_bytes_sent = cross.finish()?;
+    let flows = cross.finish()?;
 
     // Deleting the qdiscs emits their LINK_STATS records.
     path.within(&home, || {
@@ -324,7 +357,10 @@ fn episode(plan_dir: &Path, out: &Path, module_dir: &Path) -> Result<Report> {
         softnet_dropped,
         netdev_max_backlog: NETDEV_MAX_BACKLOG,
         agent_actions,
-        cross_bytes_sent,
+        cross_bytes_sent: flows.iter().map(|f| f.sent).collect(),
+        cross_cc: flows.iter().map(|f| f.cc.clone()).collect(),
+        cross_steps: flows.iter().map(|f| f.steps).collect(),
+        cross_actions: flows.iter().map(|f| f.actions).collect(),
         steps,
     })
 }

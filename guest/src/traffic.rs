@@ -41,11 +41,7 @@ pub fn start_sender(cc: &str, mark: u32) -> Result<Sender> {
         .name("sender".into())
         .spawn(move || -> Result<SenderReport> {
             let (stream, _) = listener.accept().ctx("accept")?;
-            let mut name = [0u8; 16];
-            let n = sys::getsockopt_bytes(stream.as_fd(), libc::IPPROTO_TCP, libc::TCP_CONGESTION, &mut name)
-                .ctx("reading TCP_CONGESTION")?;
-            let cc =
-                String::from_utf8_lossy(name.get(..n).unwrap_or_default()).trim_end_matches('\0').to_owned();
+            let cc = sys::congestion_control(stream.as_fd())?;
             let stream = Arc::new(stream);
             tx.send(Arc::clone(&stream)).ctx("publishing connection")?;
             let chunk = vec![0x5au8; CHUNK];

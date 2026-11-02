@@ -22,7 +22,6 @@ const NS_PER_MS: u64 = 1_000_000;
 /// One delivery opportunity in bits (Mahimahi's 1504-byte packets).
 const OPP_BITS: u64 = 1504 * 8;
 const DOWNLINK: u32 = 1;
-const MAIN_SPORT: u16 = 5001;
 const QUEUE_FULL: u8 = 1;
 const ARRIVAL: u16 = 2;
 const DROP: u16 = 3;
@@ -40,8 +39,8 @@ pub struct LinkTruth {
     one_way_ns: u64,
     /// Arrival instants of accepted packets not yet departed (FIFO).
     queued: VecDeque<u64>,
-    /// (ms, queueing delay ns, bytes, observed flow) of each departure.
-    departures: VecDeque<(u64, u64, u32, bool)>,
+    /// (ms, queueing delay ns, bytes, sender port) of each departure.
+    departures: VecDeque<(u64, u64, u32, u16)>,
     /// (ms, bytes used) of each processed opportunity millisecond.
     opportunities: VecDeque<(u64, u32)>,
     /// The queue after the latest event, ordered as the host orders ties:
@@ -91,8 +90,12 @@ impl LinkTruth {
                 let Some(arrived) = self.queued.pop_front() else {
                     return fail(format!("downlink departure (record {seq}) with no accepted arrival"));
                 };
-                let main = u16_at(rec, 56) == MAIN_SPORT;
-                self.departures.push_back((ms, t_ns.saturating_sub(arrived), u32_at(rec, 20), main));
+                self.departures.push_back((
+                    ms,
+                    t_ns.saturating_sub(arrived),
+                    u32_at(rec, 20),
+                    u16_at(rec, 56),
+                ));
                 self.later.push(((t_ns, 0, seq), u32_at(rec, 40)));
             }
             _ => {}
@@ -100,10 +103,11 @@ impl LinkTruth {
         Ok(())
     }
 
-    /// The seven values at `t_ns`, from every record observed so far;
-    /// trace ms 0 starts at `base_ns`.
+    /// The seven values at `t_ns`, from every record observed so far, for
+    /// the flow with sender port `sport` (its receive rate; the others are
+    /// the path's); trace ms 0 starts at `base_ns`.
     #[allow(clippy::cast_precision_loss)]
-    pub fn at(&mut self, t_ns: u64, base_ns: u64) -> [f64; N] {
+    pub fn at(&mut self, t_ns: u64, base_ns: u64, sport: u16) -> [f64; N] {
         let mut later = std::mem::take(&mut self.later);
         later.retain(|&(key, q)| {
             if key.0 > t_ns {
@@ -124,10 +128,10 @@ impl LinkTruth {
             self.opportunities.pop_front();
         }
         let (mut delay_sum, mut n, mut received) = (0u64, 0u64, 0u64);
-        for &(_, delay, bytes, main) in self.departures.iter().take_while(|d| d.0 < hi) {
+        for &(_, delay, bytes, port) in self.departures.iter().take_while(|d| d.0 < hi) {
             delay_sum += delay;
             n += 1;
-            if main {
+            if port == sport {
                 received += u64::from(bytes);
             }
         }

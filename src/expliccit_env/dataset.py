@@ -12,6 +12,8 @@
         agent_action.parquet actions accepted by tcp_agent (agent episodes)
         steps.parquet        Sage's steps with their labels, reward and action
                              (episodes that record steps)
+        cross_steps.parquet  the same for every cross flow a policy drives,
+                             with its index in the spec's cross list (flow)
         DONE                 written last; a shard without it is incomplete
 
 Tables share ``episode_id``. Files are written as ``*.tmp`` and renamed on
@@ -34,8 +36,17 @@ import pyarrow.parquet as pq
 from expliccit_env.episode import EpisodeOk, EpisodeOutcome
 
 DATASET_VERSION: Final = 6
-# "steps" exists only for episodes that record them (spec.steps or a policy).
-TABLES: Final = ("obs", "labels", "link_events", "link_opp", "agent_action", "steps")
+# "steps" exists only for episodes that record them (spec.steps or a policy),
+# "cross_steps" only for episodes with an agent cross flow.
+TABLES: Final = (
+    "obs",
+    "labels",
+    "link_events",
+    "link_opp",
+    "agent_action",
+    "steps",
+    "cross_steps",
+)
 
 
 class ShardWriter:
@@ -71,7 +82,7 @@ class ShardWriter:
                 assert name in TABLES, name
                 if name not in self.tables:
                     continue
-                if name == "steps" and self.step_stride > 1:
+                if name in ("steps", "cross_steps") and self.step_stride > 1:
                     step = np.asarray(table["step"].to_numpy(), np.int64)
                     table = table.take(np.flatnonzero(step % self.step_stride == 0))  # noqa: PLW2901
                 if name not in self.writers:

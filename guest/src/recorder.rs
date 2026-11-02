@@ -30,7 +30,7 @@ const TYPES: [(u16, usize, &str); 8] = [
     (5, 40, "link_opp"),
     (6, 104, "link_stats"),
     (7, 160, "tcp_obs"),
-    (8, 32, "agent_action"),
+    (8, 40, "agent_action"),
 ];
 
 #[derive(Default, Debug)]
@@ -44,16 +44,19 @@ pub struct Recorder {
     handle: JoinHandle<Result<Summary>>,
 }
 
-/// The step loop's view of the path's true state (see truth.rs).
+/// The step loops' view of the path's true state (see truth.rs); one
+/// clone per step loop.
+#[derive(Clone)]
 pub struct Truth(Arc<Mutex<Drain>>);
 
 impl Truth {
-    /// Drain every record emitted so far, then the true state at `t_ns`.
-    pub fn at(&self, t_ns: u64, base_ns: u64) -> Result<[f64; truth::N]> {
+    /// Drain every record emitted so far, then the true state at `t_ns`
+    /// for the flow with sender port `sport`.
+    pub fn at(&self, t_ns: u64, base_ns: u64, sport: u16) -> Result<[f64; truth::N]> {
         let mut d = lock(&self.0)?;
         d.read_all()?;
         match d.truth.as_mut() {
-            Some(t) => Ok(t.at(t_ns, base_ns)),
+            Some(t) => Ok(t.at(t_ns, base_ns, sport)),
             None => fail("the recorder keeps no link truth"),
         }
     }

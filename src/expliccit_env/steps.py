@@ -81,14 +81,16 @@ def step_table(
     k: labels.PathConstants,
     *,
     duration_ms: int,
+    sport: int = labels.MAIN_SPORT,
 ) -> pa.Table:
-    """One row per step: observation, labels at the step, reward, and the
-    action taken from it (the next step's column 76, as Sage's
-    gen_offline_data.py derives it; NaN on the last step, ``done``)."""
+    """One row per step of the flow with sender port ``sport``: observation,
+    labels at the step, reward, and the action taken from it (the next
+    step's column 76, as Sage's gen_offline_data.py derives it; NaN on the
+    last step, ``done``)."""
     n = steps.size
     t_ns = steps["t_us"].astype(np.int64) * 1000
     obs = np.ascontiguousarray(steps["obs"], dtype=np.float64).reshape(n, OBS_DIM)
-    lab = labels.labels_at(rec, trace, k, t_ns, duration_ms=duration_ms)
+    lab = labels.labels_at(rec, trace, k, t_ns, duration_ms=duration_ms, sport=sport)
     action = np.append(obs[1:, PREV_ACTION_COL], np.nan)
     capacity_mbps = cast("F64", lab["capacity_bps"]) / 1e6
     # pyarrow-stubs leave FixedSizeListArray's type parameters unknown.

@@ -19,6 +19,7 @@ from typing import Any
 import numpy as np
 import pyarrow.parquet as pq
 
+from expliccit_env.spec import AgentCC
 from expliccit_env.train.data import F32, link_key
 from expliccit_env.train.spec import Net2Spec
 
@@ -48,7 +49,12 @@ def condition(spec_json: str) -> str:
     loss: dict[str, float] = spec["path"].get("loss") or {}
     parts: list[str] = []
     for c in cross:
-        what = c["cc"] if c["kind"] == "tcp" else f"UDP {c['rate_mbps']:g} Mbit/s"
+        if c["kind"] != "tcp":
+            what = f"UDP {c['rate_mbps']:g} Mbit/s"
+        elif isinstance(c["cc"], str):
+            what = c["cc"]
+        else:  # an agent: named as in the episodes table
+            what = AgentCC.model_validate(c["cc"]).label
         parts.append(f"{what} from {c['start_ms'] / 1000:g} s")
     if loss.get("downlink"):
         parts.append(f"loss {100 * loss['downlink']:g}%")

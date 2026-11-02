@@ -9,11 +9,12 @@
 
 use crate::netns::Netns;
 use crate::plan::CrossFlow;
+use crate::step;
 use crate::sys::{self, Context, Result, fail};
 use std::io::{ErrorKind, Read, Write};
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream, UdpSocket};
 use std::os::fd::{AsFd, OwnedFd};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, OnceLock, mpsc};
 use std::thread::JoinHandle;
 
 pub const CROSS_PORT_BASE: u16 = 6000;
@@ -25,27 +26,80 @@ const CHUNK: usize = 256 << 10;
 
 /// Sockets to shut down when the episode ends.
 enum Handle {
-    Tcp { listener: TcpListener, client: Arc<OwnedFd>, accepted: Arc<OnceLock<TcpStream>> },
+    Tcp { listener: TcpListener, client: Arc<OwnedFd>, accepted: Arc<OnceLock<Arc<TcpStream>>> },
     Udp { receiver: Arc<UdpSocket> },
+}
+
+/// A TCP flow's threads: the sender (bytes written, controller its socket
+/// ran), the receiver, the stopper and, for an agent flow, its step loop.
+struct TcpThreads {
+    send: JoinHandle<Result<(u64, String)>>,
+    recv: JoinHandle<Result<u64>>,
+    stop: JoinHandle<Result<u64>>,
+    steps: Option<JoinHandle<Result<step::Steps>>>,
+}
+
+enum Threads {
+    Tcp(TcpThreads),
+    Udp { tx: JoinHandle<Result<u64>>, rx: JoinHandle<Result<u64>> },
 }
 
 pub struct Running {
     handles: Vec<Handle>,
-    threads: Vec<JoinHandle<Result<u64>>>,
+    threads: Vec<Threads>,
 }
 
-fn spawn(name: String, f: impl FnOnce() -> Result<u64> + Send + 'static) -> Result<JoinHandle<Result<u64>>> {
+/// What one flow did: bytes its sender wrote, the congestion control its
+/// socket ran ("" for UDP, or a TCP flow that never connected), and its
+/// steps and actions (0 unless a policy drove it).
+pub struct FlowReport {
+    pub sent: u64,
+    pub cc: String,
+    pub steps: u64,
+    pub actions: u64,
+}
+
+fn spawn<T: Send + 'static>(
+    name: String,
+    f: impl FnOnce() -> Result<T> + Send + 'static,
+) -> Result<JoinHandle<Result<T>>> {
     std::thread::Builder::new().name(name.clone()).spawn(f).ctx(format!("spawning {name}"))
 }
 
-/// Create every flow's sockets and start its threads. Times are trace ms.
-pub fn start(flows: &[CrossFlow], base_ns: u64, snd: &Netns, rcv: &Netns, home: &Netns) -> Result<Running> {
+fn join<T>(h: JoinHandle<Result<T>>, what: &str) -> Result<T> {
+    match h.join() {
+        Ok(r) => r.ctx(what.to_owned()),
+        Err(_) => fail(format!("{what} thread panicked")),
+    }
+}
+
+/// The sender port of flow `i`.
+pub fn port(i: usize) -> Result<u16> {
+    match u16::try_from(i).ok().and_then(|i| CROSS_PORT_BASE.checked_add(i)) {
+        Some(p) => Ok(p),
+        None => fail(format!("cross flow index {i}")),
+    }
+}
+
+/// Create every flow's sockets and start its threads; `loops[i]` is flow
+/// i's step loop when a policy drives it. Times are trace ms.
+pub fn start(
+    flows: &[CrossFlow],
+    mut loops: Vec<Option<step::Loop>>,
+    base_ns: u64,
+    snd: &Netns,
+    rcv: &Netns,
+    home: &Netns,
+) -> Result<Running> {
+    if loops.len() != flows.len() {
+        return fail("one step loop slot per cross flow");
+    }
     let mut running = Running { handles: Vec::new(), threads: Vec::new() };
     let at = |ms: u32| base_ns + u64::from(ms) * 1_000_000;
     for (i, flow) in flows.iter().enumerate() {
-        let port = CROSS_PORT_BASE + u16::try_from(i).ctx("cross flow index")?;
+        let port = port(i)?;
         match flow {
-            CrossFlow::Tcp { cc, start_ms, stop_ms } => {
+            CrossFlow::Tcp { cc, start_ms, stop_ms, .. } => {
                 let listener = snd.within(home, || {
                     let l = TcpListener::bind(SocketAddrV4::new(SND, port)).ctx("binding cross sender")?;
                     sys::setsockopt_bytes(l.as_fd(), libc::IPPROTO_TCP, libc::TCP_CONGESTION, cc.as_bytes())
@@ -53,27 +107,39 @@ pub fn start(flows: &[CrossFlow], base_ns: u64, snd: &Netns, rcv: &Netns, home: 
                     Ok(l)
                 })?;
                 let client = Arc::new(rcv.within(home, || sys::tcp_socket().ctx("cross receiver socket"))?);
-                let accepted = Arc::new(OnceLock::new());
+                let accepted: Arc<OnceLock<Arc<TcpStream>>> = Arc::new(OnceLock::new());
+                // Step loop: starts once the sender has accepted.
+                let (to_steps, from_sender) = mpsc::channel::<Arc<TcpStream>>();
+                let steps = match loops.get_mut(i).and_then(Option::take) {
+                    Some(lp) => Some(spawn(format!("cross{i}-steps"), move || match from_sender.recv() {
+                        Ok(stream) => lp.run(&stream),
+                        Err(_) => Ok(step::Steps { count: 0, actions: 0 }),
+                    })?),
+                    None => None,
+                };
                 // Sender: accept, then write until shut down.
                 let l = listener.try_clone().ctx("cloning listener")?;
                 let acc = Arc::clone(&accepted);
-                running.threads.push(spawn(format!("cross{i}-send"), move || {
-                    let Ok((stream, _)) = l.accept() else { return Ok(0) };
-                    let stream = acc.get_or_init(|| stream);
+                let send = spawn(format!("cross{i}-send"), move || {
+                    let Ok((stream, _)) = l.accept() else { return Ok((0, String::new())) };
+                    let cc = sys::congestion_control(stream.as_fd())?;
+                    let stream = Arc::clone(acc.get_or_init(|| Arc::new(stream)));
+                    // A flow without a step loop has no receiver: ignore.
+                    let _ = to_steps.send(Arc::clone(&stream));
                     let chunk = vec![0x33u8; CHUNK];
                     let mut sent = 0u64;
                     loop {
                         match (&*stream).write(&chunk) {
                             Ok(n) => sent += n as u64,
                             Err(e) if e.kind() == ErrorKind::Interrupted => {}
-                            Err(_) => return Ok(sent),
+                            Err(_) => return Ok((sent, cc)),
                         }
                     }
-                })?);
+                })?;
                 // Receiver: connect at start, read until the stream ends.
                 let fd = Arc::clone(&client);
                 let start_ns = at(*start_ms);
-                running.threads.push(spawn(format!("cross{i}-recv"), move || {
+                let recv = spawn(format!("cross{i}-recv"), move || {
                     sys::sleep_until(start_ns);
                     if sys::connect_v4(fd.as_fd(), SocketAddrV4::new(SND, port)).is_err() {
                         return Ok(0); // shut down before it could connect
@@ -86,18 +152,19 @@ pub fn start(flows: &[CrossFlow], base_ns: u64, snd: &Netns, rcv: &Netns, home: 
                             Ok(_) => {}
                         }
                     }
-                })?);
+                })?;
                 // Stopper: end the flow at stop_ms.
                 let acc = Arc::clone(&accepted);
                 let stop_ns = at(*stop_ms);
-                running.threads.push(spawn(format!("cross{i}-stop"), move || {
+                let stop = spawn(format!("cross{i}-stop"), move || {
                     sys::sleep_until(stop_ns);
                     if let Some(s) = acc.get() {
                         sys::shutdown(s.as_fd());
                     }
                     Ok(0)
-                })?);
+                })?;
                 running.handles.push(Handle::Tcp { listener, client, accepted });
+                running.threads.push(Threads::Tcp(TcpThreads { send, recv, stop, steps }));
             }
             CrossFlow::Udp { rate_bps, start_ms, stop_ms } => {
                 let receiver =
@@ -109,18 +176,18 @@ pub fn start(flows: &[CrossFlow], base_ns: u64, snd: &Netns, rcv: &Netns, home: 
                     s.connect(SocketAddrV4::new(RCV, port)).ctx("cross udp connect")?;
                     Ok(s)
                 })?;
-                let rx = Arc::clone(&receiver);
-                running.threads.push(spawn(format!("cross{i}-udprx"), move || {
+                let r = Arc::clone(&receiver);
+                let rx = spawn(format!("cross{i}-udprx"), move || {
                     let mut buf = vec![0u8; 2048];
-                    while matches!(rx.recv(&mut buf), Ok(n) if n > 0) {}
+                    while matches!(r.recv(&mut buf), Ok(n) if n > 0) {}
                     Ok(0)
-                })?);
+                })?;
                 // One 1500-byte packet every interval, from start to stop.
                 let interval_ns = u64::try_from(1500u128 * 8 * 1_000_000_000 / u128::from(rate_bps.get()))
                     .ctx("cross interval")?
                     .max(1);
                 let (start_ns, stop_ns) = (at(*start_ms), at(*stop_ms));
-                running.threads.push(spawn(format!("cross{i}-udptx"), move || {
+                let tx = spawn(format!("cross{i}-udptx"), move || {
                     let payload = [0x44u8; UDP_PAYLOAD];
                     let mut sent = 0u64;
                     let mut t = start_ns;
@@ -137,8 +204,9 @@ pub fn start(flows: &[CrossFlow], base_ns: u64, snd: &Netns, rcv: &Netns, home: 
                         t += interval_ns;
                     }
                     Ok(sent)
-                })?);
+                })?;
                 running.handles.push(Handle::Udp { receiver });
+                running.threads.push(Threads::Udp { tx, rx });
             }
         }
     }
@@ -146,9 +214,8 @@ pub fn start(flows: &[CrossFlow], base_ns: u64, snd: &Netns, rcv: &Netns, home: 
 }
 
 impl Running {
-    /// Shut every flow down and return the bytes each sender wrote, in
-    /// flow order (TCP flows run three threads, UDP flows two).
-    pub fn finish(self) -> Result<Vec<u64>> {
+    /// Shut every flow down and report each, in flow order.
+    pub fn finish(self) -> Result<Vec<FlowReport>> {
         for h in &self.handles {
             match h {
                 Handle::Tcp { listener, client, accepted } => {
@@ -161,23 +228,25 @@ impl Running {
                 Handle::Udp { receiver } => sys::shutdown(receiver.as_fd()),
             }
         }
-        let mut totals = Vec::with_capacity(self.handles.len());
-        let mut threads = self.threads.into_iter();
-        for h in &self.handles {
-            let per_flow = match h {
-                Handle::Tcp { .. } => 3,
-                Handle::Udp { .. } => 2,
-            };
-            let mut sent = 0;
-            for _ in 0..per_flow {
-                let Some(t) = threads.next() else { return fail("cross thread missing") };
-                sent += match t.join() {
-                    Ok(r) => r?,
-                    Err(_) => return fail("cross thread panicked"),
-                };
-            }
-            totals.push(sent);
-        }
-        Ok(totals)
+        self.threads
+            .into_iter()
+            .map(|t| match t {
+                Threads::Tcp(t) => {
+                    let (sent, cc) = join(t.send, "cross sender")?;
+                    join(t.recv, "cross receiver")?;
+                    join(t.stop, "cross stopper")?;
+                    let s = match t.steps {
+                        Some(h) => join(h, "cross step loop")?,
+                        None => step::Steps { count: 0, actions: 0 },
+                    };
+                    Ok(FlowReport { sent, cc, steps: s.count, actions: s.actions })
+                }
+                Threads::Udp { tx, rx } => {
+                    let sent = join(tx, "cross udp sender")?;
+                    join(rx, "cross udp receiver")?;
+                    Ok(FlowReport { sent, cc: String::new(), steps: 0, actions: 0 })
+                }
+            })
+            .collect()
     }
 }

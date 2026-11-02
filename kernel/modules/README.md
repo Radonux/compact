@@ -9,7 +9,7 @@ to the host.
 | `expl_rec` | The global record ring, read through `/dev/expl_rec`. The other three modules write into it, so load it first. |
 | `sch_mmlink` | qdisc `mmlink`: one direction of a trace-driven link plus a delay line, with Mahimahi semantics and optional i.i.d. random loss on entry (`mm-loss`). The path namespace runs two, one per direction. |
 | `expl_tcpobs` | Sender state at every arriving segment, from the `tcp:tcp_probe` tracepoint, for sockets with `SO_MARK == mark`. It reads only the generic TCP socket, so it works for any congestion control. |
-| `tcp_agent` | Congestion controls `agent` (Sage-style: holds the window and pacing rate the policy set) and `agent_reno` (Orca-style: each action sets the window once, then Reno grows it), driven by a policy through `/dev/expl_agent`. |
+| `tcp_agent` | Congestion controls `agent` (Sage-style: holds the window and pacing rate the policy set) and `agent_reno` (Orca-style: each action sets the window once, then Reno grows it), driven by policies through `/dev/expl_agent`. Each write names its socket by the writer's file descriptor, and each socket keeps its own action, so any number of agent sockets share a kernel. |
 
 ## Building
 

@@ -188,18 +188,34 @@ class AgentCC(_Frozen):
     def name(self) -> str:
         return "agent" if self.mode == "hold" else "agent_reno"
 
+    @property
+    def label(self) -> str:
+        """The controller in tables: its mode and the policy's hash."""
+        return f"{self.name}:{self.policy.sha256[:12]}"
+
 
 type CongestionControl = Annotated[StockCC | AgentCC, Field(discriminator="kind")]
 
 
 class TcpCross(_Frozen):
-    """Bulk TCP through the same bottleneck, with its own congestion control,
-    active over [start_ms, stop_ms) of trace time (stop: episode end)."""
+    """Bulk TCP through the same bottleneck, active over [start_ms, stop_ms)
+    of trace time (stop: episode end), with its own congestion control: a
+    stock one by name, or an agent driven by its own policy (any number of
+    flows, each with its own policy, state and exploration noise)."""
 
     kind: Literal["tcp"] = "tcp"
-    cc: StockName
+    cc: StockName | AgentCC
     start_ms: Annotated[int, Field(ge=0)] = 0
     stop_ms: PositiveInt | None = None
+
+    @property
+    def cc_name(self) -> str:
+        """The kernel's name for the flow's congestion control."""
+        return self.cc if isinstance(self.cc, str) else self.cc.name
+
+    @property
+    def label(self) -> str:
+        return self.cc if isinstance(self.cc, str) else self.cc.label
 
 
 class UdpCross(_Frozen):
@@ -234,7 +250,7 @@ class UdpShare(_Frozen):
 
 type ConditionFlow = Annotated[TcpCross | UdpCross | UdpShare, Field(discriminator="kind")]
 # guest/src/plan.rs MAX_CROSS: every flow runs sender to receiver.
-MAX_CROSS: Final = 16
+MAX_CROSS: Final = 64
 
 
 class EpisodeSpec(_Frozen):
@@ -281,24 +297,25 @@ class EpisodeSpec(_Frozen):
                 delay, mm.dense_counts(ts), buf.packets, buf.bytes, _u32_probability(loss)
             )
 
-        def cross(c: TcpCross | UdpCross) -> CrossPlan:
+        # Each agent's noise stream: the observed flow's from the episode
+        # seed, cross flow i's mixed with i so that no two flows share one.
+        noise_seed = self.seed ^ 0x5EED_0F_A6E47
+
+        def agent_plan(cc: AgentCC, seed: int) -> AgentPlan:
+            return AgentPlan(cc.policy.read(), cc.noise_sigma, seed, cc.noise_hold_steps)
+
+        def cross(i: int, c: TcpCross | UdpCross) -> CrossPlan:
             stop = self.duration_ms if c.stop_ms is None else c.stop_ms
             match c:
+                case TcpCross(cc=AgentCC() as a):
+                    seed = noise_seed ^ ((i + 1) * 0x9E37_79B9_7F4A_7C15 % U64)
+                    return TcpCrossPlan(c.cc_name, c.start_ms, stop, agent_plan(a, seed))
                 case TcpCross():
-                    return TcpCrossPlan(c.cc, c.start_ms, stop)
+                    return TcpCrossPlan(c.cc_name, c.start_ms, stop)
                 case UdpCross():
                     return UdpCrossPlan(round(c.rate_mbps * 1e6), c.start_ms, stop)
 
-        agent = (
-            AgentPlan(
-                self.cc.policy.read(),
-                self.cc.noise_sigma,
-                self.seed ^ 0x5EED_0F_A6E47,
-                self.cc.noise_hold_steps,
-            )
-            if isinstance(self.cc, AgentCC)
-            else None
-        )
+        agent = agent_plan(self.cc, noise_seed) if isinstance(self.cc, AgentCC) else None
         return GuestPlan(
             duration_ms=self.duration_ms,
             cc=self.cc.name,
@@ -306,7 +323,7 @@ class EpisodeSpec(_Frozen):
             uplink=link(up_ts, self.path.loss.uplink),
             sysctls=tuple(sorted(self.sysctls.items())),
             agent=agent,
-            cross=tuple(cross(c) for c in self.cross),
+            cross=tuple(cross(i, c) for i, c in enumerate(self.cross)),
             steps=self.steps or agent is not None,
         )
 

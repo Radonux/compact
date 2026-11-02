@@ -6,6 +6,7 @@ guest does not trust its input either.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,7 +15,8 @@ from typing import Final
 import numpy as np
 import numpy.typing as npt
 
-PLAN_VERSION: Final = 5
+PLAN_VERSION: Final = 6
+AGENT_CCS: Final = ("agent", "agent_reno")
 U32: Final = 2**32
 MAX_TRACE_BYTES: Final = 65_000
 
@@ -69,6 +71,12 @@ class TcpCrossPlan:
     cc: str
     start_ms: int
     stop_ms: int
+    # The flow's own policy when cc is an agent controller.
+    agent: AgentPlan | None = None
+
+    def __post_init__(self) -> None:
+        if (self.cc in AGENT_CCS) != (self.agent is not None):
+            raise ValueError("a cross flow with cc agent/agent_reno and an agent plan go together")
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,7 +105,7 @@ class GuestPlan:
     steps: bool = False
 
     def __post_init__(self) -> None:
-        if (self.cc in ("agent", "agent_reno")) != (self.agent is not None):
+        if (self.cc in AGENT_CCS) != (self.agent is not None):
             raise ValueError("cc agent/agent_reno and an agent plan go together")
 
     def write(self, directory: Path) -> None:
@@ -123,23 +131,36 @@ class GuestPlan:
             **links,
             "sysctls": [list(s) for s in self.sysctls],
             "agent": None,
-            "cross": [_cross_json(c) for c in self.cross],
+            "cross": [_cross_json(c, directory) for c in self.cross],
             "steps": self.steps,
         }
         if self.agent is not None:
-            (directory / "policy.onnx").write_bytes(self.agent.policy_onnx)
-            plan["agent"] = {
-                "policy_file": "policy.onnx",
-                "noise_sigma": self.agent.noise_sigma,
-                "noise_seed": self.agent.noise_seed,
-                "noise_hold": self.agent.noise_hold,
-            }
+            plan["agent"] = _agent_json(self.agent, directory)
         (directory / "plan.json").write_text(json.dumps(plan, indent=2))
 
 
-def _cross_json(c: CrossPlan) -> dict[str, int | str]:
+def _agent_json(a: AgentPlan, directory: Path) -> dict[str, object]:
+    """The plan's agent section; the policy is written once per distinct
+    file, named by its hash, so many flows can share one."""
+    name = f"policy-{hashlib.sha256(a.policy_onnx).hexdigest()[:16]}.onnx"
+    (directory / name).write_bytes(a.policy_onnx)
+    return {
+        "policy_file": name,
+        "noise_sigma": a.noise_sigma,
+        "noise_seed": a.noise_seed,
+        "noise_hold": a.noise_hold,
+    }
+
+
+def _cross_json(c: CrossPlan, directory: Path) -> dict[str, object]:
     match c:
-        case TcpCrossPlan(cc, start, stop):
-            return {"kind": "tcp", "cc": cc, "start_ms": start, "stop_ms": stop}
+        case TcpCrossPlan(cc, start, stop, agent):
+            return {
+                "kind": "tcp",
+                "cc": cc,
+                "start_ms": start,
+                "stop_ms": stop,
+                "agent": None if agent is None else _agent_json(agent, directory),
+            }
         case UdpCrossPlan(rate, start, stop):
             return {"kind": "udp_cbr", "rate_bps": rate, "start_ms": start, "stop_ms": stop}

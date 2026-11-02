@@ -1,4 +1,5 @@
-//! Sage's control step (contract sage-v1) for the observed flow.
+//! Sage's control step (contract sage-v1) for one TCP flow: the observed
+//! flow, or a competing flow driven by its own policy.
 //!
 //! Every 10 ms of virtual time the step loop reads TCP_INFO from the sender
 //! socket; once the ACK state has moved (bytes acked or packets delivered),
@@ -43,7 +44,7 @@ use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::net::TcpStream;
-use std::os::fd::AsFd;
+use std::os::fd::{AsFd, AsRawFd};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -56,7 +57,7 @@ pub const OBS: usize = 78;
 pub const INFO_LEN: usize = 224;
 /// t_us, tcp_info, obs, action, cwnd, pad, truth: see src/expliccit_env/steps.py.
 pub const RECORD_LEN: usize = 8 + INFO_LEN + 8 * OBS + 8 + 4 + 4 + 8 * truth::N;
-const AGENT_ABI: u32 = 1;
+const AGENT_ABI: u32 = 2;
 const REPORT_PERIOD_US: u64 = 10_000;
 /// Sage busy-polls until the ACK state moves; here the loop sleeps this long
 /// between polls instead. ponytail: 1 ms resolution after an idle period.
@@ -612,18 +613,21 @@ impl Window {
     }
 }
 
+/// struct expl_agent_action (kernel/modules/expliccit_rec.h) for the socket
+/// `fd` of this process.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-fn agent_action(cwnd: u32, info: &Info) -> [u8; 16] {
+fn agent_action(fd: i32, cwnd: u32, info: &Info) -> [u8; 24] {
     let pacing = match info.rtt() {
         0 => 0, // unpaced until the first RTT sample
         srtt => {
             (f64::from(cwnd) * f64::from(info.snd_mss()) * 1e6 / f64::from(srtt) * PACE_COEF / 100.0) as u64
         }
     };
-    let mut b = [0u8; 16];
+    let mut b = [0u8; 24];
     b[0..4].copy_from_slice(&AGENT_ABI.to_ne_bytes());
-    b[4..8].copy_from_slice(&cwnd.to_ne_bytes());
-    b[8..16].copy_from_slice(&pacing.to_ne_bytes());
+    b[4..8].copy_from_slice(&fd.to_ne_bytes());
+    b[8..12].copy_from_slice(&cwnd.to_ne_bytes());
+    b[16..24].copy_from_slice(&pacing.to_ne_bytes());
     b
 }
 
@@ -632,27 +636,53 @@ pub struct Steps {
     pub actions: u64,
 }
 
-/// Run steps from `start_ns` until `end_ns` (or `stop`), writing every step
-/// to `out` and, with a policy, acting after each one.
-#[allow(clippy::too_many_arguments)]
-pub fn spawn(
-    stream: Arc<TcpStream>,
-    mut policy: Option<Policy>,
+/// One flow's step loop, set up before its thread starts so that a file or
+/// device that cannot be opened fails the episode at once.
+pub struct Loop {
+    file: File,
+    dev: Option<File>,
+    policy: Option<Policy>,
     truth: Truth,
-    out: &Path,
+    /// The flow's sender port, which its truth input is computed for.
+    sport: u16,
     start_ns: u64,
     base_ns: u64,
     end_ns: u64,
     stop: Arc<AtomicBool>,
-) -> Result<JoinHandle<Result<Steps>>> {
-    let file = File::create(out).ctx(format!("creating {}", out.display()))?;
-    let mut dev = match policy {
-        Some(_) => Some(File::options().write(true).open("/dev/expl_agent").ctx("opening /dev/expl_agent")?),
-        None => None,
-    };
-    std::thread::Builder::new()
-        .name("steps".into())
-        .spawn(move || -> Result<Steps> {
+    /// Let the kernel finish the step's instant before reading the truth.
+    settle: bool,
+}
+
+impl Loop {
+    /// Steps from `start_ns` until `end_ns` (or `stop`), each written to
+    /// `out` and, with a policy, acted on.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        out: &Path,
+        policy: Option<Policy>,
+        truth: Truth,
+        sport: u16,
+        start_ns: u64,
+        base_ns: u64,
+        end_ns: u64,
+        stop: Arc<AtomicBool>,
+        settle: bool,
+    ) -> Result<Loop> {
+        let file = File::create(out).ctx(format!("creating {}", out.display()))?;
+        let dev = match policy {
+            Some(_) => {
+                Some(File::options().write(true).open("/dev/expl_agent").ctx("opening /dev/expl_agent")?)
+            }
+            None => None,
+        };
+        Ok(Loop { file, dev, policy, truth, sport, start_ns, base_ns, end_ns, stop, settle })
+    }
+
+    /// Run the loop on `stream`, the flow's sender socket.
+    pub fn run(self, stream: &TcpStream) -> Result<Steps> {
+        let Loop { file, mut dev, mut policy, truth, sport, start_ns, base_ns, end_ns, stop, settle } = self;
+        let fd = stream.as_raw_fd();
+        {
             let mut w = BufWriter::new(file);
             let start_us = start_ns / 1000;
             let end_us = end_ns / 1000;
@@ -667,8 +697,18 @@ pub fn spawn(
             let mut poll = start_us + REPORT_PERIOD_US;
             while poll < end_us && !stop.load(Ordering::Acquire) {
                 sys::sleep_until(poll * 1000);
-                let info = read_info(&stream)?;
-                let now = sys::monotonic_ns() / 1000;
+                let info = read_info(stream)?;
+                let now_ns = sys::monotonic_ns();
+                let now = now_ns / 1000;
+                // With several step loops, softirq work at this instant can
+                // overflow to ksoftirqd and run after this thread, so its
+                // link records would be drained late. Sleeping 1 ns lets
+                // the instant finish first; the truth is still taken at
+                // `now`. One loop never needs it (docs/validation.md), and
+                // skipping it keeps single-agent episodes as they were.
+                if settle {
+                    sys::sleep_until(now_ns + 1);
+                }
                 if policy.is_none() {
                     ratio = f64::from(info.snd_cwnd()) / pre_cwnd;
                 }
@@ -679,7 +719,7 @@ pub fn spawn(
                 if policy.is_none() {
                     pre_cwnd = f64::from(info.snd_cwnd());
                 }
-                let true_state = truth.at(now * 1000, base_ns)?;
+                let true_state = truth.at(now * 1000, base_ns, sport)?;
                 let (mut a, mut cwnd) = (f64::NAN, 0u32);
                 if let (Some(p), Some(dev)) = (policy.as_mut(), dev.as_mut()) {
                     let act = f64::from(p.act(&obs, &true_state, info.snd_cwnd())?);
@@ -694,7 +734,7 @@ pub fn spawn(
                     a = (act + p.sigma * p.held).clamp(-f64::from(MAX_ACTION), f64::from(MAX_ACTION));
                     ratio = 2f64.powf(a);
                     cwnd = window.apply(ratio);
-                    dev.write_all(&agent_action(cwnd, &info)).ctx("writing action")?;
+                    dev.write_all(&agent_action(fd, cwnd, &info)).ctx("writing action")?;
                     actions += 1;
                 }
                 let mut rec = Vec::with_capacity(RECORD_LEN);
@@ -714,6 +754,11 @@ pub fn spawn(
             }
             w.flush().ctx("steps.bin")?;
             Ok(Steps { count, actions })
-        })
-        .ctx("spawning step loop")
+        }
+    }
+}
+
+/// Run `lp` on `stream` in a thread named `name`.
+pub fn spawn(name: &str, lp: Loop, stream: Arc<TcpStream>) -> Result<JoinHandle<Result<Steps>>> {
+    std::thread::Builder::new().name(name.into()).spawn(move || lp.run(&stream)).ctx("spawning step loop")
 }
