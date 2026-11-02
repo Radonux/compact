@@ -49,6 +49,14 @@ under two loss conditions:
 It plans 288 episodes. Without the loss condition, its 144 twenty-second
 episodes take 30 s on 4 cores and give 283k steps.
 
+`"ccs_per_point": k` runs only k of the controllers on each sweep point
+(the same k under every condition), drawn with the campaign's seed. An
+estimator learns more from many links with a few controllers each than
+from a few links with every controller: with too few links, net1 can
+recognize a link (its min RTT nearly names it) and recall its capacity
+and buffer. `examples/net1_varied.py` writes net1's data this way: every
+controller on 180 links, and 3 of them on each of 1,050 more.
+
 ## 2. Train
 
     uv sync --extra train

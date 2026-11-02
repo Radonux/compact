@@ -1,5 +1,7 @@
-"""Write the net1 v3 dataset's campaign (examples/campaign-net1-varied.json)
-and its four delay-threshold policies (examples/policies/threshold-*.onnx).
+"""Write the net1 v3 dataset's campaigns (examples/campaign-net1-varied.json,
+every controller on 180 links; examples/campaign-net1-links.json, 3 of them
+on each of 1,050 more) and the four delay-threshold policies
+(examples/policies/threshold-*.onnx).
 
 Run from the repository root: uv run python examples/net1_varied.py
 
@@ -10,10 +12,12 @@ smoothed RTT (message column 66) falls below theta, then shrinks it by
 base RTTs, from 0.11 (theta 0.9) to 9 (theta 0.1). A buffer here holds 0.25
 to 4 base RTTs of queue, so theta 0.3 backs off only on the largest buffers
 and theta 0.1 never does: both keep the queue full and lose most of their
-packets, states no kernel controller reaches. The 180 links are sampled, each with its own capacity, delay and buffer, so a
-held-out link is a new combination; every link runs under three
-conditions, and train with split_by "link" keeps all of a link's episodes
-in one split.
+packets, states no kernel controller reaches.
+
+Every link is sampled with its own capacity, delay and buffer, so a
+held-out link is a new combination. Each runs under three conditions
+(clean, cross traffic, 1% random loss), and training with split_by "link"
+keeps all of a link's episodes in one split.
 """
 
 from __future__ import annotations
@@ -104,6 +108,17 @@ def main() -> None:
         "steps": True,
     }  # fmt: skip
     (ROOT / "campaign-net1-varied.json").write_text(json.dumps(campaign, indent=1) + "\n")
+    # Breadth: 1,050 more links, each with 3 of the 21 controllers. With every
+    # controller on 180 links, net1 learned to recognize a training link
+    # (its min RTT nearly names it) and recall its capacity and buffer;
+    # many independently drawn links leave no such shortcut.
+    links = campaign | {
+        "name": "net1-links",
+        "sweep": {"kind": "paths", "paths": paths(1050, np.random.default_rng(2027))},
+        "ccs_per_point": 3,
+        "seed": 2027,
+    }
+    (ROOT / "campaign-net1-links.json").write_text(json.dumps(links, indent=1) + "\n")
 
 
 if __name__ == "__main__":

@@ -397,33 +397,47 @@ class CampaignSpec(_Frozen):
         default_factory=lambda: [Condition()]
     )
     replicates: PositiveInt = 1
+    # Run only this many of the ccs on each sweep point (the same ones under
+    # every condition), drawn with the campaign's seed: breadth over paths
+    # instead of every controller on every path, for estimator data.
+    ccs_per_point: PositiveInt | None = None
     steps: bool = False
     duration_ms: PositiveInt = 20_000
     seed: Annotated[int, Field(ge=0, lt=U64)] = 0
     sysctls: dict[str, str] = Field(default_factory=dict[str, str])
+
+    @model_validator(mode="after")
+    def _subset(self) -> CampaignSpec:
+        if self.ccs_per_point is not None and self.ccs_per_point > len(self.ccs):
+            raise ValueError(f"ccs_per_point {self.ccs_per_point} exceeds the {len(self.ccs)} ccs")
+        return self
 
     @classmethod
     def parse(cls, text: str) -> CampaignSpec:
         return cls.model_validate_json(text)
 
     def episodes(self) -> list[EpisodeSpec]:
-        """Deterministic expansion: points x conditions x ccs x replicates,
-        each with its own seed drawn from the campaign seed."""
+        """Deterministic expansion: points x conditions x ccs (or each
+        point's subset of them) x replicates, each with its own seed drawn
+        from the campaign seed."""
         rng = np.random.default_rng(self.seed)
         paths = paths_of(self.sweep, rng)
         out: list[EpisodeSpec] = []
-        for path, cond, cc, _ in itertools.product(
-            paths, self.conditions, self.ccs, range(self.replicates)
-        ):
-            out.append(
-                EpisodeSpec(
-                    path=path.model_copy(update={"loss": cond.loss}),
-                    cc=cc,
-                    duration_ms=self.duration_ms,
-                    seed=int(rng.integers(0, U64, dtype=np.uint64)),
-                    sysctls=self.sysctls,
-                    cross=cond.cross,
-                    steps=self.steps,
+        for path in paths:
+            ccs = self.ccs
+            if self.ccs_per_point is not None:
+                pick = rng.choice(len(self.ccs), self.ccs_per_point, replace=False)
+                ccs = [self.ccs[int(i)] for i in np.sort(pick)]
+            for cond, cc, _ in itertools.product(self.conditions, ccs, range(self.replicates)):
+                out.append(
+                    EpisodeSpec(
+                        path=path.model_copy(update={"loss": cond.loss}),
+                        cc=cc,
+                        duration_ms=self.duration_ms,
+                        seed=int(rng.integers(0, U64, dtype=np.uint64)),
+                        sysctls=self.sysctls,
+                        cross=cond.cross,
+                        steps=self.steps,
+                    )
                 )
-            )
         return out
