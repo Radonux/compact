@@ -5,17 +5,17 @@ result, and what has not run. A check ran in this environment unless it
 says CI. Anything not run is marked UNRUN.
 
 Every check below that names a test is part of the test suite, and the
-suite passed in its last full run (M13), apart from the two Sage
+suite passed in its last full run (M14), apart from the two Sage
 comparisons. A test asserts its property, not the exact numbers quoted
 next to it; those numbers come from the run of the milestone where the
 entry was written. Entries without a test are one-off runs, each tied to
 its milestone; they describe the build of that milestone, not necessarily
 the current one.
 
-## Summary (M13, 2026-10-31)
+## Summary (M14, 2026-11-02)
 
-The suite has 78 tests: 54 unit tests and 24 that need a UML build. In the
-last full run, 76 passed. The other 2 are the comparisons of Sage's step
+The suite has 85 tests: 60 unit tests and 25 that need a UML build. In the
+last full run (CI, at commit 0d89c7f), 83 passed. The other 2 are the comparisons of Sage's step
 with `sage.cc` (`test_step_matches_sage_cc`), which skipped: UNRUN.
 
 The passing tests show that:
@@ -29,6 +29,9 @@ The passing tests show that:
 - the closed loop applies Sage's window rule exactly, and a policy acts on
   exactly the message and the truth that its step recorded;
 - the truth a policy can read equals the host's labels at every step.
+- a distribution net1 states calibrated probabilities on data with known
+  noise, and its exported policy, patched or not, runs in the guest as
+  torch computes it.
 
 A one-off check (M6, repeated at M7) showed that adding BBRv3 left seeded
 Cubic and BBRv1 episodes byte-identical.
@@ -395,6 +398,36 @@ toolchain-selection bug in `build-guest.sh`, since fixed. Before the agent
 controllers were added, the tripwire was run once locally on kernel.org
 mainline 7.3.0 plus our patches: the patches applied, the modules built,
 and 6 UML tests passed.
+
+## net1 as a distribution per LCF (M14)
+
+`tests/test_train.py`: quantiles read off a binned distribution match a
+uniform and a one-bin distribution; bins are equal for a fraction and
+log-spaced for a rate, with a bin for zero; CRPS matches its known
+values (1/12 for a uniform scored at its centre, the absolute error for a
+point forecast); on synthetic data with a known noise, a distribution
+net1 covers the truth at the nominal rates (within 0.05 at 50% and 90%)
+and gains between 0.6 and 1.1 bits, against at most 1.04 that the noise
+allows; a distribution net1 saves and loads exactly, feeds net2, and a
+truth patch puts all probability on the true value's bin while a NaN
+truth keeps net1's belief; an online spec whose net2 reads the truth is
+rejected. `tests/test_truth.py`: an exported distribution policy with a
+patched LCF acts in the guest as torch computes it (within 1e-6).
+
+Runs at scale, with a harness kept outside the repository (results in
+`docs/training.md`, section 7, "net1 on held-out paths"): 42 tuning runs
+on the teacher data and 8 seed runs. Three runs in parallel exceeded the
+container's 15 GB (about 6.3 GB each, 7.3 GB with 128 bins), so the runs
+went two at a time, and the 128-bin ones alone; the killed runs were
+rerun, and none of them produced a result. A container restart stopped
+the search once; it resumed from the finished runs.
+
+Two scoring mistakes were found during the search and fixed before any
+result was taken: coverage was first tested against exact values inside
+a bin, which fails for quantities that take a few exact values (capacity
+levels, one-way delays), and is now tested on bins; and the log score was
+first used to compare different numbers of bins, which favours coarse
+bins, and CRPS now makes that choice.
 
 ## Not run (and why)
 

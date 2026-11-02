@@ -180,7 +180,7 @@ Run every check at once:
     git clone https://github.com/Ppazhooh/mahak /tmp/mahak && git -C /tmp/mahak checkout 5077583
     EXPLICCIT_UML_DIR=build/uml EXPLICCIT_MAHAK_DIR=/tmp/mahak uv run pytest -q
 
-Of the 78 tests, 76 run and pass. The other 2 compare our port of Sage's
+Of the 85 tests, 83 run and pass. The other 2 compare our port of Sage's
 step with `sage.cc`'s own code; they need a Sage checkout and g++ and are
 UNRUN. CI runs the same checks on every push, split across jobs
 (`.github/workflows/ci.yml`).
@@ -230,10 +230,13 @@ expliCCit's case study, which traces under-utilization to a capacity
 belief 25% too low, did not reproduce: here the released policy's capacity
 belief is about right.
 
-**Results so far.** An interval version of net1 (one seed) reaches 0.84
-to 0.91 coverage at a nominal 0.90 for six LCFs, and 0.76 for mean
-queueing delay. Its capacity interval is 3.6 Mbit/s wide where the link is
-kept busy and 40.3 Mbit/s where it is not.
+**Results so far.** net1 now states a probability distribution for each
+LCF. Tuned and checked over three seeds, it is at least as accurate on the
+held-out test paths as a single-value or interval net1 on six of the seven
+LCFs, and its 90% statements hold 88.7% to 90.2% of the time on those six,
+whether or not the link is kept busy. Capacity is stated to within 1.4
+Mbit/s when the link is kept busy and 14.9 Mbit/s when it is not. Free
+buffer stays unpredictable, and net1 is over-confident about it.
 
 Learned controllers are compared by utility, the trainer's reward:
 utilization minus penalties on queueing delay and drops

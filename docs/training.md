@@ -349,34 +349,75 @@ Intervals in brackets are 95% bootstraps.
 
 ### net1 on held-out paths
 
-The point net1 is expliCCit's encoder with robust scaling, trained with
-one seed and stopped early after 4 epochs. On held-out paths:
+Three kinds of net1, each tuned on the validation paths, then trained with
+three seeds and scored once on the test paths: a single value per LCF
+(squared error), an interval per LCF (section 5), and a distribution per
+LCF (section 5).
 
-| LCF | point net1 R^2 | interval net1 coverage (nominal 0.90) |
-|---|---|---|
-| mean queueing delay | 0.988 | 0.76 |
-| queue | 0.986 | 0.91 |
-| capacity | 0.953 | 0.89 |
-| free buffer | 0.09 | 0.89 |
-| busy fraction | 0.45 | 0.84 |
-| one-way delay | 0.992 | 0.88 |
-| receive rate | 0.993 | 0.89 |
+What was searched (expliCCit's encoder; up to 12 epochs, stopping after 3
+without improvement):
 
-The interval net1 was also trained with one seed. For mean queueing
-delay, the correction fitted on the validation paths does not carry over
-to the test paths. The centres keep the point net1's accuracy (R^2 0.957
-capacity, 0.980 queue, 0.981 mean queueing delay), and the widths show
-the identifiability limit directly:
+- distribution: 16, 32 and 64 bins, each with width 256 or 512, dropout
+  0.1 or 0.3, and learning rate 1e-3 or 3e-4; 128 bins with width 256 or
+  512, dropout 0.1 and learning rate 1e-3;
+- single value and interval: the same widths, dropouts and learning
+  rates.
 
-| LCF | width, link busy (busy fraction >= 0.95) | width, link not busy (< 0.8) |
-|---|---|---|
-| capacity | 3.6 Mbit/s | 40.3 Mbit/s |
-| receive rate | 3.2 Mbit/s | 20.1 Mbit/s |
-| busy fraction | 0.017 | 0.50 |
-| free buffer | 573 packets | 640 packets |
+Each kind's settings were chosen by its own validation loss. The number of
+bins was chosen by the mean CRPS skill on the validation paths: 0.726 for
+16 bins, 0.777 for 32, 0.811 for 64 and 0.822 for 128. The gain per
+doubling fell from 0.051 to 0.011; 256 bins are UNRUN. The winners all
+use width 512 and learning rate 1e-3, with dropout 0.3 for the single
+value and 0.1 for the others; the distribution has 128 bins.
 
-When the sender does not fill the link, net1 reports that it does not
-know the capacity. Free buffer stays unidentified either way (R^2 0.02).
+Test paths, means over three seeds:
+
+| LCF | R^2: value, interval, distribution | value's MAE; distribution's CRPS | 90% coverage: interval, distribution | distribution's 90% width, link busy / not busy | information (bits) |
+|---|---|---|---|---|---|
+| mean queueing delay (ms) | 0.987, 0.997, 0.997 | 6.07; 1.13 | 0.84, 0.89 | 8.4 / 2.9 | 4.8 |
+| queue (packets) | 0.987, 0.996, 0.997 | 15.3; 3.40 | 0.89, 0.89 | 21.1 / 11.2 | 3.7 |
+| capacity (Mbit/s) | 0.956, 0.967, 0.975 | 2.15; 0.62 | 0.89, 0.90 | 1.4 / 14.9 | 2.0 |
+| free buffer (packets) | 0.06, -0.06, -0.00 | 235; 175 | 0.80, 0.73 | 368 / 483 | 1.8 |
+| busy fraction | 0.53, 0.67, 0.77 | 0.015; 0.007 | 0.81, 0.90 | 0.017 / 0.34 | 0.56 |
+| one-way delay (ms) | 0.993, 0.999, 0.999 | 0.78; 0.12 | 0.89, 0.90 | 0.34 / 1.08 | 2.0 |
+| receive rate (Mbit/s) | 0.995, 0.998, 0.998 | 1.38; 0.41 | 0.92, 0.90 | 1.5 / 12.6 | 2.6 |
+
+The distribution's R^2 is that of its mean, the estimate squared error
+rewards; for a single value, CRPS equals the absolute error, so the two
+error columns are on one scale. "Link busy" means busy fraction at least
+0.95, "not busy" below 0.8. Information is the log score gained over a
+forecast that ignores the measurements. Across seeds, the standard
+deviation of R^2 is at most 0.01, except busy fraction (up to 0.04) and
+free buffer (up to 0.10); that of coverage is at most 0.016, except the
+interval net1's on mean queueing delay, busy fraction and one-way delay
+(0.03 to 0.04).
+
+Reading:
+
+- The distribution is at least as accurate as both other kinds on every
+  LCF but free buffer, and its CRPS is 3 to 6 times lower than the single
+  value's absolute error.
+- It is honest on six LCFs: its 90% statements held 88.7% to 90.2% of
+  the time on the test paths, on busy and idle links alike (on idle links
+  it is slightly under-confident about busy fraction and receive rate,
+  0.95 to 0.96). The interval net1's correction, fitted on the validation
+  paths, did not carry over for mean queueing delay (0.84) and busy
+  fraction (0.81).
+- Free buffer is the exception: no kind predicts it (R^2 near 0), and the
+  distribution is over-confident about it (0.73 at 90%). A plausible
+  reading is that free buffer depends on the buffer size, which these
+  measurements reveal only when the queue fills, and the test paths have
+  buffer sizes the training paths do not; the log score teaches the
+  uncertainty the measurements leave, not uncertainty about unfamiliar
+  paths. The plan replaces free buffer by buffer size and queue, and adds
+  an ensemble (`docs/methodology.md`, section 3).
+- The widths show the identifiability limit: capacity is known to within
+  1.4 Mbit/s (90%) when the link is kept busy and to within 14.9 Mbit/s
+  when it is not.
+
+These runs used a harness kept outside the repository; `train run` with
+`"net1": {"bins": 128, "width": 512, "dropout": 0.1}` trains the
+winner.
 
 expliCCit's released net1 was scored on all 283k steps of the
 144-episode campaign of section 1 (without the loss condition), none of
