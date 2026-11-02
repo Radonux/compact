@@ -2,6 +2,9 @@
 
 import importlib.util
 import json
+import os
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -58,3 +61,21 @@ def test_an_inline_experiment_is_named_by_its_name_field() -> None:
     assert experiment.load('{"name": "adhoc-1", "shards": 1, "run": "true"}')[0] == "adhoc-1"
     with pytest.raises(SystemExit):
         experiment.load('{"shards": 1, "run": "true"}')
+
+
+@pytest.mark.skipif(shutil.which("zstd") is None, reason="needs zstd (GitHub's runners have it)")
+def test_unpack_joins_each_packed_result_and_moves_other_files(tmp_path: Path) -> None:
+    src, dest = tmp_path / "src", tmp_path / "dest"
+    src.mkdir()
+    for name in ("a", "b"):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / f"{name}.txt").write_text(name * 100)
+        pack = 'tar -C "$DIR" -cf - . | zstd -q | split -b 64 -d -a 3 - "$NAME.tar.zst.part-"'
+        env = os.environ | {"DIR": str(tmp_path / name), "NAME": name}
+        subprocess.run(["bash", "-euo", "pipefail", "-c", pack], cwd=src, env=env, check=True)
+    assert len(list(src.glob("a.tar.zst.part-*"))) > 1  # the test packs in several parts
+    (src / "NOTES.md").write_text("notes")
+    experiment.unpack(src, dest)
+    assert sorted(p.name for p in dest.iterdir()) == ["NOTES.md", "a.txt", "b.txt"]
+    assert (dest / "a.txt").read_text() == "a" * 100
+    assert not list(src.iterdir())

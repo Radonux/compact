@@ -158,19 +158,22 @@ def plan(source: str, name: str, exp: Experiment) -> None:
 
 
 def unpack(src: Path, dest: Path) -> None:
-    """Move src's files into dest, joining and unpacking any packed result."""
+    """Move src's files into dest, joining and unpacking any packed result
+    (one per NAME.tar.zst.part-* group), and delete the parts once unpacked."""
     dest.mkdir(parents=True, exist_ok=True)
     parts = sorted(src.glob("*.tar.zst.part-*"))
-    if parts:
+    for prefix in sorted({p.name.rsplit(".part-", 1)[0] for p in parts}):
+        group = [p for p in parts if p.name.rsplit(".part-", 1)[0] == prefix]
         script = 'cat "$@" | zstd -dcq | tar -x -C "$DEST"'
         subprocess.run(
-            ["bash", "-c", script, "_", *map(str, parts)],
+            ["bash", "-c", script, "_", *map(str, group)],
             env={**os.environ, "DEST": str(dest)},
             check=True,
         )
+        for p in group:
+            p.unlink()
     for f in src.iterdir():
-        if f not in parts:
-            f.rename(dest / f.name)
+        f.rename(dest / f.name)
 
 
 def fetch(exp: Experiment) -> None:
