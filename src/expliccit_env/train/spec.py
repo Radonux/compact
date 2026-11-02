@@ -154,8 +154,12 @@ class TrainSpec(_Frozen):
     spec_version: Literal[1] = 1
     # Directories searched recursively for steps.parquet (campaign outputs).
     data: Annotated[list[Path], Field(min_length=1)]
-    # Episodes on one path (everything in the spec but cc and seed) stay in
-    # one split, so no path is both trained and tested on.
+    # Episodes on one path stay in one split, so no path is both trained and
+    # tested on. "spec": a path is everything in the spec but cc and seed;
+    # "link": the bottleneck link alone, so a link seen in training under
+    # one condition (cross traffic, random loss) is never tested under
+    # another.
+    split_by: Literal["spec", "link"] = "spec"
     val_fraction: Annotated[float, Field(ge=0, lt=1)] = 0.1
     test_fraction: Annotated[float, Field(ge=0, lt=1)] = 0.1
     seed: Annotated[int, Field(ge=0)] = 0

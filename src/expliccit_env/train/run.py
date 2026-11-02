@@ -29,6 +29,7 @@ def train(spec: TrainSpec, out: Path) -> dict[str, Any]:
         test=spec.test_fraction,
         controllers=spec.controllers,
         stride=spec.step_stride,
+        split_by=spec.split_by,
     )
     if spec.net1_from is None:
         net1, net1_log = fit.fit_net1(spec.net1, steps, spec.seed)

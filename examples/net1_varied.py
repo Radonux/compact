@@ -6,10 +6,14 @@ Run from the repository root: uv run python examples/net1_varied.py
 The policies make net1's data cover states the kernel's controllers rarely
 reach: each grows the window by 2^0.01 per 10 ms step until min RTT over
 smoothed RTT (message column 66) falls below theta, then shrinks it by
-2^0.05 per step, so each holds a different standing queue (theta 0.9: a
-tenth of the base RTT; 0.1: about nine times it). The paths are sampled,
-each with its own capacity, delay and buffer, so held-out paths are new
-combinations.
+2^0.05 per step, so each aims at a different standing queue: (1/theta - 1)
+base RTTs, from 0.11 (theta 0.9) to 9 (theta 0.1). A buffer here holds 0.25
+to 4 base RTTs of queue, so theta 0.3 backs off only on the largest buffers
+and theta 0.1 never does: both keep the queue full and lose most of their
+packets, states no kernel controller reaches. The 180 links are sampled, each with its own capacity, delay and buffer, so a
+held-out link is a new combination; every link runs under three
+conditions, and train with split_by "link" keeps all of a link's episodes
+in one split.
 """
 
 from __future__ import annotations
@@ -86,7 +90,7 @@ def main() -> None:
     campaign = {
         "name": "net1-varied",
         "ccs": ccs,
-        "sweep": {"kind": "paths", "paths": paths(60, rng)},
+        "sweep": {"kind": "paths", "paths": paths(180, rng)},
         "conditions": [
             {},
             {"cross": [

@@ -76,7 +76,11 @@ class Net1:
         if isinstance(self.net, BinNet1):
             b = self.net.bounds.numpy()
             mid = ((b[:, :-1] + b[:, 1:]) / 2).astype(np.float32)
-            return (self.distributions(obs) * mid).sum(axis=2, dtype=np.float32)
+            means = [
+                (self.distributions(obs[i : i + _EVAL_BATCH]) * mid).sum(axis=2, dtype=np.float32)
+                for i in range(0, obs.shape[0], _EVAL_BATCH)
+            ]
+            return np.concatenate(means) if means else np.zeros((0, self.net.k), np.float32)
         z = self.beliefs(obs)[:, : len(self.lcfs)]
         return self.lcf_scaler.inverse(torch.from_numpy(np.ascontiguousarray(z))).numpy()
 
@@ -96,7 +100,18 @@ class Net1:
 
 def quantiles(p: F32, bounds: F32, qs: tuple[float, ...]) -> F32:
     """[n, K, len(qs)] quantiles of binned distributions [n, K, B] with bin
-    boundaries [K, B + 1], the mass spread evenly within each bin."""
+    boundaries [K, B + 1], the mass spread evenly within each bin. Rows go
+    in batches, so memory does not grow with n * K * B."""
+    out = np.empty((*p.shape[:2], len(qs)), np.float32)
+    for i in range(0, p.shape[0], _QUANTILE_BATCH):
+        out[i : i + _QUANTILE_BATCH] = _quantiles(p[i : i + _QUANTILE_BATCH], bounds, qs)
+    return out
+
+
+_QUANTILE_BATCH: Final = 8192
+
+
+def _quantiles(p: F32, bounds: F32, qs: tuple[float, ...]) -> F32:
     p64 = p.astype(np.float64)
     upto = np.cumsum(p64, axis=2)
     out = np.empty((*p.shape[:2], len(qs)))
@@ -252,13 +267,13 @@ def _report_distributions(
     is accurate to one bin."""
     assert isinstance(net1.net, BinNet1)
     bounds = net1.net.bounds.numpy()
-    p = net1.distributions(steps.obs[rows]).astype(np.float64)
+    p = net1.distributions(steps.obs[rows])  # float32; one LCF at a time in float64
     y = targets(steps, net1.lcfs)
     with torch.no_grad():
         idx = net1.net.bin_of(torch.from_numpy(np.nan_to_num(y))).numpy()
     train = steps.rows("train") if steps.rows("train").any() else np.ones_like(rows)
     qs = sorted({q for lv in _LEVELS for q in ((1 - lv) / 2, (1 + lv) / 2)})
-    qv = quantiles(p.astype(np.float32), bounds, tuple(qs))
+    qv = quantiles(p, bounds, tuple(qs))
     busy = steps.labels["busy_fraction"][rows]
     rng = np.random.default_rng(0)
     out: dict[str, dict[str, Any]] = {}
@@ -267,21 +282,22 @@ def _report_distributions(
         if not ok.any():
             continue
         i = idx[rows, k]
+        pk64 = p[:, k].astype(np.float64)
         seen = np.isfinite(y[train, k])
         clim = np.bincount(idx[train, k][seen], minlength=net1.net.b) + 1.0
         clim = clim / clim.sum()
-        p_true = np.take_along_axis(p[:, k], i[:, None], 1)[:, 0]
+        p_true = np.take_along_axis(pk64, i[:, None], 1)[:, 0]
         nll = -np.log(np.clip(p_true, 1e-12, None))
-        below = np.take_along_axis(np.cumsum(p[:, k], 1), i[:, None], 1)[:, 0] - p_true
+        below = np.take_along_axis(np.cumsum(pk64, 1), i[:, None], 1)[:, 0] - p_true
         u = below + rng.uniform(size=p_true.size) * p_true
-        ent = -(p[:, k] * np.log2(np.clip(p[:, k], 1e-12, None))).sum(axis=1)
+        ent = -(pk64 * np.log2(np.clip(pk64, 1e-12, None))).sum(axis=1)
 
         inside = {lv: np.abs(u - 0.5) <= lv / 2 for lv in _LEVELS}
         width90 = qv[:, k, qs.index((1 + 0.9) / 2)] - qv[:, k, qs.index((1 - 0.9) / 2)]
         cov = {str(lv): _mean_where(inside[lv].astype(np.float64), ok) for lv in _LEVELS}
         clim_nll = _mean_where(-np.log(clim[i]), ok)
         t = np.where(ok, y[rows, k], 0).astype(np.float32)[:, None]
-        pk, bk = p[:, k : k + 1].astype(np.float32), bounds[k : k + 1]
+        pk, bk = p[:, k : k + 1], bounds[k : k + 1]
         score = crps(pk, bk, t)[:, 0]
         clim_p = np.broadcast_to(clim.astype(np.float32), pk.shape)
         clim_crps = _mean_where(crps(clim_p, bk, t)[:, 0], ok)
@@ -372,9 +388,7 @@ def fit_net1(spec: Net1Spec, steps: Steps, seed: int) -> tuple[Net1, dict[str, A
             one = BinNet1([member], net.k, net.b)
             one.bounds.copy_(net.bounds)
             runs.append(_train(one, spec, (xt, yt, mt), (xv, yv, mv), seed + i))
-        net.eval()
-        with torch.no_grad():
-            ensemble = float(_loss(net, spec, xv, yv, mv)) if xv.shape[0] else float("nan")
+        ensemble = _val_loss(net, spec, xv, yv, mv)
         log = {"val_loss": runs[0], "members_val_loss": runs, "ensemble_val_loss": ensemble}
     else:
         log = {"val_loss": _train(net, spec, (xt, yt, mt), (xv, yv, mv), seed)}
@@ -395,6 +409,23 @@ def _loss(
     if spec.intervals:
         return _masked_pinball(net(x), y, m, spec.coverage)
     return _masked_mse(net(x), y, m)
+
+
+@torch.no_grad()
+def _val_loss(
+    net: nn.Module, spec: Net1Spec, x: torch.Tensor, y: torch.Tensor, m: torch.Tensor
+) -> float:
+    """_loss over all rows, in batches so memory does not grow with the
+    validation set. Each _loss is a masked sum over its rows' mask sum, so
+    weighting a batch by its mask sum gives the loss over all rows."""
+    if not x.shape[0]:
+        return float("nan")
+    net.eval()
+    total = 0.0
+    for i in range(0, x.shape[0], _EVAL_BATCH):
+        b = slice(i, i + _EVAL_BATCH)
+        total += float(_loss(net, spec, x[b], y[b], m[b])) * float(m[b].sum())
+    return total / max(float(m.sum()), 1.0)
 
 
 def _train(
@@ -423,9 +454,7 @@ def _train(
             loss.backward()
             nn.utils.clip_grad_norm_(net.parameters(), 1.0)
             opt.step()
-        net.eval()
-        with torch.no_grad():
-            val_loss = float(_loss(net, spec, xv, yv, mv)) if xv.shape[0] else float("nan")
+        val_loss = _val_loss(net, spec, xv, yv, mv)
         history.append(val_loss)
         if val_loss < best:
             best, best_state, stale = val_loss, copy.deepcopy(net.state_dict()), 0

@@ -104,6 +104,11 @@ costs no delay. Every utility on this page uses the default weights.
 
 Splits are by path. Episodes that differ only in congestion control or
 seed land in the same split, so no path is both trained and tested on.
+With `"split_by": "link"`, a path is the bottleneck link alone (capacity
+trace, delay, buffer): its episodes under every cross-traffic and loss
+condition share one split, so a test link is new to net1. `step_stride`
+keeps every n-th step of each episode, which bounds memory on large
+campaigns; steps 10 ms apart are strongly correlated anyway.
 
 Output: `net1.pt`, `net2.pt`, `policy.onnx` (contract `sage-v1`),
 `report.json` and the spec. The report has net1's error per LCF on the

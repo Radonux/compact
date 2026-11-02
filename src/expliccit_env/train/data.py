@@ -18,6 +18,10 @@ from expliccit_env.policy import OBS_DIM
 
 type F32 = npt.NDArray[np.float32]
 type Split = Literal["train", "val", "test"]
+# What keeps episodes in one split: "spec" is everything in the episode spec
+# but cc and seed; "link" is the bottleneck link alone (capacity trace,
+# delay, buffer, uplink trace), whatever the cross traffic or random loss.
+type SplitBy = Literal["spec", "link"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,8 +40,13 @@ class Steps:
         return self.split == split
 
 
-def _path_key(spec_json: str) -> str:
+_COLUMNS = frozenset({"episode_id", "step", "obs", "action", "reward"})
+
+
+def _path_key(spec_json: str, by: SplitBy = "spec") -> str:
     spec = json.loads(spec_json)
+    if by == "link":
+        spec = {k: v for k, v in spec["path"].items() if k != "loss"}
     for k in ("cc", "seed"):
         spec.pop(k, None)
     return json.dumps(spec, sort_keys=True)
@@ -56,6 +65,7 @@ def load(
     test: float,
     controllers: frozenset[str] | None = None,
     stride: int = 1,
+    split_by: SplitBy = "spec",
 ) -> Steps:
     """Every ok episode's steps (only those of ``controllers``, if given),
     keeping every ``stride``-th step of each episode."""
@@ -74,16 +84,23 @@ def load(
             *(eps[c].to_pylist() for c in eps.column_names), strict=True
         ):
             if status == "ok" and (controllers is None or ctl in controllers):
-                split_of[str(eid)] = _split_of(_path_key(str(spec_json)), seed, val, test)
-        tables.append(pq.read_table(shard / "steps.parquet"))  # pyright: ignore[reportUnknownMemberType]
+                split_of[str(eid)] = _split_of(_path_key(str(spec_json), split_by), seed, val, test)
+        # One row group at a time, keeping only the rows and columns used:
+        # a campaign's full table can exceed memory.
+        ids = pa.array(list(split_of), pa.string())
+        f = pq.ParquetFile(shard / "steps.parquet")
+        columns = [c for c in f.schema_arrow.names if c in _COLUMNS or c.startswith("label_")]
+        for g in range(f.num_row_groups):
+            t = f.read_row_group(g, columns=columns)  # pyright: ignore[reportUnknownMemberType]
+            ok = pc.is_in(t["episode_id"], value_set=ids)  # pyright: ignore[reportUnknownMemberType]
+            keep = np.asarray(ok.to_numpy(zero_copy_only=False))  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+            if stride > 1:
+                keep &= np.asarray(t["step"].to_numpy(zero_copy_only=False)) % stride == 0
+            if keep.any():
+                tables.append(t.filter(pa.array(keep)))
     if not split_of:
         raise ValueError(f"no steps of controllers {sorted(controllers or ())}")
     t = pa.concat_tables(tables).combine_chunks()
-    ids = pa.array(list(split_of), pa.string())
-    keep = np.asarray(pc.is_in(t["episode_id"], value_set=ids).to_numpy(zero_copy_only=False))  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
-    if stride > 1:
-        keep &= np.asarray(t["step"].to_numpy(zero_copy_only=False)) % stride == 0
-    t = t.filter(pa.array(keep))
     eid_col = [str(e) for e in t["episode_id"].to_pylist()]
     episode_ids = tuple(dict.fromkeys(eid_col))
     index = {e: i for i, e in enumerate(episode_ids)}

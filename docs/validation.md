@@ -259,7 +259,8 @@ budgets in the hundreds are cheap.
   net2 trains;
 - the deployed rounding is exact;
 - the export is a `sage-v1` graph without IsInf or IsNaN;
-- a path's episodes share one split;
+- a path's episodes share one split, and with a link split so do a link's
+  episodes under every condition;
 - a freshly exported graph runs in the guest's closed loop (`tract`), with
   its actions within the action bound.
 

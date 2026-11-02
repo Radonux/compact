@@ -264,6 +264,16 @@ def test_split_keeps_a_path_together() -> None:
     assert many == {"train", "val", "test"}
 
 
+def test_link_split_keeps_a_link_together_across_conditions() -> None:
+    def spec(bw: int, loss: float, cross: list[str]) -> str:
+        path = {"trace": {"bw": bw}, "loss": {"downlink": loss}}
+        return json.dumps({"path": path, "cross": cross, "cc": "a", "seed": 0})
+
+    variants = [spec(10, loss, cross) for loss in (0.0, 0.01) for cross in ([], ["udp"])]
+    assert len({data._path_key(v, "link") for v in variants}) == 1
+    assert len({data._path_key(v) for v in variants}) == 4
+
+
 @pytest.mark.uml
 def test_exported_graph_runs_in_the_guest(build: object, tmp_path: Path) -> None:
     from expliccit_env.episode import EpisodeOk, run_episode  # noqa: PLC0415

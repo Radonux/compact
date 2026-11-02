@@ -1048,6 +1048,1882 @@
     "buffer": {
      "packets": 25
     }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      56.6,
+      28.3
+     ],
+     "level_ms": 7000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 6
+    },
+    "buffer": {
+     "packets": 111
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      56.2
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 35
+    },
+    "buffer": {
+     "packets": 101
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      13.7,
+      6.8
+     ],
+     "level_ms": 15000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 46
+    },
+    "buffer": {
+     "packets": 300
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      13.4
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 30
+    },
+    "buffer": {
+     "packets": 34
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      22.9,
+      11.4
+     ],
+     "level_ms": 3000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 9
+    },
+    "buffer": {
+     "packets": 20
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      81.5
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 26
+    },
+    "buffer": {
+     "packets": 144
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      23.6,
+      47.2
+     ],
+     "level_ms": 7000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 27
+    },
+    "buffer": {
+     "packets": 155
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      30.7,
+      15.3
+     ],
+     "level_ms": 7000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 23
+    },
+    "buffer": {
+     "packets": 144
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      94.1
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 12
+    },
+    "buffer": {
+     "packets": 550
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      8.3,
+      16.6
+     ],
+     "level_ms": 3000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 14
+    },
+    "buffer": {
+     "packets": 53
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      33.7,
+      67.4
+     ],
+     "level_ms": 7000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 28
+    },
+    "buffer": {
+     "packets": 89
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      44.4,
+      88.8
+     ],
+     "level_ms": 15000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 21
+    },
+    "buffer": {
+     "packets": 129
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      56.9
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 48
+    },
+    "buffer": {
+     "packets": 1789
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      27.2,
+      54.4
+     ],
+     "level_ms": 3000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 21
+    },
+    "buffer": {
+     "packets": 93
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      9.7
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 43
+    },
+    "buffer": {
+     "packets": 33
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      98.0
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 6
+    },
+    "buffer": {
+     "packets": 33
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      80.9
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 15
+    },
+    "buffer": {
+     "packets": 393
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      19.6,
+      39.2
+     ],
+     "level_ms": 3000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 47
+    },
+    "buffer": {
+     "packets": 574
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      32.8
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 50
+    },
+    "buffer": {
+     "packets": 277
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      24.3,
+      48.6
+     ],
+     "level_ms": 15000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 18
+    },
+    "buffer": {
+     "packets": 31
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      29.4,
+      58.8
+     ],
+     "level_ms": 3000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 5
+    },
+    "buffer": {
+     "packets": 69
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      31.5
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 7
+    },
+    "buffer": {
+     "packets": 123
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      99.9,
+      50.0
+     ],
+     "level_ms": 15000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 9
+    },
+    "buffer": {
+     "packets": 193
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      8.2,
+      16.4
+     ],
+     "level_ms": 7000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 9
+    },
+    "buffer": {
+     "packets": 20
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      22.6,
+      45.2
+     ],
+     "level_ms": 15000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 46
+    },
+    "buffer": {
+     "packets": 59
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      46.6
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 11
+    },
+    "buffer": {
+     "packets": 244
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      52.1,
+      26.1
+     ],
+     "level_ms": 3000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 50
+    },
+    "buffer": {
+     "packets": 461
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      56.6
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 24
+    },
+    "buffer": {
+     "packets": 150
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      79.8
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 24
+    },
+    "buffer": {
+     "packets": 632
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      28.1
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 10
+    },
+    "buffer": {
+     "packets": 20
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      29.0,
+      58.0
+     ],
+     "level_ms": 15000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 47
+    },
+    "buffer": {
+     "packets": 144
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      8.2,
+      4.1
+     ],
+     "level_ms": 15000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 29
+    },
+    "buffer": {
+     "packets": 20
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      18.0
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 31
+    },
+    "buffer": {
+     "packets": 68
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      25.5
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 7
+    },
+    "buffer": {
+     "packets": 20
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      67.1,
+      33.5
+     ],
+     "level_ms": 7000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 27
+    },
+    "buffer": {
+     "packets": 813
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      13.0,
+      6.5
+     ],
+     "level_ms": 3000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 23
+    },
+    "buffer": {
+     "packets": 53
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      10.2
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 8
+    },
+    "buffer": {
+     "packets": 35
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      64.6
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 22
+    },
+    "buffer": {
+     "packets": 420
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      29.6
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 39
+    },
+    "buffer": {
+     "packets": 115
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      26.5
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 46
+    },
+    "buffer": {
+     "packets": 488
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      17.5,
+      8.8
+     ],
+     "level_ms": 15000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 19
+    },
+    "buffer": {
+     "packets": 91
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      48.3,
+      96.6
+     ],
+     "level_ms": 15000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 23
+    },
+    "buffer": {
+     "packets": 458
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      25.9,
+      12.9
+     ],
+     "level_ms": 15000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 48
+    },
+    "buffer": {
+     "packets": 628
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      79.3,
+      39.6
+     ],
+     "level_ms": 15000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 11
+    },
+    "buffer": {
+     "packets": 219
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      52.0,
+      26.0
+     ],
+     "level_ms": 7000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 40
+    },
+    "buffer": {
+     "packets": 151
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      12.0,
+      24.0
+     ],
+     "level_ms": 7000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 41
+    },
+    "buffer": {
+     "packets": 31
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      50.3
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 8
+    },
+    "buffer": {
+     "packets": 52
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      8.5
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 35
+    },
+    "buffer": {
+     "packets": 27
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      26.1,
+      52.2
+     ],
+     "level_ms": 3000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 19
+    },
+    "buffer": {
+     "packets": 127
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      12.2,
+      24.4
+     ],
+     "level_ms": 3000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 40
+    },
+    "buffer": {
+     "packets": 178
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      86.4,
+      172.8
+     ],
+     "level_ms": 7000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 31
+    },
+    "buffer": {
+     "packets": 144
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      98.5,
+      49.2
+     ],
+     "level_ms": 7000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 14
+    },
+    "buffer": {
+     "packets": 161
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      10.1,
+      5.0
+     ],
+     "level_ms": 15000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 22
+    },
+    "buffer": {
+     "packets": 133
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      11.5,
+      23.0
+     ],
+     "level_ms": 3000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 46
+    },
+    "buffer": {
+     "packets": 59
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      14.5,
+      7.2
+     ],
+     "level_ms": 7000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 13
+    },
+    "buffer": {
+     "packets": 33
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      26.5
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 10
+    },
+    "buffer": {
+     "packets": 36
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      17.3
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 33
+    },
+    "buffer": {
+     "packets": 313
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      36.3
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 31
+    },
+    "buffer": {
+     "packets": 382
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      20.3
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 17
+    },
+    "buffer": {
+     "packets": 41
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      40.1,
+      80.2
+     ],
+     "level_ms": 3000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 36
+    },
+    "buffer": {
+     "packets": 132
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      65.3,
+      130.6
+     ],
+     "level_ms": 7000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 37
+    },
+    "buffer": {
+     "packets": 184
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      15.2,
+      30.4
+     ],
+     "level_ms": 7000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 23
+    },
+    "buffer": {
+     "packets": 20
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      9.2,
+      18.4
+     ],
+     "level_ms": 7000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 15
+    },
+    "buffer": {
+     "packets": 42
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      9.7
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 20
+    },
+    "buffer": {
+     "packets": 20
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      71.9,
+      36.0
+     ],
+     "level_ms": 3000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 46
+    },
+    "buffer": {
+     "packets": 931
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      21.7,
+      43.4
+     ],
+     "level_ms": 3000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 46
+    },
+    "buffer": {
+     "packets": 198
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      9.8,
+      4.9
+     ],
+     "level_ms": 7000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 31
+    },
+    "buffer": {
+     "packets": 20
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      25.0,
+      12.5
+     ],
+     "level_ms": 7000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 18
+    },
+    "buffer": {
+     "packets": 41
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      14.4,
+      7.2
+     ],
+     "level_ms": 7000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 20
+    },
+    "buffer": {
+     "packets": 20
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      84.1
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 45
+    },
+    "buffer": {
+     "packets": 837
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      9.7
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 8
+    },
+    "buffer": {
+     "packets": 42
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      11.0
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 11
+    },
+    "buffer": {
+     "packets": 44
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      17.1,
+      34.2
+     ],
+     "level_ms": 7000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 15
+    },
+    "buffer": {
+     "packets": 74
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      26.4,
+      52.8
+     ],
+     "level_ms": 7000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 42
+    },
+    "buffer": {
+     "packets": 182
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      16.7,
+      8.3
+     ],
+     "level_ms": 3000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 6
+    },
+    "buffer": {
+     "packets": 20
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      37.2,
+      18.6
+     ],
+     "level_ms": 3000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 32
+    },
+    "buffer": {
+     "packets": 716
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      10.0,
+      5.0
+     ],
+     "level_ms": 3000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 20
+    },
+    "buffer": {
+     "packets": 20
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      11.1,
+      22.2
+     ],
+     "level_ms": 7000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 46
+    },
+    "buffer": {
+     "packets": 161
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      14.0,
+      7.0
+     ],
+     "level_ms": 3000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 37
+    },
+    "buffer": {
+     "packets": 104
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      83.7,
+      41.9
+     ],
+     "level_ms": 3000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 28
+    },
+    "buffer": {
+     "packets": 185
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      11.2,
+      22.4
+     ],
+     "level_ms": 7000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 15
+    },
+    "buffer": {
+     "packets": 20
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      21.7,
+      10.8
+     ],
+     "level_ms": 15000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 23
+    },
+    "buffer": {
+     "packets": 133
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      13.1,
+      6.5
+     ],
+     "level_ms": 15000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 45
+    },
+    "buffer": {
+     "packets": 243
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      64.7
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 47
+    },
+    "buffer": {
+     "packets": 259
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      66.7,
+      33.4
+     ],
+     "level_ms": 3000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 15
+    },
+    "buffer": {
+     "packets": 126
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      12.5,
+      6.2
+     ],
+     "level_ms": 7000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 42
+    },
+    "buffer": {
+     "packets": 310
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      8.3
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 16
+    },
+    "buffer": {
+     "packets": 56
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      11.2,
+      22.4
+     ],
+     "level_ms": 3000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 32
+    },
+    "buffer": {
+     "packets": 65
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      54.2,
+      27.1
+     ],
+     "level_ms": 15000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 50
+    },
+    "buffer": {
+     "packets": 1018
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      34.9,
+      17.4
+     ],
+     "level_ms": 3000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 21
+    },
+    "buffer": {
+     "packets": 41
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      12.1,
+      24.2
+     ],
+     "level_ms": 15000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 39
+    },
+    "buffer": {
+     "packets": 234
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      17.3
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 19
+    },
+    "buffer": {
+     "packets": 30
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      21.1
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 9
+    },
+    "buffer": {
+     "packets": 26
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      60.0
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 14
+    },
+    "buffer": {
+     "packets": 137
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      99.7,
+      199.4
+     ],
+     "level_ms": 3000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 14
+    },
+    "buffer": {
+     "packets": 262
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      97.0,
+      48.5
+     ],
+     "level_ms": 7000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 19
+    },
+    "buffer": {
+     "packets": 349
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      10.7,
+      21.4
+     ],
+     "level_ms": 7000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 37
+    },
+    "buffer": {
+     "packets": 206
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      83.1
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 31
+    },
+    "buffer": {
+     "packets": 285
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      44.1,
+      88.2
+     ],
+     "level_ms": 15000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 23
+    },
+    "buffer": {
+     "packets": 92
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      85.0,
+      42.5
+     ],
+     "level_ms": 3000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 38
+    },
+    "buffer": {
+     "packets": 1509
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      12.2,
+      6.1
+     ],
+     "level_ms": 15000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 11
+    },
+    "buffer": {
+     "packets": 20
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      31.3,
+      15.7
+     ],
+     "level_ms": 15000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 10
+    },
+    "buffer": {
+     "packets": 97
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      36.0,
+      72.0
+     ],
+     "level_ms": 7000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 20
+    },
+    "buffer": {
+     "packets": 253
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      10.1,
+      5.0
+     ],
+     "level_ms": 15000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 40
+    },
+    "buffer": {
+     "packets": 75
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      12.9
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 20
+    },
+    "buffer": {
+     "packets": 44
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      70.0
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 45
+    },
+    "buffer": {
+     "packets": 174
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      24.4,
+      12.2
+     ],
+     "level_ms": 15000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 8
+    },
+    "buffer": {
+     "packets": 87
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      36.2,
+      72.4
+     ],
+     "level_ms": 7000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 15
+    },
+    "buffer": {
+     "packets": 91
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      29.4
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 46
+    },
+    "buffer": {
+     "packets": 151
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      14.5,
+      29.0
+     ],
+     "level_ms": 15000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 43
+    },
+    "buffer": {
+     "packets": 99
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      94.3,
+      188.6
+     ],
+     "level_ms": 15000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 36
+    },
+    "buffer": {
+     "packets": 911
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      84.6
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 37
+    },
+    "buffer": {
+     "packets": 1840
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      39.6,
+      79.2
+     ],
+     "level_ms": 7000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 33
+    },
+    "buffer": {
+     "packets": 103
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      30.6
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 34
+    },
+    "buffer": {
+     "packets": 69
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      47.9
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 17
+    },
+    "buffer": {
+     "packets": 36
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      12.1,
+      6.0
+     ],
+     "level_ms": 3000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 33
+    },
+    "buffer": {
+     "packets": 51
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      35.4,
+      17.7
+     ],
+     "level_ms": 3000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 31
+    },
+    "buffer": {
+     "packets": 93
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      20.6,
+      10.3
+     ],
+     "level_ms": 3000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 25
+    },
+    "buffer": {
+     "packets": 111
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      95.2
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 14
+    },
+    "buffer": {
+     "packets": 87
+    }
+   },
+   {
+    "trace": {
+     "kind": "periodic_levels",
+     "levels_mbps": [
+      11.5
+     ],
+     "level_ms": 1000
+    },
+    "delay": {
+     "mahak_compat_mrtt_ms": 40
+    },
+    "buffer": {
+     "packets": 55
+    }
    }
   ]
  },
