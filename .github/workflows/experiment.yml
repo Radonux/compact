@@ -2,8 +2,8 @@ name: experiment
 
 # Runs one experiment file (experiments/*.json, format in tools/ci/experiment.py):
 # plan -> uml build (if needed) -> one job per cell -> collect -> publish.
-# Cells keep their output 7 days as artifacts; the collected result keeps 90
-# days; publish makes it a release, the long-term record.
+# Every successful run ends as a release, the long-term record of its result.
+# Artifacts only carry data between jobs and expire after 7 days.
 on:
   workflow_dispatch:
     inputs:
@@ -11,10 +11,6 @@ on:
         description: experiment file, for example experiments/smoke.json
         required: true
         type: string
-      publish:
-        description: publish the collected result as a GitHub release
-        type: boolean
-        default: false
 
 run-name: experiment ${{ inputs.experiment }}
 
@@ -180,12 +176,11 @@ jobs:
         with:
           name: result
           path: dist/
-          retention-days: 90
+          retention-days: 7
           compression-level: 0
 
   publish:
     needs: [plan, collect]
-    if: ${{ inputs.publish && needs.collect.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:

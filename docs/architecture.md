@@ -378,20 +378,21 @@ experiment is one file under `experiments/` (its format is in
 3. **cells** runs `run` once per cell, 20 at a time. A cell writes only
    paths no other cell writes, and its output is an artifact kept 7 days.
 4. **collect** merges the cells' outputs, runs `collect`, and packs the
-   result as `NAME.tar.zst` in parts under 2 GiB, kept 90 days (the most
-   Actions allows) as the artifact `result`.
-5. **publish**, when asked, makes the result a release, `exp-NAME-RUN`,
-   at the commit that produced it, with the experiment's record and its
-   `summary.md` in the notes. Releases are the long-term record: anything
-   shown to others comes from one.
+   result as `NAME.tar.zst` in parts under 2 GiB.
+5. **publish** makes the result a release, `exp-NAME-RUN`, at the commit
+   that produced it, with the experiment's record and its `summary.md` in
+   the notes. Every successful run is published: releases are where
+   results live, and anything shown to others comes from one. Artifacts
+   only carry data between jobs, for 7 days.
 
 Episodes are pure functions of their specs, so any runner can run any
 shard, and "Re-run failed jobs" repeats only the cells that failed.
 collect starts only once every cell has succeeded, so a partial campaign
 never produces metrics. A later experiment reads an earlier one's result
-through `inputs`: `release:TAG`, or `run:RUN_ID/result` within 90 days.
+through `inputs`, normally `release:TAG` (`run:RUN_ID/NAME` reads an
+artifact of a run, while it lasts).
 
-    gh workflow run experiment.yml -f experiment=experiments/smoke.json -f publish=false
+    gh workflow run experiment.yml -f experiment=experiments/smoke.json
 
 ## Known limits
 
@@ -468,7 +469,7 @@ missing).
 | D21 | One policy contract: the whole message in, the graph selects and scales, optional recurrent state | Any network design (MLP, recurrent, a different column set, uncertainty heads) runs without guest changes. It replaced `tcpinfo-v1` (8 features in, absolute cwnd and pacing out), which no policy used. |
 | D22 | The trainer lives here, on PyTorch, with architectures and algorithms chosen by name, and exports one ONNX graph per policy | A network redesign is a registry entry, not a new pipeline. The scaling travels inside the graph, so deployment needs no scaler files. expliCCit's layer layout and parameter names are kept, so its released checkpoints load unchanged (from a local copy; its code is not in this repository). Splits are by path, never by row, so held-out numbers are not training accuracy. Default scaling is robust (quantile clipping, then standardization). TD3+BC is the default net2 objective, and expliCCit's own is kept for comparison. |
 | D23 | The truth a policy can read is computed live in the guest from the link records, with the labels' definitions, and checked equal to them | Arms that feed true or patched LCFs to a running policy (oracle, repair) need ground truth during the episode, and a policy must see exactly what training called the truth. Rejected: an independent estimate in the kernel module (a second definition), and replaying an episode with the truth injected (the closed loop would change the trajectory). |
-| D24 | Large runs are GitHub Actions runs of an experiment file; results meant for others are releases | Twenty 4-core runners for 6 hours each, free for a public repository, with no queue to wait in and no cluster account. The fan-out is the campaign's own sharding, so the workflow holds no experiment logic. Artifacts expire after at most 90 days, so a result worth keeping becomes a release, pinned to its commit. Rejected: the Slurm array script (generated and checked, but no cluster is available), and one workflow per experiment (the same plan, cells, collect steps each time). |
+| D24 | Large runs are GitHub Actions runs of an experiment file, and every result is published as a release | Twenty 4-core runners for 6 hours each, free for a public repository, with no queue to wait in and no cluster account. The fan-out is the campaign's own sharding, so the workflow holds no experiment logic. Artifacts expire after at most 90 days, so every result becomes a release, pinned to its commit. Rejected: the Slurm array script (generated and checked, but no cluster is available), and one workflow per experiment (the same plan, cells, collect steps each time). |
 
 ## Extending
 

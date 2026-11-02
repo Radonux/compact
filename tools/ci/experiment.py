@@ -3,8 +3,8 @@
 An experiment is one JSON file under experiments/, parsed here once. The
 workflow runs it in four steps: plan (expand the cells, run `prepare` once),
 one job per cell (`run`; at most 256 cells, 20 at a time, 6 h each), collect
-(merge every cell's output, run `collect`, pack the result), and optionally
-publish the result as a GitHub release.
+(merge every cell's output, run `collect`, pack the result), and publish
+(the result as a GitHub release, the long-term record of every run).
 
     {
       "description": "one line, for the release notes",
