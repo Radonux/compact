@@ -404,13 +404,18 @@ Reading:
   paths, did not carry over for mean queueing delay (0.84) and busy
   fraction (0.81).
 - Free buffer is the exception: no kind predicts it (R^2 near 0), and the
-  distribution is over-confident about it (0.73 at 90%). A plausible
-  reading is that free buffer depends on the buffer size, which these
-  measurements reveal only when the queue fills, and the test paths have
-  buffer sizes the training paths do not; the log score teaches the
-  uncertainty the measurements leave, not uncertainty about unfamiliar
-  paths. The plan replaces free buffer by buffer size and queue, and adds
-  an ensemble (`docs/methodology.md`, section 3).
+  distribution is over-confident about it (0.73 at 90%). Free buffer
+  depends on the buffer size, which these measurements reveal only when
+  the queue fills. All three buffer sizes of the grid (50, 300 and 1000
+  packets) occur in the training, validation and test paths alike, so
+  the cause is not an unseen size. A plausible reading is that each
+  training path has one buffer size, so net1 can learn to recognize a
+  training path and its buffer, and on a new combination of trace, delay
+  and buffer it guesses with confidence it has not earned. The log score
+  teaches the uncertainty the measurements leave, not uncertainty about
+  unfamiliar paths. The plan replaces free buffer by buffer size and
+  queue, varies the paths and controllers more, and adds an ensemble
+  (`docs/methodology.md`, section 3).
 - The widths show the identifiability limit: capacity is known to within
   1.4 Mbit/s (90%) when the link is kept busy and to within 14.9 Mbit/s
   when it is not.
