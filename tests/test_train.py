@@ -350,6 +350,7 @@ def test_online_loop_runs_an_iteration(build: object, tmp_path: Path, action: st
         "name": "p",
         "ccs": [{"kind": "stock", "name": "cubic"}],
         "sweep": {"kind": "paths", "paths": [path]},
+        "conditions": [{}, {"loss": {"downlink": 0.01}}],
     }
     (tmp_path / "paths.json").write_text(json.dumps(camp))
     spec = OnlineSpec(
@@ -374,7 +375,7 @@ def test_online_loop_runs_an_iteration(build: object, tmp_path: Path, action: st
     report = run_online(spec, tmp_path / "out", build, workers=2)
     (entry,) = report["iterations"]
     assert entry["rollouts"]["ok"] == 2 and entry["new_transitions"] > 400
-    assert entry["eval"]["ok"] == 1
+    assert entry["eval"]["ok"] == 2  # the path under each condition
     assert (tmp_path / "out" / "policy.onnx").exists()
 
 

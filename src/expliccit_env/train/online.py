@@ -24,7 +24,15 @@ import torch
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt, model_validator
 
 from expliccit_env import campaign
-from expliccit_env.spec import AgentCC, CampaignSpec, EpisodeSpec, OnnxPolicy, PathSpec, paths_of
+from expliccit_env.spec import (
+    AgentCC,
+    CampaignSpec,
+    Condition,
+    EpisodeSpec,
+    OnnxPolicy,
+    PathSpec,
+    paths_of,
+)
 from expliccit_env.train import data, fit
 from expliccit_env.train.export import to_onnx
 from expliccit_env.train.spec import Net2Spec
@@ -35,9 +43,11 @@ class OnlineSpec(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     spec_version: Literal[1] = 1
-    # A campaign whose sweep lists the training paths (its ccs are ignored).
+    # A campaign whose sweep and conditions give the training paths (its ccs
+    # are ignored): each rollout draws a path and a condition.
     paths_from: Path
-    # A campaign whose sweep lists held-out evaluation paths.
+    # A campaign whose sweep and conditions give held-out evaluation paths:
+    # every path runs under every condition.
     eval_from: Path | None = None
     net1_from: Path  # a training run's net1.pt, kept frozen
     init_from: Path | None = None  # a training run's net2.pt to start from
@@ -109,6 +119,24 @@ def _transitions_from(
     return t
 
 
+def _arms(campaign: Path, rng: np.random.Generator) -> list[tuple[PathSpec, Condition]]:
+    """Every (path, condition) of a campaign, as its expansion pairs them."""
+    spec = CampaignSpec.parse(campaign.read_text())
+    return [(p, c) for p in paths_of(spec.sweep, rng) for c in spec.conditions]
+
+
+def _episode(arm: tuple[PathSpec, Condition], cc: AgentCC, ms: int, seed: int) -> EpisodeSpec:
+    path, cond = arm
+    return EpisodeSpec(
+        path=path.model_copy(update={"loss": cond.loss}),
+        cross=cond.cross,
+        cc=cc,
+        duration_ms=ms,
+        seed=seed,
+        steps=True,
+    )
+
+
 def _agent(policy: Path, sigma: float, hold: int = 1) -> AgentCC:
     sha = hashlib.sha256(policy.read_bytes()).hexdigest()
     return AgentCC(
@@ -151,14 +179,8 @@ def run_online(
         replay.add(_transitions_from(spec.offline_data, net1, spec.net2, spec.offline_controllers))
     for u in range(spec.critic_warmup if len(replay) else 0):
         learner.update(replay.sample(rng, spec.net2.batch_size), u, actor=False)
-    train_paths: list[PathSpec] = paths_of(
-        CampaignSpec.parse(spec.paths_from.read_text()).sweep, rng
-    )
-    eval_paths: list[PathSpec] = (
-        paths_of(CampaignSpec.parse(spec.eval_from.read_text()).sweep, rng)
-        if spec.eval_from
-        else []
-    )
+    train_arms = _arms(spec.paths_from, rng)
+    eval_arms = _arms(spec.eval_from, rng) if spec.eval_from else []
     history: list[dict[str, Any]] = []
 
     def export(path: Path) -> Path:
@@ -177,25 +199,16 @@ def run_online(
 
     def evaluate(it_dir: Path, policy: Path) -> dict[str, Any]:
         cc = _agent(policy, 0.0)
-        episodes = [
-            EpisodeSpec(path=p, cc=cc, duration_ms=spec.duration_ms, seed=7 + i)
-            for i, p in enumerate(eval_paths)
-        ]
+        episodes = [_episode(arm, cc, spec.duration_ms, 7 + i) for i, arm in enumerate(eval_arms)]
         return next(iter(_run(it_dir / "eval", episodes, build, workers, scratch).values()))
 
     for it in range(spec.iterations):
         it_dir = out / f"iter{it:03d}"
         policy = export(it_dir / "policy.onnx")
         cc = _agent(policy, spec.noise_sigma, spec.noise_hold_steps)
-        picks = rng.integers(0, len(train_paths), spec.episodes_per_iteration)
+        picks = rng.integers(0, len(train_arms), spec.episodes_per_iteration)
         episodes = [
-            EpisodeSpec(
-                path=train_paths[i],
-                cc=cc,
-                duration_ms=spec.duration_ms,
-                seed=int(rng.integers(0, 2**63)),
-                steps=True,
-            )
+            _episode(train_arms[i], cc, spec.duration_ms, int(rng.integers(0, 2**63)))
             for i in picks
         ]
         rollout = next(iter(_run(it_dir / "rollouts", episodes, build, workers, scratch).values()))
@@ -213,7 +226,7 @@ def run_online(
             "rollouts": rollout,
             "losses": {name: float(np.mean(v[-200:])) for name, v in logs.items()},
         }
-        if eval_paths and ((it + 1) % spec.eval_every == 0 or it + 1 == spec.iterations):
+        if eval_arms and ((it + 1) % spec.eval_every == 0 or it + 1 == spec.iterations):
             entry["eval"] = evaluate(it_dir, export(it_dir / "policy-updated.onnx"))
         history.append(entry)
         (out / "history.json").write_text(json.dumps(history, indent=2, default=float))

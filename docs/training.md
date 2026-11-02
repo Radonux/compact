@@ -342,8 +342,10 @@ replaces intervals with distributions (`docs/methodology.md`, section 3).
 
 These are the tuned settings (section 7, "Tuned comparison").
 `init_from` must come from a run with the same `action_max`. `paths_from`
-and `eval_from` are campaigns whose `sweep` lists the paths; their `ccs`
-are ignored.
+and `eval_from` are campaigns whose `sweep` and `conditions` give the
+paths; their `ccs` are ignored. Each rollout draws a path and a condition
+(cross traffic, random loss), and the evaluation runs every path under
+every condition.
 
 Each iteration exports the policy with net1 frozen and runs
 `episodes_per_iteration` episodes on paths drawn from `paths_from`, with
