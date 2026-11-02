@@ -197,8 +197,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           NAME: ${{ needs.plan.outputs.name }}
           TITLE: ${{ needs.plan.outputs.title }}
-          GH_DEBUG: api
+        # The token may tag only a commit whose workflow files match main's,
+        # so once main's workflows have changed the tag goes on main's head;
+        # the notes name the commit that produced the result either way.
         run: |
-          gh release create "exp-$NAME-$GITHUB_RUN_NUMBER" dist/*.part-* \
-            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --latest=false \
-            --title "$TITLE (run $GITHUB_RUN_NUMBER)" --notes-file dist/notes.md
+          create() {
+            gh release create "exp-$NAME-$GITHUB_RUN_NUMBER" dist/*.part-* \
+              --repo "$GITHUB_REPOSITORY" --target "$1" --latest=false \
+              --title "$TITLE (run $GITHUB_RUN_NUMBER)" --notes-file dist/notes.md
+          }
+          create "$GITHUB_SHA" || create main

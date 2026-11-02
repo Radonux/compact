@@ -379,9 +379,12 @@ experiment is one file under `experiments/` (its format is in
    paths no other cell writes, and its output is an artifact kept 7 days.
 4. **collect** merges the cells' outputs, runs `collect`, and packs the
    result as `NAME.tar.zst` in parts under 2 GiB.
-5. **publish** makes the result a release, `exp-NAME-RUN`, at the commit
-   that produced it, with the experiment's record and its `summary.md` in
-   the notes. Every successful run is published: releases are where
+5. **publish** makes the result a release, `exp-NAME-RUN`, with the
+   experiment's record and its `summary.md` in the notes. The release is
+   tagged at the commit that produced it, or at main's head if main's
+   workflow files have changed since (the job's token may tag only a
+   commit whose workflows match main's); the notes name the producing
+   commit either way. Every successful run is published: releases are where
    results live, and anything shown to others comes from one. Artifacts
    only carry data between jobs, for 7 days.
 
