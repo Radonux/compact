@@ -95,6 +95,18 @@ def episode_scores(dirs: list[Path], spec: Net2Spec) -> dict[Key, list[float]]:
     return dict(out)
 
 
+def failures(dirs: list[Path]) -> dict[str, int]:
+    """Episodes that did not finish ok, per controller: never scored, always reported."""
+    out: dict[str, int] = defaultdict(int)
+    for shard in (s for d in dirs for s in sorted((d / "shards").glob("*"))):
+        cols = ["controller", "status"]
+        table = pq.read_table(shard / "episodes.parquet", columns=cols)  # pyright: ignore[reportUnknownMemberType]
+        for e in table.to_pylist():
+            if e["status"] != "ok":
+                out[e["controller"]] += 1
+    return dict(out)
+
+
 def _interval(x: np.ndarray[Any, np.dtype[np.float64]], rng: np.random.Generator) -> dict[str, Any]:
     boot = x[rng.integers(0, x.size, (RESAMPLES, x.size))].mean(axis=1)
     return {
@@ -161,4 +173,6 @@ def markdown(result: dict[str, Any]) -> str:
         if ref is not None:
             line.append(cell(v["all"].get("minus_reference")))
         rows.append("| " + " | ".join(line) + " |")
-    return "\n".join(rows) + "\n"
+    failed: dict[str, int] = result.get("failed", {})
+    note = ", ".join(f"{k} {v}" for k, v in sorted(failed.items())) if failed else "none"
+    return "\n".join(rows) + f"\nFailed episodes, not scored: {note}.\n"

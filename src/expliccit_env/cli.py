@@ -83,8 +83,10 @@ def _score(a: argparse.Namespace) -> int:
     from expliccit_env.train.spec import Net2Spec  # noqa: PLC0415
 
     aliases = dict(x.split("=", 1) for x in a.alias)
-    scores = score.episode_scores([Path(d) for d in a.dirs], Net2Spec(reward=a.reward))
+    dirs = [Path(d) for d in a.dirs]
+    scores = score.episode_scores(dirs, Net2Spec(reward=a.reward))
     result = score.compare(scores, a.reference, aliases)
+    result["failed"] = {aliases.get(k, k): v for k, v in score.failures(dirs).items()}
     print(json.dumps(result, indent=1))
     if a.markdown:
         Path(a.markdown).write_text(score.markdown(result))

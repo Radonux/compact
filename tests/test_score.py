@@ -79,7 +79,10 @@ def test_scores_average_episodes_per_link_and_condition_and_pair_by_link(tmp_pat
     assert a["all"]["links"] == 2
     assert a["all"]["mean"] == pytest.approx(((0.0 + np.log(0.25)) / 2 + np.log(0.5)) / 2)
     assert "minus_reference" not in b["all"]
+    result["failed"] = score.failures([tmp_path])
+    assert result["failed"] == {"B": 1}
     table = score.markdown(result)
+    assert table.rstrip().endswith("Failed episodes, not scored: B 1.")
     assert table.splitlines()[0].startswith(
         "| controller | all conditions | clean | cubic from 8 s | minus B"
     )
