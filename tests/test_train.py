@@ -112,6 +112,18 @@ def _bandit(n: int = 4096) -> fit.Transitions:
     return fit.Transitions(s, a, a.squeeze(1).clone(), torch.randn(n, 3, generator=g))
 
 
+def test_n_step_transitions_sum_the_rewards_of_consecutive_steps() -> None:
+    steps = synthetic(n_episodes=2, steps=6)  # episode 0 is in the test split
+    steps.step[3:6] += 1  # episode 0's steps: 0, 1, 2, 4, 5, 6 (a gap after row 2)
+    states = np.arange(12, dtype=np.float32).reshape(-1, 1)
+    spec = Net2Spec(n_step=2, discount=0.5, reward_scale=1.0)
+    t, _ = fit.transitions(steps, states, np.zeros(12, np.float32), spec, "test")
+    # Starts 1 and 2 would span the gap, 4 and 5 the episode's end.
+    assert t.s[:, 0].tolist() == [0.0, 3.0] and t.s2[:, 0].tolist() == [2.0, 5.0]
+    r = steps.reward
+    assert np.allclose(t.r.numpy(), [r[1] + 0.5 * r[2], r[4] + 0.5 * r[5]])
+
+
 def test_iql_prefers_the_better_logged_action_where_cloning_averages() -> None:
     t = _bandit()
     means = {}

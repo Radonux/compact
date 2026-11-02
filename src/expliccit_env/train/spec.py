@@ -151,6 +151,10 @@ class Net2Spec(_Frozen):
     # deployed controller uses 3: a dead band of 0.0005 around no change).
     action_decimals: Annotated[int, Field(ge=0, le=6)] | None = None
     discount: Annotated[float, Field(ge=0, lt=1)] = 0.95
+    # Sum the rewards of this many steps before bootstrapping (n-step
+    # returns): a window target shows its effect over about an RTT, which
+    # one-step TD sees only through the next state's value.
+    n_step: Annotated[int, Field(ge=1, le=200)] = 1
     reward_scale: Annotated[float, Field(gt=0)] = 1.0 / 25  # Sage's reward peaks at 25
     alpha: Annotated[float, Field(gt=0)] = 2.5  # TD3+BC's Q weight
     steps: PositiveInt = 20_000

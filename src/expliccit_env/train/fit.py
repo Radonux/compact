@@ -497,12 +497,20 @@ def _consecutive(steps: Steps) -> npt.NDArray[np.bool_]:
 def transitions(
     steps: Steps, states: F32, actions: F32, spec: Net2Spec, split: Split
 ) -> tuple[Transitions, float]:
-    """(s_t, a_t, r, s_t+1) over consecutive steps; a (logged_actions) scaled
-    to [-1, 1] and clipped. Returns the fraction of actions that needed
-    clipping."""
-    i = np.flatnonzero(steps.rows(split)[:-1] & _consecutive(steps))
+    """(s_t, a_t, r, s_t+n) over n = spec.n_step consecutive steps, r the
+    discounted sum of their n rewards; a (logged_actions) scaled to [-1, 1]
+    and clipped. Returns the fraction of actions that needed clipping."""
+    n = spec.n_step
+    # links[t]: how many of rows 0..t follow their predecessor as the next step.
+    links = np.concatenate(([0], np.cumsum(_consecutive(steps))))
+    ahead = np.zeros(links.size, bool)  # rows t .. t + n are consecutive steps
+    if links.size > n:
+        ahead[: links.size - n] = links[n:] - links[:-n] == n
+    i = np.flatnonzero(steps.rows(split) & ahead)
     reward = steps.reward if spec.reward == "sage" else utility(steps, spec)
-    r = reward[i + 1] if spec.reward_alignment == "next" else reward[i]
+    first = 1 if spec.reward_alignment == "next" else 0
+    r = sum(spec.discount**k * reward[i + first + k] for k in range(n))
+    r = np.asarray(r, np.float32)
     keep = np.isfinite(actions[i]) & np.isfinite(r)
     i, r = i[keep], r[keep]
     a = actions[i] / spec.action_max
@@ -511,7 +519,7 @@ def transitions(
         torch.from_numpy(states[i]),
         torch.from_numpy(np.clip(a, -1, 1).reshape(-1, 1)),
         torch.from_numpy((r * spec.reward_scale).astype(np.float32)),
-        torch.from_numpy(states[i + 1]),
+        torch.from_numpy(states[i + n]),
     )
     return t, clipped
 
@@ -597,7 +605,7 @@ class Learner:
                 noise = torch.randn_like(a2) * spec.policy_noise
                 a2 = (a2 + noise.clamp(-spec.noise_clip, spec.noise_clip)).clamp(-1, 1)
             q2 = torch.stack([c(s2, a2) for c in self.critics_t]).min(dim=0).values
-            y = r + spec.discount * q2
+            y = r + spec.discount**spec.n_step * q2
             # Target actions outside what the batch's data did: where the
             # critic's target is extrapolation.
             lo, hi = torch.quantile(a, 0.005), torch.quantile(a, 0.995)
@@ -635,7 +643,7 @@ class Learner:
         assert self.value is not None and self.opt_c is not None
         with torch.no_grad():
             qt = torch.stack([c(s, a) for c in self.critics_t]).min(dim=0).values
-            y = r + spec.discount * self.value(s2)
+            y = r + spec.discount**spec.n_step * self.value(s2)
         v = self.value(s)
         u = qt - v
         value_loss = (torch.abs(spec.expectile - (u < 0).float()) * u**2).mean()

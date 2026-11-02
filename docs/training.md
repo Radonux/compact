@@ -101,6 +101,7 @@ of 0.95 (about 200 ms) barely sees that window.
 | `net2.action` | `multiplier` | `multiplier`: net2 outputs a; `bdp`: net2 outputs the next window as a log2 multiple of the believed bandwidth-delay product (below) |
 | `net2.reward` | `sage` | Sage's reward; `utility` and `log_utility` are the ground-truth utilities below |
 | `net2.discount` | 0.95 | per step |
+| `net2.n_step` | 1 | sum the rewards of this many consecutive steps before bootstrapping, so a target's effect over an RTT reaches the critic directly |
 | `net2.reward_alignment` | `next` | the reward step t+1 reports; `same` is step t's, as expliCCit and Sage's offline data pair them |
 | `net2.action_max` | 1.0 | a = action_max * tanh(...); the critic and the noise settings work in units of it |
 | `net2.action_decimals` | none | round a to this many decimals in the exported graph; expliCCit's deployed controller uses 3, a dead band of 0.0005 around no change |
