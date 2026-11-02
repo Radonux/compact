@@ -78,6 +78,19 @@ def _slurm(a: argparse.Namespace) -> int:
     return 0
 
 
+def _score(a: argparse.Namespace) -> int:
+    from expliccit_env.train import score  # noqa: PLC0415
+    from expliccit_env.train.spec import Net2Spec  # noqa: PLC0415
+
+    aliases = dict(x.split("=", 1) for x in a.alias)
+    scores = score.episode_scores([Path(d) for d in a.dirs], Net2Spec(reward=a.reward))
+    result = score.compare(scores, a.reference, aliases)
+    print(json.dumps(result, indent=1))
+    if a.markdown:
+        Path(a.markdown).write_text(score.markdown(result))
+    return 0
+
+
 def _status(a: argparse.Namespace) -> int:
     print(json.dumps(campaign.status(Path(a.out)), indent=2))
     return 0
@@ -269,6 +282,18 @@ def main(argv: list[str] | None = None) -> int:
     _mahak_query_args(m)
     d = sub.add_parser("mahak", help="Mahak's active-learning map (mahak_online.py) in UML")
     _mahak_args(d)
+
+    sc = sub.add_parser(
+        "score", help="log utility per controller, link and condition, from ground truth"
+    )
+    sc.add_argument("dirs", nargs="+", help="campaign or dataset directories (with shards/)")
+    sc.add_argument("--reference", help="controller to pair every other one with, by link")
+    sc.add_argument(
+        "--alias", action="append", default=[], help="CONTROLLER=NAME, e.g. agent:ba480095699c=rule"
+    )
+    sc.add_argument("--reward", choices=["log_utility", "utility"], default="log_utility")
+    sc.add_argument("--markdown", help="also write the comparison as a Markdown table here")
+    sc.set_defaults(fn=_score)
 
     t = sub.add_parser("train", help="net1 and net2 from step data (needs the train extra)")
     tc = t.add_subparsers(required=True)

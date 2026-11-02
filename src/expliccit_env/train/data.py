@@ -54,6 +54,11 @@ def _path_key(spec_json: str, by: SplitBy = "spec") -> str:
     return json.dumps(spec, sort_keys=True)
 
 
+def link_key(spec_json: str) -> str:
+    """An episode's link: its path without random loss, whatever the condition."""
+    return _path_key(spec_json, "link")
+
+
 def _split_of(key: str, seed: int, val: float, test: float) -> Split:
     u = int.from_bytes(hashlib.sha256(f"{seed}:{key}".encode()).digest()[:8], "big") / 2**64
     return "test" if u < test else "val" if u < test + val else "train"

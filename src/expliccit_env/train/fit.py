@@ -37,6 +37,7 @@ from expliccit_env.train.models import (
     Value,
     WindowTarget,
 )
+from expliccit_env.train.score import utility
 from expliccit_env.train.spec import EXPLICCIT_LCFS, LCF_UNITS, Net1Spec, Net2Spec
 
 type F32 = npt.NDArray[np.float32]
@@ -507,7 +508,7 @@ def transitions(
     if links.size > n:
         ahead[: links.size - n] = links[n:] - links[:-n] == n
     i = np.flatnonzero(steps.rows(split) & ahead)
-    reward = steps.reward if spec.reward == "sage" else utility(steps, spec)
+    reward = steps.reward if spec.reward == "sage" else utility(steps.labels, spec)
     first = 1 if spec.reward_alignment == "next" else 0
     r = sum(spec.discount**k * reward[i + first + k] for k in range(n))
     r = np.asarray(r, np.float32)
@@ -522,20 +523,6 @@ def transitions(
         torch.from_numpy(states[i + n]),
     )
     return t, clipped
-
-
-def utility(steps: Steps, spec: Net2Spec) -> F32:
-    """Per step: receive rate over capacity (its log, at least 0.01, for
-    "log_utility"), minus the delay and loss terms, from ground truth. An
-    empty window (no departures) costs no delay."""
-    lab = steps.labels
-    with np.errstate(divide="ignore", invalid="ignore"):
-        used = lab["receive_rate_bps"] / lab["capacity_bps"]
-        delay = np.nan_to_num(lab["queue_delay_mean_ns"] / lab["base_rtt_ns"])
-    loss = np.nan_to_num(lab["drop_fraction"])
-    gain = np.log(np.maximum(used, 0.01)) if spec.reward == "log_utility" else used
-    r = gain - spec.delay_weight * delay - spec.loss_weight * loss
-    return np.where(np.isfinite(used), r, np.nan).astype(np.float32)
 
 
 def _soft_update(target: nn.Module, source: nn.Module, tau: float) -> None:

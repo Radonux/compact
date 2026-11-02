@@ -32,4 +32,7 @@ jobs:
           [[ -f stash/NOTES.md ]] && notes=(--notes-file stash/NOTES.md)
           gh release create "$tag" stash/* --repo "$GITHUB_REPOSITORY" \
             --target "$(git rev-parse HEAD^)" --latest=false --title "$tag" "${notes[@]}"
-          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$BRANCH"
+          # A ruleset that restricts branch deletion keeps the branch; the
+          # release is made either way.
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$BRANCH" \
+            || echo "::warning::could not delete $BRANCH; delete it once the ruleset allows"

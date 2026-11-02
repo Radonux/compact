@@ -17,6 +17,7 @@ from expliccit_env.train import data, fit  # noqa: E402
 from expliccit_env.train.export import to_onnx  # noqa: E402
 from expliccit_env.train.models import ExpliccitActor, ExpliccitNet1, PolicyGraph, Scaler  # noqa: E402
 from expliccit_env.train.online import OnlineSpec, run_online  # noqa: E402
+from expliccit_env.train.score import utility  # noqa: E402
 from expliccit_env.train.spec import EXPLICCIT_LCFS, LCF_UNITS, Net1Spec, Net2Spec  # noqa: E402
 
 
@@ -97,10 +98,10 @@ def test_utility_reward_prices_unused_capacity_delay_and_loss() -> None:
     lab["queue_delay_mean_ns"] = np.array([0, 0, 20e6], np.float32)
     lab["base_rtt_ns"] = np.full(3, 40e6, np.float32)
     lab["drop_fraction"] = np.array([np.nan, 0.0, 0.01], np.float32)
-    r = fit.utility(steps, Net2Spec(reward="utility", delay_weight=0.5, loss_weight=4.0))
+    r = utility(steps.labels, Net2Spec(reward="utility", delay_weight=0.5, loss_weight=4.0))
     assert np.allclose(r, [1.0, 0.5, 1.0 - 0.25 - 0.04])
     lab["receive_rate_bps"][0] = 0.0  # starved: the log is floored at 0.01
-    r = fit.utility(steps, Net2Spec(reward="log_utility", delay_weight=0.5, loss_weight=4.0))
+    r = utility(steps.labels, Net2Spec(reward="log_utility", delay_weight=0.5, loss_weight=4.0))
     assert np.allclose(r, [np.log(0.01), np.log(0.5), -0.25 - 0.04])
 
 

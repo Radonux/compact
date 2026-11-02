@@ -106,6 +106,13 @@ musl-tools, perl, rustup and uv; no root.
     # its result is published as a release (docs/architecture.md)
     gh workflow run experiment.yml -f experiment=experiments/smoke.json
 
+    # score runs from ground truth: log utility per controller, link and
+    # condition, paired with a reference by link
+    uv run expliccit score out/smoke --reference cubic --markdown out/smoke/summary.md
+
+    # store local files (weights) as a release that experiments can read
+    scripts/stash.sh model-NAME weights.pt NOTES.md
+
     # Mahak's oracle_query(X, metric, CC), in UML
     uv run expliccit mahak-query --build build/uml --cc bbr --metric first_power \
         --buffer 8000 --mrtt 4 --bw 70 --step 0.2
