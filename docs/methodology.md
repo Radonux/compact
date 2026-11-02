@@ -272,12 +272,28 @@ tests transfer from their emulation to this one as much as the method.
 Why that net1 misreads busy fraction and queue here is the main open item
 of the reproduction.
 
-**Results so far** (`docs/training.md`): tuned and checked over seeds,
-learned policies reach +0.55 (cloning) to +0.64 (TD3+BC) utility on
-held-out paths, against +0.82 for BBRv1 and +0.29 for expliCCit's released
-policy; online fine-tuning neither helps nor hurts the cloned policy
-(+0.03, 95% interval -0.13 to +0.16). None of these is the design above;
-they set the baseline it must beat.
+**Results so far** (`docs/training.md`, section 7). The first run of the
+design above, on links neither network has seen, in log utility:
+
+- net1 is honest on new links: its 90% statements hold 88.8% to 97.1% of
+  the time per LCF.
+- net2 setting the window to a fixed multiple of net1's believed BDP
+  beats every kernel controller: by 0.079 (95% interval 0.032 to 0.123)
+  over BBRv3, the best of them.
+- The same rule on the true BDP (arm A1) does 0.065 (0.031 to 0.105)
+  better: the cost of estimation for that rule (H2).
+- A net2 trained online on net1's distributions (arm A3) beats BBRv3 by
+  0.123 (0.087 to 0.160) and the fixed multiple by 0.044 (0.001 to
+  0.091), mostly by competing harder with a buffer-filling Cubic flow.
+  It has one training seed and tied the fixed multiple on the
+  validation links, so that last gain is not yet established.
+- Learning from other controllers' logs failed (cloning and IQL, -0.97
+  to -1.61 against -0.48 for BBRv3 on validation links), as did the
+  earlier design (multiplicative action, single-value net1): its tuned
+  TD3+BC policy scores 0.6 below the fixed multiple.
+
+Arms A2 (single values from the same net1), A4 (raw measurements), A0,
+and A1 for a learned net2 are UNRUN.
 
 **What the environment supports**
 

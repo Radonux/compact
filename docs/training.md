@@ -549,6 +549,97 @@ Reading:
   (90%) on a busy link and 41 Mbit/s on an idle one, across links of 4 to
   200 Mbit/s.
 
+### net2 on the fixed net1
+
+net2 acts on the ensemble net1 of "net1 on unseen links", kept fixed. Its
+action is the window target (`"action": "bdp"`): the next window is 2^u
+times the believed bandwidth-delay product, net1's mean capacity times
+twice its mean one-way delay. It sees each LCF's distribution pooled to
+32 bins, and is rewarded with the log utility (section 2). Each policy
+runs in closed loop on the 21 validation links of the 180-link campaign
+under the three conditions (63 episodes of 20 s); the kernel's
+controllers are scored on the same links from the data campaign.
+Differences are paired by link, with bootstrap 95% intervals over links.
+
+**Learning from other controllers' logs fails.** Cloning all 21
+controllers scored -1.61 on the validation links, and IQL -0.97 to -1.60
+(beta 3 or 10, expectile 0.7 or 0.9), against -0.48 for BBRv3. The
+policies drop 6% to 25% of their packets. In the logs, the state shows
+which controller produced it: a full queue comes from a controller that
+keeps its window large, so a policy that copies the logs keeps the window
+large where the queue is full. net1's belief was not the cause: its
+believed BDP had a median error of 0 (log2), the middle 80% of steps
+within -0.9 and +0.3.
+
+**A constant multiple of the believed BDP beats every kernel controller.**
+Holding u fixed gives on the validation links -0.65 (u = -0.25), -0.45
+(0), -0.37 (0.125), -0.37 (0.25), -0.41 (0.375) and -0.49 (0.5). At
+u = 0.25 it scores 0.112 (0.054 to 0.172) above BBRv3. It loses almost
+only under cross traffic (-0.96, against -0.10 on a clean link): a Cubic
+flow fills the buffer, and a window fixed at 1.19 times the BDP gets a
+small share.
+
+**Online training needs multi-step returns.** From the u = 0.25 policy,
+with exploration of 0.3 or 0.5 (log2 of the window) held for 10 or 20
+steps, TD3+BC with one-step returns drifted below its start (0.058 to
+0.097 lower after 10 iterations), and IQL dropped 17% of its packets
+after 5. With 20- or 40-step returns (`net2.n_step`), the policy stays
+at the constant's level and learns to raise its target under cross
+traffic. After 20 iterations of 32 episodes it scored -0.369 (20 steps)
+and -0.360 (40 steps) on the validation links, 0.001 and 0.009 (-0.015 to
++0.034) above the constant: on validation, a tie.
+
+What was searched (validation links): offline cloning and IQL on all
+controllers' logs; the constant u above; online TD3+BC (alpha 2.5,
+discount 0.97, 512 rows per update, 2,000 updates per iteration) with
+one-step returns and exploration 0.3 held 10 steps or 0.5 held 20, then
+20- and 40-step returns; online IQL (beta 10, expectile 0.9). The learned
+policy with 40-step returns and the constant at u = 0.25 went to test,
+with the same rule on the true BDP (arm A1, the guest's live truth).
+
+Test links (27 links, three conditions, 81 episodes each, scored once):
+
+| Policy | log utility | utilization | queueing delay (ms) | drops |
+|---|---|---|---|---|
+| u = 0.25 on the true BDP (oracle) | -0.328 (-0.380 to -0.279) | 0.980 | 14.7 | 0.39% |
+| learned net2, 40-step returns (one seed) | -0.348 (-0.405 to -0.295) | 0.968 | 11.5 | 0.45% |
+| u = 0.25 on net1's BDP | -0.393 (-0.461 to -0.328) | 0.960 | 14.5 | 0.48% |
+| BBRv3 | -0.472 (-0.530 to -0.418) | 0.880 | 15.5 | 0.78% |
+| BBRv1 | -0.490 (-0.566 to -0.420) | 0.945 | 17.8 | 3.2% |
+| Illinois, the next kernel controller | -0.691 | 0.846 | 23.0 | 0.61% |
+| Cubic | -1.212 | 0.699 | 23.3 | 0.09% |
+| TD3+BC of "Tuned comparison" (old design) | -1.002 | 0.752 | 17.0 | 5.2% |
+| expliCCit's released policy | -1.826 | 0.652 | 18.5 | 31% |
+
+Paired differences: the constant rule beats BBRv3 by 0.079 (0.032 to
+0.123) and BBRv1 by 0.097 (0.023 to 0.172); the learned net2 beats BBRv3
+by 0.123 (0.087 to 0.160) and the constant by 0.044 (0.001 to 0.091); the
+oracle beats the constant by 0.065 (0.031 to 0.105) and the learned net2
+by 0.021 (-0.006 to 0.049). By condition, the learned net2 gains on the
+constant mostly under cross traffic (-0.879 against -0.988; clean -0.115
+against -0.125, random loss -0.099 against -0.125), where it raises its
+target (u up to 0.88 at the 90th percentile).
+
+Reading:
+
+- With an honest net1, even the simplest decision on its output, a fixed
+  multiple of the believed BDP, beats every controller in the kernel on
+  links neither network has seen, and the old design by 0.6 in log
+  utility.
+- Estimation costs 0.065 under that rule: the same rule on the true BDP
+  does that much better. The learned net2 closes two thirds of that gap,
+  on the test links; on the validation links it tied the constant, and it
+  has one training seed, so this gain is not yet established. Two more
+  seeds are UNRUN at the time of writing.
+- The decision that matters beyond the constant is competing with a
+  buffer-filling flow, which the log utility rewards and the learned net2
+  found.
+- Learning from other controllers' logs is confounded here; online
+  training with multi-step returns is what worked.
+
+These runs used a harness kept outside the repository; the specs above
+reproduce them with `train run` and `train online`.
+
 ### Tuned comparison
 
 The search below ran on the expliCCit-like data. Its harness (grid
@@ -771,10 +862,20 @@ table, the queue group is mean queueing delay, queue and free buffer.
 
 ## 8. Next
 
-None of the policies above uses the design in `docs/methodology.md`;
-they set the baseline it must beat. That page has the claims to test
-(section 1), the training plan for net1 and net2 (section 3), the
-experiment arms (section 5) and the status of the reproduction
-(section 6). The first changes the results point to are one decision per
-RTT on an absolute target, exploration held over an RTT, and teacher
-logs used only to start (section 3 there).
+"net2 on the fixed net1" is the first run of the design in
+`docs/methodology.md`: an honest net1, fixed, and net2 setting a window
+target from its beliefs. What it leaves open, in the order the plan
+needs it:
+
+- Seeds for the learned net2, and longer online training: on
+  validation it tied the constant multiple.
+- Arm A2: net2 on the means of the same net1's distributions
+  (`net2.view: "means"`), against A3 above, to measure what the stated
+  uncertainty is worth; then the human reading (a few percentiles).
+- Arm A1 for the learned net2 (trained and run on the truth), and A4
+  (raw measurements), to measure the costs of estimation and of the
+  split for a learned decision, not only for the constant rule.
+- Several learned flows on one bottleneck, for fairness between copies.
+
+`docs/methodology.md` has the claims (section 1), the plan (section 3),
+the arms (section 5) and the status (section 6).

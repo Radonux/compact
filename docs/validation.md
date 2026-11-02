@@ -450,8 +450,13 @@ net1's means, the logged action is log2 of the next window over that BDP
 (none where the next step is missing), and the exported graph inverts
 it (the window it sets, over the believed BDP, is 2^u); an oracle net2 on
 a distribution net1 sees all mass on the true bin, and net1's own belief
-where the truth is unknown; online training runs one iteration with each
-action kind, drawing its rollouts under two conditions.
+where the truth is unknown; the means view hands net2 each
+distribution's mean, standardized as net1's targets are, and its graph
+inverts the window target as well; n-step transitions sum the rewards
+of consecutive steps only (never across a gap in the steps or an
+episode's end) and bootstrap n steps ahead; online training runs one
+iteration with each action kind, drawing its rollouts under two
+conditions.
 `tests/test_spec.py`: `ccs_per_point` runs the same seeded subset of
 controllers under every condition of a point, and existing campaigns
 expand to the same episodes as before (checked by hashing the expansions
@@ -472,6 +477,18 @@ report on the test links. Memory: two trainings at once were killed by
 the container (12.9 GB for one) until the loader kept float32 arrays per
 row group and net1 scaled its inputs in batches; then two runs peaked at
 10.7 GB together. Killed runs were rerun and produced no result.
+
+net2 runs (`docs/training.md`, section 7, "net2 on the fixed net1"): 5
+offline runs, 6 constant multiples and 2 constant oracles, 5 online runs
+(one-step TD3+BC twice, IQL, and n-step TD3+BC with 20 and 40 steps,
+each scored on the validation links every 5 iterations), then one test
+report of 5 policies on 27 links (405 episodes, all ok). Three online
+runs (both one-step TD3+BC runs and IQL) were stopped after 5 to 10
+iterations, once their evaluations stayed below their start; their
+evaluations are reported as such. Two more seeds of the 40-step run are
+UNRUN at the time of writing. Kernel
+controllers are scored from the data campaign's episodes on the same
+links, under the same conditions but other episode seeds.
 
 ## Not run (and why)
 

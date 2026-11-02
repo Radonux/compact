@@ -242,16 +242,22 @@ buffer is the least predictable LCF (R^2 0.56). Breadth of links mattered
 more than any setting: on 132 training links, net1 recognized links and
 was over-confident about capacity (0.71 at 90%).
 
-Learned controllers are compared by utility, the trainer's reward:
-utilization minus penalties on queueing delay and drops
-(`docs/training.md`). Settings were chosen on validation paths over 214
-offline and 48 online runs, the winners checked over 4 or 5 seeds, and
-each reported once on 18 held-out test paths. TD3+BC reaches +0.64 and
-cloning +0.55, against +0.82 for BBRv1, +0.74 for Vegas, +0.70 for BBRv3
-and +0.29 for expliCCit's released policy. Online fine-tuning changes the
-cloned policy by +0.03 (95% interval -0.13 to +0.16). None of these runs
-uses the design in `docs/methodology.md`; they are the baseline it must
-beat.
+net2 acts on that fixed net1 by setting the window to 2^u times the
+believed bandwidth-delay product. Scored once on 27 held-out links in log
+utility (log of the throughput share, minus delay and loss penalties):
+
+- **Fixed multiple.** A fixed multiple (u = 0.25) beats every kernel
+  controller: it scores -0.39, against -0.47 for BBRv3, the best of them,
+  and -1.21 for Cubic.
+- **True BDP.** The same rule on the true BDP scores -0.33. That 0.065
+  difference is what estimation costs this rule.
+- **Learned online.** A net2 trained online scores -0.35, mostly by
+  competing harder with Cubic cross traffic. It has one training seed,
+  and it tied the fixed multiple on the validation links.
+- **Earlier design and expliCCit.** The earlier design scores -1.00 on
+  these links: a multiplicative action on a single-value net1, tuned
+  over 262 runs (`docs/training.md`, "Tuned comparison"). expliCCit's
+  released policy scores -1.83.
 
 ## Working conventions
 
