@@ -22,6 +22,9 @@
 //!   input  "state" float32 [1, S], optional; zeros at the first step
 //!   input  "truth" float32 [1, 7], optional; the path's true state at the
 //!                  step (truth.rs), for oracle policies and LCF patches
+//!   input  "cwnd"  float32 [1, 1], optional; the sender's window in packets
+//!                  (TCP_INFO's snd_cwnd, the steps table's cwnd column), so
+//!                  a policy can set an absolute window as a multiplier
 //!   output 0       float32 [1, 1], a: the window is multiplied by 2^a
 //!   output 1       float32 [1, S], the next state, when "state" exists
 //! a must be finite with |a| <= 8; anything else fails the episode. The
@@ -476,6 +479,7 @@ enum Input {
     Obs,
     State,
     Truth,
+    Cwnd,
 }
 
 /// An ONNX policy under contract sage-v1, with optional exploration noise.
@@ -485,6 +489,8 @@ pub struct Policy {
     state: Option<Tensor>,
     sigma: f64,
     rng: SplitMix64,
+    hold: u64,
+    held: f64,
 }
 
 impl Policy {
@@ -497,6 +503,7 @@ impl Policy {
             let (input, width) = match name.as_str() {
                 "obs" => (Input::Obs, OBS),
                 "truth" => (Input::Truth, truth::N),
+                "cwnd" => (Input::Cwnd, 1),
                 "state" => {
                     let fact = model.input_fact(i).ctx("state input")?;
                     let dims: Option<Vec<usize>> = fact
@@ -514,7 +521,7 @@ impl Policy {
                         _ => return fail("policy state input must have a fixed shape [1, S]"),
                     }
                 }
-                other => return fail(format!("policy input {other:?} is not obs, state or truth")),
+                other => return fail(format!("policy input {other:?} is not obs, state, truth or cwnd")),
             };
             model = model.with_input_fact(i, f32::fact([1, width]).into()).ctx(format!("{name} input"))?;
             inputs.push(input);
@@ -523,18 +530,27 @@ impl Policy {
         if count(|i| matches!(i, Input::Obs)) != 1
             || count(|i| matches!(i, Input::State)) > 1
             || count(|i| matches!(i, Input::Truth)) > 1
+            || count(|i| matches!(i, Input::Cwnd)) > 1
         {
-            return fail(format!("policy inputs {names:?}: need one obs, at most one state and one truth"));
+            return fail(format!("policy inputs {names:?}: need one obs, at most one state, truth and cwnd"));
         }
         let plan = model
             .into_optimized()
             .and_then(|m| m.into_runnable())
             .ctx(format!("optimizing ONNX policy {}", path.display()))?;
-        Ok(Policy { plan, inputs, state, sigma: noise.sigma, rng: SplitMix64(noise.seed) })
+        Ok(Policy {
+            plan,
+            inputs,
+            state,
+            sigma: noise.sigma,
+            rng: SplitMix64(noise.seed),
+            hold: u64::from(noise.hold.get()),
+            held: 0.0,
+        })
     }
 
     #[allow(clippy::cast_possible_truncation)]
-    fn act(&mut self, obs: &[f64; OBS], truth: &[f64; truth::N]) -> Result<f32> {
+    fn act(&mut self, obs: &[f64; OBS], truth: &[f64; truth::N], cwnd: u32) -> Result<f32> {
         let row = |v: &[f64]| -> Result<TValue> {
             let x: Vec<f32> = v.iter().map(|&v| v as f32).collect();
             let t: Tensor =
@@ -546,6 +562,7 @@ impl Policy {
             inputs.push(match input {
                 Input::Obs => row(obs)?,
                 Input::Truth => row(truth)?,
+                Input::Cwnd => row(&[f64::from(cwnd)])?,
                 Input::State => match self.state.take() {
                     Some(s) => s.into(),
                     None => return fail("policy state was not returned by the previous step"),
@@ -665,11 +682,16 @@ pub fn spawn(
                 let true_state = truth.at(now * 1000, base_ns)?;
                 let (mut a, mut cwnd) = (f64::NAN, 0u32);
                 if let (Some(p), Some(dev)) = (policy.as_mut(), dev.as_mut()) {
-                    let act = f64::from(p.act(&obs, &true_state)?);
-                    // The noise is drawn whatever sigma is, so the stream
-                    // does not depend on it. The applied action is recorded.
+                    let act = f64::from(p.act(&obs, &true_state, info.snd_cwnd())?);
+                    // The noise is drawn every step whatever sigma and hold
+                    // are, so the stream does not depend on them; each
+                    // block of `hold` actions keeps its first draw. The
+                    // applied action is recorded.
                     let z = p.rng.normal();
-                    a = (act + p.sigma * z).clamp(-f64::from(MAX_ACTION), f64::from(MAX_ACTION));
+                    if actions % p.hold == 0 {
+                        p.held = z;
+                    }
+                    a = (act + p.sigma * p.held).clamp(-f64::from(MAX_ACTION), f64::from(MAX_ACTION));
                     ratio = 2f64.powf(a);
                     cwnd = window.apply(ratio);
                     dev.write_all(&agent_action(cwnd, &info)).ctx("writing action")?;

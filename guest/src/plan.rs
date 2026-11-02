@@ -8,7 +8,7 @@ use serde::Deserialize;
 use std::num::{NonZeroU32, NonZeroU64};
 use std::path::{Path, PathBuf};
 
-pub const PLAN_VERSION: u32 = 4;
+pub const PLAN_VERSION: u32 = 5;
 /// Cross-traffic flows per episode (ports 6000 to 6015). ponytail: 16 flows,
 /// all sender to receiver; widen the port range or add reverse flows if needed.
 pub const MAX_CROSS: usize = 16;
@@ -49,6 +49,7 @@ struct RawAgent {
     policy_file: String,
     noise_sigma: f64,
     noise_seed: u64,
+    noise_hold: u32,
 }
 
 #[derive(Deserialize)]
@@ -99,10 +100,12 @@ pub enum Control {
 
 /// Exploration: Gaussian noise added to every action the policy takes,
 /// from a seeded generator, so an online training run is reproducible.
+/// Each draw is kept for `hold` steps.
 #[derive(Clone, Copy)]
 pub struct Noise {
     pub sigma: f64,
     pub seed: u64,
+    pub hold: NonZeroU32,
 }
 
 pub struct Plan {
@@ -140,9 +143,16 @@ impl Plan {
                 if !(0.0..=2.0).contains(&a.noise_sigma) {
                     return fail(format!("agent.noise_sigma {} outside [0, 2]", a.noise_sigma));
                 }
+                if a.noise_hold > 1000 {
+                    return fail(format!("agent.noise_hold {} above 1000", a.noise_hold));
+                }
                 Control::Agent {
                     policy: dir.join(plain_file_name(&a.policy_file)?),
-                    noise: Noise { sigma: a.noise_sigma, seed: a.noise_seed },
+                    noise: Noise {
+                        sigma: a.noise_sigma,
+                        seed: a.noise_seed,
+                        hold: nonzero(a.noise_hold, "agent.noise_hold")?,
+                    },
                 }
             }
             (true, None) => return fail(format!("cc {} needs an agent section", raw.cc)),

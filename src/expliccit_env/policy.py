@@ -9,6 +9,8 @@ and runs the policy:
     input  "state" float32 [1, S], optional; zeros at the first step
     input  "truth" float32 [1, 7], optional; the path's true state at the
                    step, columns as in TRUTH_COLUMNS
+    input  "cwnd"  float32 [1, 1], optional; the sender's window in packets
+                   (TCP_INFO's snd_cwnd, the steps table's cwnd column)
     output 0       float32 [1, 1], a: the window is multiplied by 2**a
     output 1       float32 [1, S], the next state, present iff "state" is
 
@@ -19,6 +21,8 @@ with the same definitions as the labels (labels.labels_at), so it equals the
 labels its step is stored with. Its values can be NaN where a label is
 (mean queueing delay with no departure in the window, free buffer without a
 packet limit, busy fraction at zero capacity); the graph must handle that.
+"cwnd" lets a policy choose an absolute window and still answer with a
+multiplier: a = log2(target) - log2(cwnd).
 
 The policy chooses its own columns and does its own scaling inside the graph,
 so any network design fits without changing the guest. The message is Sage's

@@ -179,6 +179,10 @@ class AgentCC(_Frozen):
     # Exploration (online training): Gaussian noise on each action, seeded
     # from the episode's seed. 0 runs the policy as it is.
     noise_sigma: Annotated[float, Field(ge=0, le=2)] = 0.0
+    # Keep each noise draw for this many steps: with a policy that sets an
+    # absolute window target, held noise keeps the window at the perturbed
+    # level long enough for its effect to show.
+    noise_hold_steps: Annotated[int, Field(ge=1, le=1000)] = 1
 
     @property
     def name(self) -> str:
@@ -266,7 +270,12 @@ class EpisodeSpec(_Frozen):
                     return UdpCrossPlan(round(c.rate_mbps * 1e6), c.start_ms, stop)
 
         agent = (
-            AgentPlan(self.cc.policy.read(), self.cc.noise_sigma, self.seed ^ 0x5EED_0F_A6E47)
+            AgentPlan(
+                self.cc.policy.read(),
+                self.cc.noise_sigma,
+                self.seed ^ 0x5EED_0F_A6E47,
+                self.cc.noise_hold_steps,
+            )
             if isinstance(self.cc, AgentCC)
             else None
         )

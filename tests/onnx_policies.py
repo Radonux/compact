@@ -83,3 +83,17 @@ def on_truth(column: int, slope: float, bias: float) -> bytes:
         {"k": np.array([[slope]]), "b": np.array([[bias]])},
         ints={"col": np.array([column])},
     )
+
+
+def window_target(target: float) -> bytes:
+    """a = log2(target) - log2(cwnd): sets the window to target packets."""
+    return _model(
+        [
+            helper.make_node("Log", ["cwnd"], ["lc"]),
+            helper.make_node("Sub", ["lt", "lc"], ["d"]),
+            helper.make_node("Mul", ["d", "inv_ln2"], ["a"]),
+        ],
+        [_obs(), _tensor("cwnd", 1)],
+        [_tensor("a", 1)],
+        {"lt": np.array([[np.log(target)]]), "inv_ln2": np.array([[1 / np.log(2)]])},
+    )

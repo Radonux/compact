@@ -151,3 +151,27 @@ def test_exploration_noise_is_seeded_and_has_the_requested_spread(
     assert np.array_equal(a, b)  # same episode seed, same noise
     assert not np.array_equal(a[:50], c[:50])
     assert abs(float(a.mean())) < 0.02 and 0.08 < float(a.std()) < 0.12
+
+
+def test_held_noise_keeps_each_draw_for_its_block(build: UmlBuild, tmp_path: Path) -> None:
+    base = agent_spec(tmp_path, onnx_policies.constant(0.0), "hold")
+    noisy = base.model_copy(update={"cc": base.cc.model_copy(update={"noise_sigma": 0.1})})
+    held = noisy.model_copy(update={"cc": noisy.cc.model_copy(update={"noise_hold_steps": 5})})
+    every, kept = (
+        steps_of(run_raw(build, tmp_path / name, spec)[0])["applied_action"].to_numpy()
+        for name, spec in (("every", noisy), ("held", held))
+    )
+    n = min(every.size, kept.size)
+    assert n > 100
+    # The stream is drawn every step either way; a block keeps its first draw.
+    assert np.array_equal(kept[:n], every[(np.arange(n) // 5) * 5])
+
+
+def test_a_policy_reading_cwnd_sets_an_absolute_window(build: UmlBuild, tmp_path: Path) -> None:
+    outcome, rec = run_raw(
+        build, tmp_path, agent_spec(tmp_path, onnx_policies.window_target(100.0), "hold")
+    )
+    cwnd = rec.agent_action["cwnd"]
+    assert cwnd.size > 100 and np.all(cwnd[2:] == 100)
+    read = steps_of(outcome)["cwnd"].to_numpy()  # the input the policy saw
+    assert read[0] == 10 and np.all(read[3:] == 100)

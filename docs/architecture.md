@@ -257,7 +257,10 @@ it. An ONNX graph takes these inputs, matched by name:
 - `state` float32 [1, S], optional: a recurrent state, zeros at the first
   step, which the guest feeds back from the graph's second output;
 - `truth` float32 [1, 7], optional: the path's true state at the step (see
-  below).
+  below);
+- `cwnd` float32 [1, 1], optional: the sender's window in packets
+  (TCP_INFO's `snd_cwnd`, the step table's `cwnd` column), so a graph can
+  choose an absolute window and answer with a = log2(target) - log2(cwnd).
 
 The graph returns a, the log2 of the window multiplier. It selects its
 columns and scales them itself, so a new network design needs no guest
@@ -270,8 +273,12 @@ multiplied by 2^a, rounded up and kept in [4, 20000]. Pacing is
 cwnd * mss / srtt, refreshed every step. A non-finite a, or |a| > 8, fails
 the episode instead of being clamped, so a broken policy cannot silently
 produce data. For online training, the spec's `noise_sigma` adds Gaussian
-noise to each a, seeded from the episode's seed. The sum is clamped to
-[-8, 8], and the step records the action actually applied.
+noise to each a, seeded from the episode's seed, and `noise_hold_steps`
+keeps each draw for that many steps (the generator still advances every
+step, so the stream does not depend on the hold). Held noise matters for a
+policy that sets an absolute window: independent draws each step would
+average out within an RTT. The sum is clamped to [-8, 8], and the step
+records the action actually applied.
 
 ### The truth input
 
@@ -370,8 +377,8 @@ Limits marked `ponytail` in the code name their upgrade path there.
 - The record reader polls every 20 ms of virtual time. The step loop also
   drains the ring at each step.
 - The step loop decides once per step (Sage's 10 ms period, extended until
-  the ACK state moves), not once per RTT, and it draws exploration noise
-  independently at each step. After an idle step it polls every 1 ms, where
+  the ACK state moves), not once per RTT. Exploration noise is Gaussian,
+  drawn per step or held for a fixed number of steps. After an idle step it polls every 1 ms, where
   Sage busy-polls. It refreshes pacing once per step, where Sage's patched
   kernel may pace per ACK (that kernel's source is not public).
 - The `truth` input carries the seven LCFs only. The path's full state
