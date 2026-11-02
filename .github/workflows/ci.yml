@@ -1,9 +1,14 @@
 name: ci
 
+# The checks every code change needs: Python lint, types and unit tests,
+# and workflow and shell lint. A commit that changes only docs runs nothing.
+# The UML build and end-to-end tests are uml.yml.
 on:
   push:
     branches: [main, "claude/**"]
+    paths-ignore: &docs ["**.md", "docs/**", ".claude/**"]
   pull_request:
+    paths-ignore: *docs
   workflow_dispatch:
 
 permissions: {}
@@ -29,6 +34,8 @@ jobs:
             src
             tests
             examples
+            experiments
+            tools
             kernel/modules
             guest/src
             third_party/mahimahi/scripts
@@ -46,94 +53,10 @@ jobs:
       - run: uv run ruff format --check src tests
       - run: uv run ruff check src tests
       - run: uv run pyright
-      - name: pytest (UML tests skip here; the uml job runs them)
+      - name: pytest (UML tests skip here; uml.yml runs them)
         env:
           EXPLICCIT_MAHAK_DIR: ${{ runner.temp }}/mahak
         run: uv run pytest -q
-
-  rust:
-    name: rust guest (fmt, clippy, x86_64 musl)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    defaults:
-      run:
-        working-directory: guest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          sparse-checkout: guest
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            guest/target
-          key: rust-${{ runner.os }}-${{ hashFiles('guest/Cargo.lock', 'guest/rust-toolchain.toml') }}
-      - run: sudo apt-get update -q && sudo apt-get install -y -q musl-tools
-      - run: rustup toolchain install
-      - run: cargo fmt --check
-      - run: cargo clippy --locked --release --target x86_64-unknown-linux-musl -- -D warnings
-      - run: cargo build --locked --release --target x86_64-unknown-linux-musl
-
-  uml:
-    name: uml (7.0 build, kernel style, end-to-end tests)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        with:
-          enable-cache: true
-          cache-dependency-glob: uv.lock
-      - run: scripts/check-kernel.sh
-      - uses: ./.github/actions/uml
-      - run: uv sync --locked --extra train
-      - name: end-to-end tests in UML
-        env:
-          EXPLICCIT_UML_DIR: build/uml
-        run: uv run pytest -q -m uml
-      - name: smoke campaign through the CLI
-        run: |
-          uv run expliccit campaign plan examples/campaign-smoke.json build/smoke
-          uv run expliccit campaign run build/smoke --build build/uml --workers "$(nproc)"
-          uv run expliccit campaign status build/smoke
-
-  mainline-tripwire:
-    name: newest mainline (non-blocking tripwire)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    continue-on-error: true
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-      - run: sudo apt-get update -q && sudo apt-get install -y -q flex bison bc libelf-dev musl-tools
-      - name: unpack mainline and apply our kernel patches
-        env:
-          DEST: ${{ runner.temp }}/linux-mainline
-        run: uv run --no-project python tools/ci/mainline_tree.py "$DEST"
-      - name: build and run the UML tests against mainline
-        env:
-          KERNEL_SRC: ${{ runner.temp }}/linux-mainline
-          EXPLICCIT_UML_DIR: build/uml-mainline
-        run: |
-          scripts/build-uml.sh build/uml-mainline
-          (cd guest && rustup toolchain install)
-          scripts/build-guest.sh build/uml-mainline
-          uv sync --locked
-          uv run pytest -q -m uml
 
   workflows:
     name: workflow and shell lint

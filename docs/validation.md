@@ -388,16 +388,23 @@ reported in `docs/methodology.md`, section 6.
 
 ## CI
 
-`.github/workflows/ci.yml` runs five jobs:
+Each check runs only when what it checks can have changed; everything
+else runs on demand.
 
-- Python: ruff, pyright (strict on `src`), and pytest with the Mahak
-  reference and the `train` extra; the UML tests skip there;
-- Rust: fmt, clippy and the x86_64 musl build of the guest;
-- UML: kernel style (`scripts/check-kernel.sh`), the UML build, the UML
-  tests, and a smoke campaign through the CLI;
-- a non-blocking tripwire that applies our kernel patches to the newest
-  mainline kernel and runs the UML tests on it;
-- workflow and shell lint: actionlint, zizmor and shellcheck.
+- `.github/workflows/ci.yml`, on every commit that changes more than
+  docs: Python (ruff, pyright strict on `src`, and pytest with the Mahak
+  reference and the `train` extra; the UML tests skip there), and
+  workflow and shell lint (actionlint, zizmor, shellcheck).
+- `.github/workflows/uml.yml`, on a push that changes the guest, the
+  kernel tree or our modules, `src`, the tests or the build, and on
+  demand: Rust (fmt, clippy, the x86_64 musl build of the guest) and UML
+  (kernel style with `scripts/check-kernel.sh`, the UML build from the
+  cache or from source, the UML tests, a smoke campaign through the CLI).
+- On demand only (`uml.yml` with `mainline` set): the tripwire that
+  applies our kernel patches to the newest mainline kernel and runs the
+  UML tests on it. It takes mainline's tarball from GitHub's mirror of
+  Linus' tree, since git.kernel.org refuses downloads from Actions
+  runners.
 
 This page does not track CI results; the Actions tab has the current state.
 Two earlier records, both from before M6: on the first CI run on GitHub,

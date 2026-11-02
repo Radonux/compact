@@ -193,8 +193,10 @@ Run every check at once:
 
 The suite has 105 tests. All pass except 2 that compare our port of Sage's
 step with `sage.cc`'s own code; they need a Sage checkout and g++ and are
-UNRUN. CI runs the same checks on every push, split across jobs
-(`.github/workflows/ci.yml`).
+UNRUN. CI runs the Python and lint checks on every commit that changes
+more than docs (`.github/workflows/ci.yml`), the guest and UML checks when
+the code they check changes (`uml.yml`), and the newest-mainline tripwire
+on demand.
 
 ## Status
 

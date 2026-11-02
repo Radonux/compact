@@ -374,7 +374,8 @@ experiment is one file under `experiments/` (its format is in
 2. **uml** restores the UML build from the Actions cache, or builds it
    (`.github/actions/uml`). The key is the git trees of the kernel, our
    modules and config, the guest and both build scripts, so a build is
-   reused until one of them changes. CI's `uml` job uses the same action.
+   reused until one of them changes. The `uml` job of `uml.yml` uses the
+   same action.
 3. **cells** runs `run` once per cell, 20 at a time. A cell writes only
    paths no other cell writes, and its output is an artifact kept 7 days.
 4. **collect** merges the cells' outputs, runs `collect`, and packs the
