@@ -1,0 +1,25 @@
+{
+  "title": "net1 v4 grid: dropout and width on the broad dataset",
+  "description": "net1 v4 on the broad dataset (releases exp-data-net1-broad-30s-5 and -60s-8): 3 x 2 grid over dropout and width, each a 3-member ensemble with net1 v3's other settings, ranked on validation rows; the chosen run is reported on test links, held-out controllers and the four held-out families (exp-data-net1-broad-ood-9), next to net1 v3.",
+  "train": true,
+  "inputs": {
+    "d30": "release:exp-data-net1-broad-30s-5",
+    "d60": "release:exp-data-net1-broad-60s-8",
+    "ood": "release:exp-data-net1-broad-ood-9",
+    "models": "release:model-net1v3"
+  },
+  "matrix": {
+    "dropout": [
+      0.0,
+      0.05,
+      0.1
+    ],
+    "width": [
+      512,
+      1024
+    ]
+  },
+  "run": "uv run python experiments/net1_train.py \"$OUT/net1-d$DROPOUT-w$WIDTH\" --spec experiments/specs/net1v4.json --set dropout=$DROPOUT --set width=$WIDTH --data \"$IN/d30/campaign-train30\" \"$IN/d60/campaign-train60\" --ood competitors=\"$IN/ood/campaign-ood-competitors\" --ood loss=\"$IN/ood/campaign-ood-loss\" --ood rtt=\"$IN/ood/campaign-ood-rtt\" --ood buffer=\"$IN/ood/campaign-ood-buffer\" --compare \"$IN/models/net1v3.pt\"",
+  "collect": "uv run python experiments/net1_grid.py \"$OUT\" \"$OUT\"/net1-*",
+  "timeout_minutes": 360
+}

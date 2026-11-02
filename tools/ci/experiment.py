@@ -18,6 +18,7 @@ one job per cell (`run`; at most 256 cells, 20 at a time, 6 h each), collect
       "shards": 20,                 # or "matrix": {"seed": [0, 1], "lr": [0.001, 0.0003]}
       "run": "bash, once per cell",
       "collect": "bash, once, after every cell succeeded; reads and writes $OUT",
+      "collect_inputs": false,      # fetch the inputs for collect too (default: no)
       "timeout_minutes": 360
     }
 
@@ -70,6 +71,7 @@ class Experiment(BaseModel):
     matrix: dict[Name, Annotated[list[Scalar], Field(min_length=1)]] | None = None
     run: Annotated[str, Field(min_length=1)]
     collect: str = ""
+    collect_inputs: bool = False
     timeout_minutes: Annotated[int, Field(ge=1, le=360)] = 360
 
     @model_validator(mode="after")
@@ -136,6 +138,7 @@ def plan(source: str, name: str, exp: Experiment) -> None:
         "train": exp.train,
         "inputs": bool(exp.inputs),
         "prepare": bool(exp.prepare),
+        "collect_inputs": exp.collect_inputs and bool(exp.inputs),
     }
     print(f"name={name}")
     print(f"title={exp.title or name}")

@@ -34,6 +34,7 @@ jobs:
       uml: ${{ steps.plan.outputs.uml }}
       train: ${{ steps.plan.outputs.train }}
       inputs: ${{ steps.plan.outputs.inputs }}
+      collect_inputs: ${{ steps.plan.outputs.collect_inputs }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -167,7 +168,7 @@ jobs:
           pattern: cell-*
           path: out
           merge-multiple: true
-      - if: needs.plan.outputs.inputs == 'true'
+      - if: needs.plan.outputs.collect_inputs == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: uv run python tools/ci/experiment.py fetch "$EXPERIMENT"
