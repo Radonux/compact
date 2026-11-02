@@ -190,6 +190,7 @@ def run_online(
             spec.net2.action_max,
             spec.net2.action_decimals,
             action=spec.net2.action,
+            view=spec.net2.view,
             input_bins=spec.net2.input_bins,
         )
         path.parent.mkdir(parents=True, exist_ok=True)

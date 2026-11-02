@@ -56,6 +56,7 @@ def train(spec: TrainSpec, out: Path) -> dict[str, Any]:
         spec.net2.action_decimals,
         truth=truth,
         action=spec.net2.action,
+        view=spec.net2.view,
         input_bins=spec.net2.input_bins,
     )
     (out / "policy.onnx").write_bytes(to_onnx(graph))

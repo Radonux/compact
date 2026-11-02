@@ -116,9 +116,12 @@ class Net2Spec(_Frozen):
     # arm that splits a policy's loss into the LCF set's cost and net1's
     # error. Its exported policy reads the guest's live truth (policy.py).
     inputs: Literal["net1", "true_lcfs"] = "net1"
-    # Distribution net1 only: net2 sees each LCF's distribution summed into
-    # this many groups of adjacent bins (net1's bin count must be a
-    # multiple), which bounds the size of its input and replay buffer.
+    # Distribution net1 only. "bins": net2 sees each LCF's distribution,
+    # summed into input_bins groups of adjacent bins when set (net1's bin
+    # count must be a multiple), which bounds its input and replay buffer.
+    # "means": net2 sees only each distribution's mean, standardized as
+    # net1's targets are: the single-value arm with the same estimator.
+    view: Literal["bins", "means"] = "bins"
     input_bins: Annotated[int, Field(ge=2, le=256)] | None = None
     # What net2's output means. "multiplier": a, the log2 of the window
     # multiplier (the contract's action). "bdp": u, the next window as a
@@ -163,6 +166,12 @@ class Net2Spec(_Frozen):
     expectile: Annotated[float, Field(ge=0.5, lt=1)] = 0.7
     beta: Annotated[float, Field(ge=0)] = 3.0
     max_weight: Annotated[float, Field(gt=0)] = 100.0
+
+    @model_validator(mode="after")
+    def _view(self) -> Net2Spec:
+        if self.view == "means" and self.input_bins is not None:
+            raise ValueError("input_bins applies to the bins view only")
+        return self
 
 
 class TrainSpec(_Frozen):

@@ -521,6 +521,22 @@ def test_bdp_action_logs_and_sets_the_window_relative_to_the_believed_bdp() -> N
     assert not any(m.training for m in graph.modules())  # export leaves it as it was
     with pytest.raises(ValueError, match="distribution net1"):
         fit.policy_graph(_net1(), actor, 1.0, action="bdp")
+    # The single-value view: each distribution's mean, standardized as
+    # net1's targets are, with the same window target.
+    means = Net2Spec(action="bdp", view="means", action_max=3.0, algo="bc", hidden=32, steps=50)
+    states_m, log2_bdp_m = fit.net2_view(net1, means, steps)
+    want = net1.lcf_scaler(torch.from_numpy(net1.predict(steps.obs))).numpy()
+    assert states_m.shape == (steps.obs.shape[0], 7) and np.allclose(states_m, want, atol=1e-4)
+    assert np.array_equal(log2_bdp_m, log2_bdp)
+    actor_m, _ = fit.fit_net2(means, steps, net1, 0)
+    graph_m = fit.policy_graph(net1, actor_m, 3.0, action="bdp", view="means")
+    with torch.no_grad():
+        a_m = graph_m(obs, cwnd=cwnd)[:, 0].numpy()
+        u_m = actor_m(torch.from_numpy(states_m[:8]))[:, 0].numpy() * 3.0
+    applied_m = np.log2(np.maximum(cwnd[:, 0].numpy(), 1)) + a_m - log2_bdp[:8]
+    assert np.allclose(applied_m, u_m, atol=1e-4)
+    with pytest.raises(ValueError, match="bins view"):
+        Net2Spec(view="means", input_bins=4)
 
 
 def test_an_oracle_net2_on_a_distribution_net1_sees_the_true_bins() -> None:

@@ -185,10 +185,44 @@ class BinNet1(nn.Module):
         return torch.searchsorted(inner, y.t().contiguous(), right=True).t()
 
 
-def pool_bins(z: torch.Tensor, k: int, b: int, into: int) -> torch.Tensor:
+class PoolBins(nn.Module):
     """[n, K * B] distributions -> [n, K * into]: each group of B / into
     adjacent bins summed into one."""
-    return z.reshape(-1, k, into, b // into).sum(dim=3).reshape(-1, k * into)
+
+    def __init__(self, k: int, b: int, into: int) -> None:
+        super().__init__()
+        self.k, self.b, self.into = k, b, into
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        pooled = z.reshape(-1, self.k, self.into, self.b // self.into).sum(dim=3)
+        return pooled.reshape(-1, self.k * self.into)
+
+
+class BinMeans(nn.Module):
+    """[n, K * B] distributions -> [n, K] means in report units, each bin's
+    mass at its midpoint, as Net1.predict computes them."""
+
+    mid: torch.Tensor
+
+    def __init__(self, bounds: torch.Tensor) -> None:
+        super().__init__()
+        self.register_buffer("mid", ((bounds[:, :-1] + bounds[:, 1:]) / 2).float())
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        k, b = self.mid.shape
+        return (z.reshape(-1, k, b) * self.mid).sum(dim=2)
+
+
+class ScaledMeans(nn.Module):
+    """A distribution's means, standardized as net1's targets are: the
+    single values a point net1 would hand net2, from the same estimator."""
+
+    def __init__(self, means: BinMeans, scaler: Scaler) -> None:
+        super().__init__()
+        self.means, self.scaler = means, scaler
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        return self.scaler(self.means(z))
 
 
 # Bits per packet in the BDP: Mahimahi's 1500-byte packets.
@@ -198,19 +232,14 @@ _PACKET_BITS = 1500 * 8
 class WindowTarget(nn.Module):
     """log2 of the path's believed bandwidth-delay product in packets, from
     a distribution net1's output: its mean capacity (Mbit/s) times twice
-    its mean one-way delay (ms), each mean putting a bin's mass at the
-    bin's midpoint, as Net1.predict does. At least one packet."""
+    its mean one-way delay (ms). At least one packet."""
 
-    mid: torch.Tensor
-
-    def __init__(self, bounds: torch.Tensor, capacity: int, one_way: int) -> None:
+    def __init__(self, means: BinMeans, capacity: int, one_way: int) -> None:
         super().__init__()
-        self.register_buffer("mid", ((bounds[:, :-1] + bounds[:, 1:]) / 2).float())
-        self.capacity, self.one_way = capacity, one_way
+        self.means, self.capacity, self.one_way = means, capacity, one_way
 
     def forward(self, z: torch.Tensor) -> torch.Tensor:
-        k, b = self.mid.shape
-        mean = (z.reshape(-1, k, b) * self.mid).sum(dim=2)
+        mean = self.means(z)
         bdp = mean[:, self.capacity] * 1e6 * mean[:, self.one_way] * 2e-3 / _PACKET_BITS
         return torch.log2(torch.clamp(bdp, min=1.0))
 
@@ -279,8 +308,8 @@ class PolicyGraph(nn.Module):
     goes to the truth's bin, except where the truth is NaN, which keeps
     net1's own belief.
 
-    ``pool`` (K, B, into) sums a distribution net1's bins into ``into``
-    groups per LCF before net2. With a ``target``, net2's output u is the
+    ``view`` turns net1's output into net2's input (PoolBins or
+    ScaledMeans; none passes it as it is). With a ``target``, net2's output u is the
     next window as a log2 multiple of the believed BDP, and the graph
     answers a = log2(BDP) + u - log2(cwnd) from the contract's "cwnd"
     input, kept within the contract's bound."""
@@ -310,7 +339,7 @@ class PolicyGraph(nn.Module):
         self.register_buffer("truth_units", torch.zeros(0))
         self.register_buffer("from_truth", torch.zeros(0, dtype=torch.bool))
         self.register_buffer("truth_bounds", torch.zeros(0))
-        self.pool: tuple[int, int, int] | None = None
+        self.view: nn.Module | None = None
         self.target: WindowTarget | None = None
 
     def take_from_truth(
@@ -357,7 +386,7 @@ class PolicyGraph(nn.Module):
             c = torch.relu(self.lcf_scaler.inverse(z))
             c = torch.cat([torch.round(c[:, :6]), c[:, 6:]], dim=1)
             z = (c - self.lcf_scaler.center) / self.lcf_scaler.spread
-        a = self.net2(z if self.pool is None else pool_bins(z, *self.pool)) * self.action_max
+        a = self.net2(z if self.view is None else self.view(z)) * self.action_max
         if self.target is not None:
             if cwnd is None:
                 raise ValueError("a window target needs the cwnd input")

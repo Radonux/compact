@@ -24,16 +24,18 @@ from expliccit_env.train.data import Split, Steps
 from expliccit_env.train.models import (
     NET1,
     NET2,
+    BinMeans,
     BinNet1,
     Critic,
     ExpliccitActor,
     ExpliccitNet1,
     IntervalNet1,
     PolicyGraph,
+    PoolBins,
+    ScaledMeans,
     Scaler,
     Value,
     WindowTarget,
-    pool_bins,
 )
 from expliccit_env.train.spec import EXPLICCIT_LCFS, LCF_UNITS, Net1Spec, Net2Spec
 
@@ -676,24 +678,34 @@ def window_target(net1: Net1) -> WindowTarget:
             "a window target needs a distribution net1 with capacity_bps and one_way_delay_ns"
         )
     return WindowTarget(
-        net1.net.bounds, net1.lcfs.index("capacity_bps"), net1.lcfs.index("one_way_delay_ns")
+        BinMeans(net1.net.bounds),
+        net1.lcfs.index("capacity_bps"),
+        net1.lcfs.index("one_way_delay_ns"),
     )
 
 
-def _pool(net1: Net1, input_bins: int | None) -> tuple[int, int, int] | None:
-    if input_bins is None:
+def _view(net1: Net1, view: Literal["bins", "means"], input_bins: int | None) -> nn.Module | None:
+    """What turns net1's output into net2's input (Net2Spec.view)."""
+    if view == "bins" and input_bins is None:
         return None
-    if not isinstance(net1.net, BinNet1) or net1.net.b % input_bins:
-        raise ValueError(
-            f"input_bins {input_bins} needs a distribution net1 with a multiple of bins"
-        )
-    return net1.net.k, net1.net.b, input_bins
+    if not isinstance(net1.net, BinNet1):
+        raise ValueError(f"net2 view {view!r}, input_bins {input_bins}: needs a distribution net1")
+    if view == "means":
+        return ScaledMeans(BinMeans(net1.net.bounds), net1.lcf_scaler)
+    assert input_bins is not None
+    if net1.net.b % input_bins:
+        raise ValueError(f"input_bins {input_bins} does not divide net1's {net1.net.b} bins")
+    return PoolBins(net1.net.k, net1.net.b, input_bins)
 
 
 def net2_width(net1: Net1, spec: Net2Spec) -> int:
     """Numbers per row in net2's input."""
-    pool = _pool(net1, spec.input_bins)
-    return net1.width if pool is None else pool[0] * pool[2]
+    view = _view(net1, spec.view, spec.input_bins)
+    if isinstance(view, ScaledMeans):
+        return len(net1.lcfs)
+    if isinstance(view, PoolBins):
+        return view.k * view.into
+    return net1.width
 
 
 def _oracle(net1: Net1, z: torch.Tensor, y: F32) -> torch.Tensor:
@@ -714,10 +726,10 @@ def _oracle(net1: Net1, z: torch.Tensor, y: F32) -> torch.Tensor:
 @torch.no_grad()
 def net2_view(net1: Net1, spec: Net2Spec, steps: Steps) -> tuple[F32, F32]:
     """Per step, as the exported graph computes them: net2's input (net1's
-    beliefs, or the oracle's with inputs "true_lcfs"), pooled to
-    spec.input_bins, and log2 of the believed BDP in packets (NaN unless
+    beliefs, or the oracle's with inputs "true_lcfs"), through spec.view,
+    and log2 of the believed BDP in packets (NaN unless
     spec.action is "bdp"). In batches, so memory follows net2's input."""
-    pool = _pool(net1, spec.input_bins)
+    view = _view(net1, spec.view, spec.input_bins)
     target = window_target(net1) if spec.action == "bdp" else None
     y = targets(steps, net1.lcfs) if spec.inputs == "true_lcfs" else None
     states, log2_bdp = [], []
@@ -726,7 +738,7 @@ def net2_view(net1: Net1, spec: Net2Spec, steps: Steps) -> tuple[F32, F32]:
         if y is not None:
             z = _oracle(net1, z, y[i : i + _EVAL_BATCH])
         log2_bdp.append(target(z) if target else torch.full((z.shape[0],), float("nan")))
-        states.append(z if pool is None else pool_bins(z, *pool))
+        states.append(z if view is None else view(z))
     if not states:
         return np.zeros((0, net2_width(net1, spec)), np.float32), np.zeros(0, np.float32)
     return torch.cat(states).numpy(), torch.cat(log2_bdp).numpy()
@@ -752,9 +764,12 @@ def fit_net2(
     states, log2_bdp = net2_view(net1, spec, steps)
     actions = logged_actions(steps, spec, log2_bdp)
     data, clipped = transitions(steps, states, actions, spec, "train")
+    val, _ = transitions(steps, states, actions, spec, "val")
+    width = states.shape[1]
+    del states  # every row's input; the transitions hold what training needs
     if data.s.shape[0] == 0:
         raise ValueError("no training transitions")
-    learner = Learner(spec, states.shape[1])
+    learner = Learner(spec, width)
     log: dict[str, list[float]] = {}
     for step in range(spec.steps):
         b = torch.from_numpy(rng.integers(0, data.s.shape[0], spec.batch_size))
@@ -762,7 +777,6 @@ def fit_net2(
         for name, v in learner.update(batch, step).items():
             log.setdefault(name, []).append(v)
     actor = learner.actor.eval()
-    val, _ = transitions(steps, states, actions, spec, "val")
     with torch.no_grad():
         val_bc = float(((actor(val.s) - val.a) ** 2).mean()) if val.s.shape[0] else float("nan")
     tail = max(1, spec.steps // 10)
@@ -829,14 +843,15 @@ def policy_graph(
     *,
     truth: frozenset[str] = frozenset(),
     action: Literal["multiplier", "bdp"] = "multiplier",
+    view: Literal["bins", "means"] = "bins",
     input_bins: int | None = None,
 ) -> PolicyGraph:
     """The exported policy; the LCFs named in ``truth`` come from the
     contract's "truth" input (policy.TRUTH_COLUMNS) instead of net1.
-    ``action`` and ``input_bins`` are net2's (Net2Spec)."""
+    ``action``, ``view`` and ``input_bins`` are net2's (Net2Spec)."""
     graph = PolicyGraph(net1.scaler, net1.net, net1.lcf_scaler, actor, action_max)
     graph.action_decimals = action_decimals
-    graph.pool = _pool(net1, input_bins)
+    graph.view = _view(net1, view, input_bins)
     if action == "bdp":
         graph.target = window_target(net1)
     if truth:

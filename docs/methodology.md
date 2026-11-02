@@ -231,7 +231,7 @@ has adapted to them, so the truth is not automatically a repair.
 | Arm | net2 sees | Isolates |
 |---|---|---|
 | A1 | the true LCFs (an oracle, trained and run on the truth) | upper bound for the LCF set (H1) |
-| A2 | net1's single-value estimates | |
+| A2 | net1's single values: the means of the same net1's distributions (`net2.view: "means"`) | |
 | A3 | net1's distributions | A3 against A2: what honest uncertainty is worth; A1 against A3: the cost of estimation (H2) |
 | A4 | raw measurements (a black box, same training) | A4 against A3: the cost of the split (H6) |
 | A0 | the full true state of the path, beyond the LCFs | A0 against A1: what the LCF set omits |

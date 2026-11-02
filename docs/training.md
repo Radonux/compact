@@ -96,7 +96,8 @@ of 0.95 (about 200 ms) barely sees that window.
 | `net1.bins` | none | a probability distribution over this many bins per LCF, trained with the log score (section 5); excludes `intervals` |
 | `net2.algo` | `td3bc` | TD3+BC; `iql` is implicit Q-learning (`expectile`, `beta`); `bc` clones; `expliccit-v1` is expliCCit's objective, kept for comparison |
 | `net2.inputs` | `net1` | `true_lcfs` trains on the labels, and the exported policy reads the live truth (an oracle, section 3) |
-| `net2.input_bins` | none | distribution net1 only: net2 sees each LCF's distribution summed into this many groups of adjacent bins |
+| `net2.view` | `bins` | distribution net1 only: `bins` gives net2 each LCF's distribution; `means` gives only each distribution's mean, standardized (the single-value arm, same estimator) |
+| `net2.input_bins` | none | with `bins`: each LCF's distribution summed into this many groups of adjacent bins |
 | `net2.action` | `multiplier` | `multiplier`: net2 outputs a; `bdp`: net2 outputs the next window as a log2 multiple of the believed bandwidth-delay product (below) |
 | `net2.reward` | `sage` | Sage's reward; `utility` and `log_utility` are the ground-truth utilities below |
 | `net2.discount` | 0.95 | per step |
