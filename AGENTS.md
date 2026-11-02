@@ -62,6 +62,10 @@ and the current status. Work in two phases:
   write the least code that works. Mark deliberate limits with
   `ponytail: <ceiling>, <upgrade path>`.
 - Never let a failed or invalid episode produce metrics or labels.
+- Results are published as GitHub releases, with no exceptions: run
+  experiments through `.github/workflows/experiment.yml` (an experiment
+  file under `experiments/`), which publishes every successful run, and
+  cite the release in the docs. Artifacts are transport only and expire.
 - Make no claim about a learned model's performance before tuning it:
   inspect its training diagnostics (critic and actor scales, saturation,
   actions outside the data), search the hyperparameters that matter on
