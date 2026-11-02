@@ -406,6 +406,11 @@ else runs on demand.
   Linus' tree, since git.kernel.org refuses downloads from Actions
   runners.
 
+Its first run on demand (2026-11-02, mainline 7.4-rc1) downloaded the
+source and applied our patches up to `include/linux/tcp.h`, where one
+hunk no longer applies. Our pinned 7.0 tree is unaffected; carrying the
+patches to a newer kernel would start there.
+
 This page does not track CI results; the Actions tab has the current state.
 Two earlier records, both from before M6: on the first CI run on GitHub,
 the Python, Rust and lint jobs passed, and the UML job exposed a
