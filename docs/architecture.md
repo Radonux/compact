@@ -37,8 +37,8 @@ it enters, into types that cannot hold invalid values:
 - the guest plan: Rust `Plan::load`;
 - netlink options: the kernel's `nla_parse_nested` with a policy;
 - agent actions: the kernel's `agent_write`;
-- the policy graph's inputs: `Policy::load` accepts one `obs`, at most one
-  `state` and at most one `truth`, matched by name;
+- the policy graph's inputs: `Policy::load` accepts one `obs` and at most
+  one each of `state`, `truth` and `cwnd`, matched by name;
 - records: numpy dtypes that mirror the C structs, checked for size, type,
   ABI and sequence continuity;
 - `steps.bin`: a numpy dtype, checked for whole records and increasing
@@ -454,7 +454,8 @@ missing).
   `TraceFile` already accepts any Mahimahi trace (pinned by sha256).
 - **A learned controller.** Export it to ONNX under the `sage-v1` contract
   (`src/expliccit_env/policy.py`: input `obs` float32 [1, 78], optional
-  `state` and `truth`; output a, the log2 of the window multiplier). Then
+  `state`, `truth` and `cwnd`; output a, the log2 of the window
+  multiplier). Then
   use
   `{"kind": "agent", "mode": "hold" | "reno", "policy": {"path": ..., "sha256": ...}}`
   as the spec's `cc`.

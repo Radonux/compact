@@ -180,7 +180,8 @@ Run every check at once:
     git clone https://github.com/Ppazhooh/mahak /tmp/mahak && git -C /tmp/mahak checkout 5077583
     EXPLICCIT_UML_DIR=build/uml EXPLICCIT_MAHAK_DIR=/tmp/mahak uv run pytest -q
 
-Of the 93 tests, 91 run and pass. The other 2 compare our port of Sage's
+The suite has 94 tests. In the last full run, 91 of the 93 it had then
+passed (the n-step test came later). The other 2 compare our port of Sage's
 step with `sage.cc`'s own code; they need a Sage checkout and g++ and are
 UNRUN. CI runs the same checks on every push, split across jobs
 (`.github/workflows/ci.yml`).
@@ -247,8 +248,12 @@ believed bandwidth-delay product. Scored once on 27 held-out links in log
 utility (log of the throughput share, minus delay and loss penalties):
 
 - **Fixed multiple.** A fixed multiple (u = 0.25) beats every kernel
-  controller: it scores -0.39, against -0.47 for BBRv3, the best of them,
-  and -1.21 for Cubic.
+  controller on average: it scores -0.39, against -0.47 for BBRv3, the
+  best of them, and -1.21 for Cubic. The average is over three equally
+  weighted conditions: it beats all 17 controllers on clean links and
+  under 1% random loss, but trails BBRv3, Illinois, Scalable and BIC
+  under cross traffic, where a fixed window takes a small share against a
+  growing Cubic flow.
 - **True BDP and a classical estimate.** The same rule on the true BDP
   scores -0.33. That 0.065 difference (0.041 on a second held-out set of
   158 links) is what estimation costs this rule. On a classical estimate
@@ -257,11 +262,22 @@ utility (log of the throughput share, minus delay and loss penalties):
 - **Learned online.** A net2 trained online scores -0.35 over three
   seeds by competing harder with Cubic cross traffic. That is only 0.04
   better than the fixed multiple here, 0.01 on the 158 links, and no
-  better on the validation links.
+  better on the validation links, also after 60 iterations instead of 20.
+- **Means against distributions.** On the validation links, a net2 that
+  sees only the means of net1's distributions (arm A2) does at least as
+  well as one that sees the distributions (A3). So far net2 gets no
+  measurable value from net1's stated uncertainty. Neither went to test.
 - **Earlier design and expliCCit.** The earlier design scores -1.00 on
   these links: a multiplicative action on a single-value net1, tuned
   over 262 runs (`docs/training.md`, "Tuned comparison"). expliCCit's
   released policy scores -1.83.
+
+These net2 results, and net1's on unseen links, use one family of links
+(constant or stepping capacity, 8 to 100 Mbit/s) and three conditions
+(clean, UDP plus a Cubic flow, 1% random loss). Test links are new
+combinations of these, but the conditions are not held out:
+generalization to other conditions is untested, and the ranking against
+the kernel controllers holds for this mix only.
 
 ## Working conventions
 

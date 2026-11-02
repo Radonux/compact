@@ -14,11 +14,13 @@ the current one.
 
 ## Summary (M15, 2026-11-02)
 
-The suite has 93 tests: 65 unit tests and 28 that need a UML build. In the
+The suite has 94 tests: 66 unit tests and 28 that need a UML build. The
 last full local run (with a UML build and a Mahak checkout, before the
-commit that adds this entry), 91 passed. The other 2 are the comparisons
-of Sage's step with `sage.cc` (`test_step_matches_sage_cc`), which
-skipped: UNRUN.
+commit that adds this entry) had 93 of them, since the n-step test came
+later: 91 passed. The other 2 are the comparisons of Sage's step with
+`sage.cc` (`test_step_matches_sage_cc`), which skipped: UNRUN. On
+2026-11-02 the suite ran again without a UML build: 60 passed and 34
+skipped, the 28 UML tests among them.
 
 The passing tests show that:
 
@@ -60,7 +62,7 @@ To rerun the suite:
     git clone https://github.com/Ppazhooh/mahak /tmp/mahak && git -C /tmp/mahak checkout 5077583
     EXPLICCIT_UML_DIR=build/uml EXPLICCIT_MAHAK_DIR=/tmp/mahak uv run pytest -q
 
-Without `EXPLICCIT_UML_DIR` the 24 UML tests skip, and without
+Without `EXPLICCIT_UML_DIR` the 28 UML tests skip, and without
 `EXPLICCIT_MAHAK_DIR` the tests that run Mahak's own code skip. The
 comparison with `sage.cc` also needs `EXPLICCIT_SAGE_DIR` (a Sage checkout
 at `eedd281`; the full hash is in `tests/sage_ref.py`) and g++.
@@ -490,7 +492,16 @@ followed, each scored once on the test links; then the constant, the
 oracle and the three seeds were scored once on a second held-out set
 (158 links, 2,370 episodes, all ok). Disk filled to 99% during that run
 from the online runs' rollout tables, which were deleted (their
-transitions had been used); no episode failed. Kernel
+transitions had been used); no episode failed. The rule on a classical
+BDP estimate was tuned the same way (6 multiples on the validation
+links) and scored once on both held-out sets. Later, the constant's test
+run was repeated with the same policy and seed and reproduced its score
+exactly (-0.3927), to split it by condition, as did the learned net2's
+seed 0 (-0.348) and the constant's validation run (-0.369); and two
+online runs of 60
+iterations (arms A3 and A2, one seed each, 1,920 rollout episodes each)
+were scored on the validation links every 10 iterations, next to the
+constant run again there. Kernel
 controllers are scored from the data campaign's episodes on the same
 links, under the same conditions but other episode seeds.
 
@@ -509,6 +520,6 @@ links, under the same conditions but other episode seeds.
 | sparse (`C=1`) on the modules | UNRUN: Ubuntu 24.04's sparse is too old for 7.0. W=1 and checkpatch --strict are clean. |
 | Large campaigns on the CSLab Slurm cluster | UNRUN: script generation is tested, but no script was ever submitted. |
 | Training on GPU (the CUDA wheel in `docs/training.md`) | UNRUN: there is no GPU in this environment. |
-| The oracle arm A1: a net2 trained on the true LCFs, compared in closed loop with the same net2 on net1's beliefs | UNRUN. The environment supports it since M13 (above). The case study in `docs/methodology.md`, section 6, only patches beliefs of expliCCit's released policy, on one path. |
+| The oracle arm A1: a net2 trained on the true LCFs, compared in closed loop with the same net2 on net1's beliefs | UNRUN for a trained net2. The environment supports it since M13 (above). A fixed rule has run on the true BDP against net1's (M15, above); the case study in `docs/methodology.md`, section 6, only patches beliefs of expliCCit's released policy, on one path. |
 | Training settings not searched at M12: reward scale 1 for TD3+BC, discount 0.995 or 0.999, noise held for an RTT, one decision per RTT | UNRUN (`docs/training.md`, section 7). |
-| The experiments of `docs/methodology.md`, section 5 | UNRUN as designed there. Its section 6 says what has run and the status of each piece the environment needs. |
+| The experiments of `docs/methodology.md`, section 5 | Partly run, with fewer seeds than designed there (arms A2 and A3, and A1 for a fixed rule). Its section 6 says what has run and the status of each piece the environment needs. |

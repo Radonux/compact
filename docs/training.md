@@ -228,7 +228,9 @@ An oracle (arm A1 in `docs/methodology.md`, section 5) is a net2 trained
 with `"net2": {"inputs": "true_lcfs"}`. It trains on the labels, and the
 exported `policy.onnx` takes its LCFs from `truth`. Comparing it with the
 same net2 on net1's beliefs splits a policy's loss into what the LCF set
-costs and what net1's errors cost. That comparison is UNRUN.
+costs and what net1's errors cost. For a trained net2 that comparison is
+UNRUN; section 7 makes it for a fixed rule, on the true BDP against
+net1's ("net2 on the fixed net1").
 
 A patch takes some LCFs from `truth` and the rest from net1, to test
 whether a wrong belief explains a fault (expliCCit's repair experiment).
@@ -571,13 +573,14 @@ large where the queue is full. net1's belief was not the cause: its
 believed BDP had a median error of 0 (log2), the middle 80% of steps
 within -0.9 and +0.3.
 
-**A constant multiple of the believed BDP beats every kernel controller.**
+**A constant multiple of the believed BDP beats every kernel controller on
+average.**
 Holding u fixed gives on the validation links -0.65 (u = -0.25), -0.45
 (0), -0.37 (0.125), -0.37 (0.25), -0.41 (0.375) and -0.49 (0.5). At
 u = 0.25 it scores 0.112 (0.054 to 0.172) above BBRv3. It loses almost
-only under cross traffic (-0.96, against -0.10 on a clean link): a Cubic
-flow fills the buffer, and a window fixed at 1.19 times the BDP gets a
-small share.
+only under cross traffic (-0.89, against -0.11 on a clean link and -0.11
+under random loss): a Cubic flow fills the buffer, and a window fixed at
+1.19 times the BDP gets a small share.
 
 **Online training needs multi-step returns.** From the u = 0.25 policy,
 with exploration of 0.3 or 0.5 (log2 of the window) held for 10 or 20
@@ -600,7 +603,10 @@ on a classical estimate, without net1: the largest delivery rate over
 Sage's long window (10 s) times the min RTT, at least 10 packets, the
 estimate BBR builds. Its multiple was tuned the same way: on the
 validation links it scored -2.59 (u = 0, which never probes), -1.33
-(0.125), -0.59 (0.25), -0.60 (0.375), -0.66 (0.5) and -1.12 (1).
+(0.125), -0.59 (0.25), -0.60 (0.375), -0.66 (0.5) and -1.12 (1). After
+the test, the 40-step run was repeated for 60 iterations, on the
+distributions (arm A3) and on their means (arm A2), on the validation
+links only (below).
 
 Test links (27 links, three conditions, 81 episodes each, scored once):
 
@@ -621,11 +627,14 @@ Paired differences: the constant rule beats BBRv3 by 0.079 (0.032 to
 0.123) and BBRv1 by 0.097 (0.023 to 0.172); the oracle beats the constant
 by 0.065 (0.031 to 0.105). The three seeds of the learned net2 beat BBRv3
 by 0.119 to 0.123 and the constant by 0.040 to 0.044 (each interval
-above 0), and lie within 0.004 of each other. By condition, the learned
-net2 gains on the constant mostly under cross traffic (seed 0: -0.879
-against -0.988; clean -0.115 against -0.125, random loss -0.099 against
--0.125), where it raises its target (u up to 0.88 at the 90th
-percentile).
+above 0), and lie within 0.004 of each other. By condition (seed 0,
+re-run with the same seed, which reproduced its score, -0.348), the
+learned net2 gains on the constant mostly under cross traffic: -0.812
+against -0.911, +0.099 (0.014 to 0.186). On clean links it scores -0.124
+against -0.133, +0.010 (-0.027 to +0.042), and under random loss -0.109
+against -0.134, +0.025 (-0.017 to +0.069). Under cross traffic it raises
+its target: over the steps after the first 2 s, u runs from -0.31 to 0.88
+(10th to 90th percentile), where the constant holds 0.25.
 
 On the validation links the same three seeds tied the constant (+0.009,
 +0.002, -0.023), so the policies were also scored once on a second
@@ -651,7 +660,8 @@ Reading:
 
 - With an honest net1, even the simplest decision on its output, a fixed
   multiple of the believed BDP, beats every controller in the kernel on
-  links neither network has seen, and the old design by 0.6 in log
+  links neither network has seen, on average over the three conditions
+  (it wins two and loses one, below), and the old design by 0.6 in log
   utility.
 - net1 is worth having: under the same rule, its belief beats the
   classical estimate by 0.155 and 0.228 on the two held-out sets, and
@@ -659,12 +669,139 @@ Reading:
   estimate and the truth, net1 closes about 85% of the gap (158 links).
 - The learned net2 does not reliably beat the constant: by about 0.04 on
   the 27 test links, 0.01 on the 158 others, and nothing on the
-  validation links, consistently over three seeds. What it learned, to
+  validation links, consistently over three seeds; 60 iterations instead
+  of 20 did not change that on validation (below). What it learned, to
   compete harder with a buffer-filling flow, is the right direction, but
   its size depends on how many links have a large buffer for Cubic to
   fill. The fixed multiple is the net2 to beat.
 - Learning from other controllers' logs is confounded here; online
   training with multi-step returns is what worked.
+
+**By condition, the constant wins two conditions and loses one.** The
+constant's test run was repeated with the same policy and seed, and
+reproduced its score exactly (-0.3927). Log utility by condition on the
+27 test links:
+
+| Condition | constant | BBRv3 | BBRv1 | Cubic | Vegas | constant minus BBRv3 |
+|---|---|---|---|---|---|---|
+| clean | -0.133 | -0.262 | -0.337 | -0.511 | -0.208 | +0.129 (0.079 to 0.179) |
+| 1% random loss | -0.134 | -0.354 | -0.309 | -2.252 | -2.314 | +0.220 (0.172 to 0.267) |
+| cross traffic | -0.911 | -0.799 | -0.824 | -0.874 | -1.028 | -0.112 (-0.202 to -0.026) |
+| mean (the score above) | -0.393 | -0.472 | -0.490 | -1.212 | -1.183 | +0.079 |
+
+Cross traffic is 3 Mbit/s of UDP from 5 to 15 s and one Cubic flow from
+8 s. Against all 17 kernel controllers, the constant beats every one on
+clean links and under random loss, each interval above 0; the closest are
+Vegas on clean links, +0.075 (0.027 to 0.127), and BBRv1 under loss,
++0.175 (0.086 to 0.259). Under cross traffic it trails BBRv3, Illinois
+(-0.073, -0.149 to -0.001), Scalable (-0.073, -0.148 to -0.004) and BIC
+(-0.076, -0.149 to -0.010). Against BBRv1 there the difference is -0.087
+(-0.193 to +0.014), and every other controller's interval includes 0
+except CDG's: the constant beats CDG by 0.576 (0.336 to 0.821).
+
+The three terms of the score (log throughput share / delay term / loss
+term):
+
+| Condition | constant | BBRv3 |
+|---|---|---|
+| clean | -0.044 / -0.078 / -0.011 | -0.069 / -0.166 / -0.027 |
+| 1% random loss | -0.062 / -0.067 / -0.005 | -0.290 / -0.058 / -0.007 |
+| cross traffic | -0.521 / -0.347 / -0.043 | -0.383 / -0.368 / -0.048 |
+
+Reading:
+
+- On clean links the constant keeps a smaller standing queue. A window
+  of 1.19 BDP leaves about 0.19 BDP queued, which predicts a delay term
+  near -0.095; it measured -0.078. Cubic gets the most throughput on
+  clean links (log share -0.033) but fills the buffer (delay term
+  -0.474).
+- Under random loss the constant scores as on clean links: it does not
+  react to loss, since net1's believed BDP does not move. Cubic, Reno and
+  Vegas fall to 16% to 17% utilization, and BBRv3 to 75%. A likely cause
+  for BBRv3, not checked: it bounds inflight when a round's loss rate
+  exceeds its 2% loss threshold, which 1% random loss on small windows
+  often does. BBRv1 also ignores loss, but drops 3.1% of its packets on
+  shallow buffers.
+- Under cross traffic the constant's delay term matches the others' (the
+  Cubic flow fills the queue), and it loses throughput share: a fixed
+  window takes a small share against a flow that keeps growing and
+  inflating the RTT. This is where the learned net2 gained, by raising u
+  under cross traffic.
+
+So the headline, +0.079 over BBRv3, is a mean over three equally
+weighted conditions, of which the constant wins two and loses one. What
+would change the conclusion:
+
+- the condition mix: under cross traffic alone, BBRv3, Illinois,
+  Scalable and BIC rank above the constant (intervals below 0), and BBRv1
+  is ahead by a similar margin (0.087) whose interval includes 0;
+- the penalty weights: scored on log throughput alone (no delay or loss
+  terms), BBRv1 beats the constant by 0.067, while the constant still
+  beats BBRv3 by 0.038 and every other controller by 0.138 or more;
+  tuning u for that score is UNRUN;
+- tuning: only the constant was tuned for this score; the kernel
+  controllers ran with their defaults;
+- one flow per bottleneck: net1 estimates the link's capacity, not a
+  fair share, so two flows of the constant would likely each aim at 1.19
+  BDP, together 2.38 BDP in flight and a standing queue of 1.38 BDP, with
+  steady drops on smaller buffers (UNRUN);
+- the pairing: the kernel controllers' episodes come from the data
+  campaign (seed 2026) and the constant's from seed 13, so pairs share
+  links and conditions but not random draws.
+
+**Longer online training does not beat the constant on validation, and
+means do as well as distributions.** After the test, the 40-step run was
+repeated for 60 iterations in two views of the same net1. Arm A3 sees
+each LCF's distribution pooled to 32 bins (`net2.view: "bins"`,
+`net2.input_bins: 32`); arm A2 sees only the 7 means of those distributions
+(`net2.view: "means"`). Each starts from the constant (u = 0.25) in its
+own view and trains online with TD3+BC (alpha 2.5, discount 0.97, 40-step
+returns, 512 rows per update, 2,000 updates per iteration, `policy_noise`
+0.05 clipped at 0.1), exploration 0.5 held for 20 steps, and 32 episodes
+of 20 s per iteration; one seed each. Every 10 iterations each was scored
+on the 21 validation links under the three conditions, paired with the
+constant run again on the same links (-0.369):
+
+| Iteration | A3 minus constant | A2 minus constant | A3 minus A2 |
+|---|---|---|---|
+| 10 | +0.001 (-0.031 to +0.030) | +0.031 (+0.013 to +0.050) | -0.030 (-0.060 to -0.002) |
+| 20 | +0.001 (-0.017 to +0.019) | +0.014 (-0.013 to +0.042) | -0.013 (-0.036 to +0.011) |
+| 30 | +0.004 (-0.021 to +0.029) | +0.007 (-0.021 to +0.035) | -0.003 (-0.029 to +0.023) |
+| 40 | +0.000 (-0.024 to +0.028) | -0.001 (-0.028 to +0.027) | +0.001 (-0.025 to +0.027) |
+| 50 | -0.014 (-0.035 to +0.008) | -0.014 (-0.042 to +0.015) | +0.000 (-0.026 to +0.027) |
+| 60 | -0.014 (-0.037 to +0.014) | +0.005 (-0.019 to +0.031) | -0.019 (-0.039 to +0.003) |
+
+At iteration 60, A3 scores -0.383 and A2 -0.364.
+
+Reading:
+
+- Longer training does not separate a learned net2 from the constant on
+  validation: A3 stays level, and drifts slightly below after iteration
+  40.
+- Means do at least as well as distributions. The one interval that
+  excludes 0 (iteration 10) favours the means, and it is the best of six
+  checkpoints chosen on validation, so it overstates the gain. Neither
+  run went to test, since neither beat the constant on validation.
+- So far this net2 gets no measurable value from net1's stated
+  uncertainty. A likely reason, not tested: a window target built from
+  the believed BDP needs mostly the means, and these runs keep the link
+  busy, where capacity is identifiable; uncertainty should matter when
+  the link is idle and capacity is bounded only from below. net1's
+  honesty (H3) still serves the human reading.
+
+**What these results cover.** The net1 of "net1 on unseen links" and
+every net2 run on it use one trace family and three conditions
+(`examples/net1_varied.py`). Capacity is constant, or steps 2x up or down
+every 3, 7 or 15 s, from a base of 8 to 100 Mbit/s; one-way delay is 5 to
+50 ms; the buffer holds 0.25 to 4 BDP (20 to 2000 packets); episodes last
+20 s, with one observed flow. The conditions are a clean link, 3 Mbit/s
+of UDP from 5 to 15 s plus one Cubic flow from 8 s, and 1% random loss on
+the downlink. Test links are new combinations of these, but the
+conditions themselves are not held out, so generalization to new
+conditions (other competing controllers, several flows, other loss
+rates, other traces) is untested. The kernel controllers ran on the same
+links and conditions, so the comparison is matched, but its ranking
+holds for this mix only.
 
 These runs used a harness kept outside the repository; the specs above
 reproduce them with `train run` and `train online`.
@@ -807,7 +944,7 @@ same paths (BBRv1 +0.817 against +0.82, Vegas +0.735 against +0.74).
   scale a step is worth about 0.04, and TD3+BC normalizes the critic term
   by its mean size); discount 0.995 or 0.999 (0.99 per 10 ms step is a
   1 s horizon, while a probe on an 80 ms path pays off over several
-  RTTs); noise held for an RTT (the guest draws noise per step;
+  RTTs); noise held for an RTT (the guest then drew noise per step;
   independent noise of 0.005 per 10 ms step moves the window by about 1%
   over 100 ms, so it barely explores at the window's own time scale); and
   one decision per RTT.
@@ -893,18 +1030,20 @@ table, the queue group is mean queueing delay, queue and free buffer.
 
 "net2 on the fixed net1" is the first run of the design in
 `docs/methodology.md`: an honest net1, fixed, and net2 setting a window
-target from its beliefs. What it leaves open, in the order the plan
-needs it:
+target from its beliefs. Three seeds of the learned net2, 60 iterations
+of online training and arm A2 (the means) have run; on validation none
+beat the constant. What it leaves open, in the order the plan needs it:
 
-- Seeds for the learned net2, and longer online training: on
-  validation it tied the constant multiple.
-- Arm A2: net2 on the means of the same net1's distributions
-  (`net2.view: "means"`), against A3 above, to measure what the stated
-  uncertainty is worth; then the human reading (a few percentiles).
+- The human reading (a few percentiles per LCF) as net2's input, against
+  the means and the distributions.
 - Arm A1 for the learned net2 (trained and run on the truth), and A4
   (raw measurements), to measure the costs of estimation and of the
   split for a learned decision, not only for the constant rule.
-- Several learned flows on one bottleneck, for fairness between copies.
+- Several learned flows on one bottleneck, for fairness between copies:
+  the constant aims at the link's BDP, not a fair share.
+- Conditions beyond the three of these runs (other competing
+  controllers, more flows, other loss rates, other traces); none is held
+  out yet.
 
 `docs/methodology.md` has the claims (section 1), the plan (section 3),
 the arms (section 5) and the status (section 6).

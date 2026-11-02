@@ -137,14 +137,15 @@ recognizing the link.
 | Stability | oscillation hurts every flow | variance of the sending rate |
 | Robustness | random loss, jitter, ACK aggregation, unfamiliar paths | performance under each; never collapse, never flood |
 
-The reward is one scalar; evaluation covers every row. The current reward
-is linear in utilization, minus penalties on queueing delay relative to
+The reward is one scalar; evaluation covers every row. The first reward
+was linear in utilization, minus penalties on queueing delay relative to
 the base RTT and on the flow's drop fraction. A linear throughput term
 gives competing flows no reason to share. If each flow maximizes the log
 of its throughput minus a price for congestion, competition settles on
 proportionally fair shares (Kelly, 1998); Copa and PCC Vivace build their
-objectives on the same idea. The plan is therefore log throughput minus
-penalties on relative queueing delay and loss. A single-flow reward cannot
+objectives on the same idea. The reward is therefore now log throughput
+minus penalties on relative queueing delay and loss
+(`net2.reward: "log_utility"`). A single-flow reward cannot
 teach fairness, so training includes competing flows: stock controllers
 now, copies of the policy once the environment runs more than one agent
 per kernel.
@@ -180,6 +181,10 @@ percentiles per LCF, in physical units). If they perform the same, net2
 takes the reading, and what an engineer reads is exactly what net2 acts
 on. If the full distributions do better, the difference measures what the
 reading leaves out, and we report what that is.
+
+So far only the means have been tried, on validation links: net2 on the
+means of the distributions (arm A2) did as well as net2 on the
+distributions (section 6). The human reading as net2's input is UNRUN.
 
 ## 4. Interpretability
 
@@ -254,7 +259,8 @@ paired on the same paths and seeds. Every learned model is tuned on
 validation paths before it is compared (AGENTS.md), and reported once on
 held-out test paths, with at least four training seeds and bootstrap
 intervals over seeds and paths. Every result is stated with its reward and
-path distribution.
+path distribution. The results so far use fewer seeds than this: three
+for the learned net2, one for each 60-iteration run (section 6).
 
 ## 6. Where things stand
 
@@ -278,8 +284,13 @@ design above, on links neither network has seen, in log utility:
 - net1 is honest on new links: its 90% statements hold 88.8% to 97.1% of
   the time per LCF.
 - net2 setting the window to a fixed multiple of net1's believed BDP
-  beats every kernel controller: by 0.079 (95% interval 0.032 to 0.123)
-  over BBRv3, the best of them.
+  beats every kernel controller on average: by 0.079 (95% interval 0.032
+  to 0.123) over BBRv3, the best of them. The average is over three
+  equally weighted conditions. It beats all 17 controllers on clean links
+  and under 1% random loss, but under cross traffic it trails BBRv3 (by
+  0.112, 0.026 to 0.202), Illinois, Scalable and BIC, since a fixed
+  window takes a small share against a growing Cubic flow. Scored on log
+  throughput alone, BBRv1 would beat it by 0.067.
 - The same rule on the true BDP (arm A1) does 0.041 to 0.065 better on
   two held-out sets (27 and 158 links): the cost of estimation for that
   rule (H2). On a classical estimate (largest delivery rate times min
@@ -288,15 +299,37 @@ design above, on links neither network has seen, in log utility:
 - A net2 trained online on net1's distributions (arm A3, three seeds)
   beats BBRv3 by 0.12, but the fixed multiple by only 0.04, 0.01 and 0
   on the two held-out sets and the validation links. It learned to
-  compete harder with a buffer-filling Cubic flow; the fixed multiple
-  remains the net2 to beat.
+  compete harder with a buffer-filling Cubic flow. The same training run
+  for 60 iterations instead of 20 (one seed) did not beat the fixed
+  multiple on validation either; the fixed multiple remains the net2 to
+  beat.
+- On the validation links, a net2 on the means of the same distributions
+  (arm A2) did at least as well as one on the distributions (A3) over 60
+  iterations (A3 minus A2 between -0.030 and +0.001; one seed each, not
+  run on test). So far net2 gets no measurable value from net1's stated
+  uncertainty. A likely reason, not tested: this window target needs
+  mostly the means, and these runs keep the link busy, where capacity is
+  identifiable. Honesty (H3) still serves the human reading.
 - Learning from other controllers' logs failed (cloning and IQL, -0.97
   to -1.61 against -0.48 for BBRv3 on validation links), as did the
   earlier design (multiplicative action, single-value net1): its tuned
   TD3+BC policy scores 0.6 below the fixed multiple.
 
-Arms A2 (single values from the same net1), A4 (raw measurements), A0,
-and A1 for a learned net2 are UNRUN.
+Arm A2 has run on the validation links only (above). Arms A4 (raw
+measurements), A0, A1 for a learned net2, and the human reading as
+net2's input are UNRUN.
+
+All of these results were measured on one family of links and three
+conditions
+(`docs/training.md`, section 7, "What these results cover"): constant or
+stepping capacity of 8 to 100 Mbit/s, one-way delay of 5 to 50 ms,
+buffers of 0.25 to 4 BDP, and 20 s episodes with one observed flow, each
+link clean, with UDP and a Cubic flow, or with 1% random loss. Test links
+are new combinations of these, but the conditions are not held out, so
+generalization to new conditions (other competing controllers, several
+flows, other loss rates, other traces) is untested. The kernel
+controllers ran on the same links and conditions, so their ranking holds
+for this mix only.
 
 **What the environment supports**
 
