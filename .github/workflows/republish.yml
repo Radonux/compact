@@ -1,0 +1,41 @@
+name: republish
+
+# Publish the result of an earlier experiment run whose publish job failed,
+# from its "result" artifact (kept 7 days), as release exp-NAME-RUN.
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: the experiment run's id
+        required: true
+        type: string
+
+run-name: republish run ${{ inputs.run_id }}
+
+permissions: {}
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]] || { echo "bad run id: $RUN_ID" >&2; exit 1; }
+          gh run download "$RUN_ID" --name result --dir dist --repo "$GITHUB_REPOSITORY"
+          number="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq .run_number)"
+          sha="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq .head_sha)"
+          part="$(find dist -name '*.tar.zst.part-000' -printf '%f\n' | head -n 1)"
+          name="${part%.tar.zst.part-000}"
+          [[ "$name" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "bad name: $name" >&2; exit 1; }
+          # The token may tag only a commit whose workflow files match main's.
+          create() {
+            gh release create "exp-$name-$number" dist/*.part-* --repo "$GITHUB_REPOSITORY" \
+              --target "$1" --latest=false --title "$name (run $number)" --notes-file dist/notes.md
+          }
+          create "$sha" || create main
