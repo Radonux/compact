@@ -394,6 +394,20 @@ artifact of a run, while it lasts).
 
     gh workflow run experiment.yml -f experiment=experiments/smoke.json
 
+The workflow is general compute, not a check on commits. It also takes
+the experiment's JSON inline, with a `name`, so a one-off job needs no
+commit; the JSON is recorded in the release notes either way.
+
+Releases double as the object store. Tag names say what a release holds:
+`exp-NAME-RUN` for a run's result, `model-...` for weights, `data-...` for
+datasets. `scripts/stash.sh TAG FILE...` stores local files, each under
+git's 100 MB limit on GitHub: it pushes a branch `stash/TAG` holding main
+plus the files, and `.github/workflows/stash.yml` publishes them as release
+TAG, tagged at that main commit, and deletes the branch, so the files never
+enter main's history. An experiment reads a release with
+`"inputs": {"NAME": "release:TAG"}`, and anyone can download a file from
+`https://github.com/Radonux/palaestra/releases/download/TAG/FILE`.
+
 ## Known limits
 
 Limits marked `ponytail` in the code name their upgrade path there.

@@ -1,0 +1,35 @@
+name: stash
+
+# scripts/stash.sh pushes stash/TAG: origin/main plus files under stash/.
+# This publishes those files as release TAG, tagged at the main commit the
+# branch was made from, then deletes the branch, so the files live only in
+# the release.
+on:
+  push:
+    branches: ["stash/**"]
+
+permissions: {}
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+          sparse-checkout: stash
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          tag="${BRANCH#stash/}"
+          [[ "$tag" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || { echo "bad tag: $tag" >&2; exit 1; }
+          notes=(--notes "Stashed from $(git rev-parse --short HEAD^) by scripts/stash.sh.")
+          [[ -f stash/NOTES.md ]] && notes=(--notes-file stash/NOTES.md)
+          gh release create "$tag" stash/* --repo "$GITHUB_REPOSITORY" \
+            --target "$(git rev-parse HEAD^)" --latest=false --title "$tag" "${notes[@]}"
+          gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$BRANCH"

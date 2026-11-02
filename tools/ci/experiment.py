@@ -1,12 +1,14 @@
 """Experiments in GitHub Actions (.github/workflows/experiment.yml).
 
-An experiment is one JSON file under experiments/, parsed here once. The
+An experiment is one JSON file under experiments/, or the same JSON given
+inline to the workflow (it then needs a "name"), parsed here once. The
 workflow runs it in four steps: plan (expand the cells, run `prepare` once),
 one job per cell (`run`; at most 256 cells, 20 at a time, 6 h each), collect
 (merge every cell's output, run `collect`, pack the result), and publish
 (the result as a GitHub release, the long-term record of every run).
 
     {
+      "name": "smoke",              # the release tag's NAME; default: the file's stem
       "description": "one line, for the release notes",
       "uml": true,                  # cells get a built UML tree in $UML
       "train": false,               # install the trainer's extra (PyTorch)
@@ -29,7 +31,7 @@ Inputs: "release:TAG" is every asset of a release of this repository;
 "run:RUN_ID/NAME" is an artifact of an earlier workflow run. A packed
 result (NAME.tar.zst.part-*) is unpacked into IN/<input>.
 
-Usage: python tools/ci/experiment.py plan|prepare|fetch|run|collect|pack FILE [CELL]
+Usage: python tools/ci/experiment.py plan|prepare|fetch|run|collect|pack FILE_OR_JSON [CELL]
 """
 
 import itertools
@@ -48,6 +50,7 @@ PART_BYTES = "1900M"  # release assets must be under 2 GiB each
 RESERVED = {"out", "in", "uml", "workers", "cell", "cells", "shard", "shards"}
 
 Name = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*$")]
+Slug = Annotated[str, Field(pattern=r"^[a-z0-9][a-z0-9-]{0,63}$")]
 Ref = Annotated[str, Field(pattern=r"^(release:[A-Za-z0-9._/-]+|run:[0-9]+/[A-Za-z0-9._-]+)$")]
 Scalar = str | int | float | bool
 
@@ -55,6 +58,7 @@ Scalar = str | int | float | bool
 class Experiment(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    name: Slug | None = None
     description: str = ""
     uml: bool = False
     train: bool = False
@@ -85,8 +89,15 @@ class Experiment(BaseModel):
         return [dict(zip(axes, v, strict=True)) for v in itertools.product(*self.matrix.values())]
 
 
-def load(path: Path) -> Experiment:
-    return Experiment.model_validate_json(path.read_text())
+def load(source: str) -> tuple[str, Experiment]:
+    """The experiment and its name, from a file or from inline JSON."""
+    if source.lstrip().startswith("{"):
+        exp = Experiment.model_validate_json(source)
+        if exp.name is None:
+            raise SystemExit("an inline experiment needs a name")
+        return exp.name, exp
+    exp = Experiment.model_validate_json(Path(source).read_text())
+    return exp.name or Path(source).stem, exp
 
 
 def label(cell: dict[str, Scalar]) -> str:
@@ -115,7 +126,7 @@ def bash(command: str, env: dict[str, str]) -> None:
         subprocess.run(["bash", "-euo", "pipefail", "-c", command], cwd=REPO, env=env, check=True)
 
 
-def plan(path: Path, exp: Experiment) -> None:
+def plan(source: str, name: str, exp: Experiment) -> None:
     """Print the plan as GITHUB_OUTPUT lines, and record what ran in OUT."""
     cells = [{"index": i, "label": label(c)} for i, c in enumerate(exp.cells())]
     flags = {
@@ -124,7 +135,7 @@ def plan(path: Path, exp: Experiment) -> None:
         "inputs": bool(exp.inputs),
         "prepare": bool(exp.prepare),
     }
-    print(f"name={path.stem}")
+    print(f"name={name}")
     print("matrix=" + json.dumps({"cell": cells}, separators=(",", ":")))
     print(f"timeout={exp.timeout_minutes}")
     for k, v in flags.items():
@@ -135,7 +146,7 @@ def plan(path: Path, exp: Experiment) -> None:
         os.environ.get(k, "") for k in ("GITHUB_SERVER_URL", "GITHUB_REPOSITORY", "GITHUB_RUN_ID")
     )
     record = {
-        "file": str(path),
+        "file": "inline" if source.lstrip().startswith("{") else source,
         "experiment": exp.model_dump(mode="json"),
         "commit": os.environ.get("GITHUB_SHA", ""),
         "run": f"{server}/{repo}/actions/runs/{run_id}" if run_id else "",
@@ -205,6 +216,10 @@ def pack(name: str) -> None:
         "",
         f"Experiment `{record['file']}` at commit {record['commit']}, run {record['run']}.",
         f"Unpack: `cat {name}.tar.zst.part-* | zstd -dc | tar -x`.",
+        "",
+        "```json",
+        json.dumps(record["experiment"], indent=1),
+        "```",
     ]
     if summary.exists():
         notes += ["", summary.read_text()[:100_000]]
@@ -212,11 +227,11 @@ def pack(name: str) -> None:
 
 
 def main(argv: list[str]) -> None:
-    verb, path = argv[0], Path(argv[1])
-    exp = load(path)
+    verb, source = argv[0], argv[1]
+    name, exp = load(source)
     match verb:
         case "plan":
-            plan(path, exp)
+            plan(source, name, exp)
         case "prepare":
             bash(exp.prepare, environment(exp))
         case "fetch":
@@ -226,7 +241,7 @@ def main(argv: list[str]) -> None:
         case "collect":
             bash(exp.collect, environment(exp))
         case "pack":
-            pack(path.stem)
+            pack(name)
         case _:
             raise SystemExit(f"unknown verb {verb}")
 

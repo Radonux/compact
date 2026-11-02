@@ -51,4 +51,10 @@ def test_the_repository_experiments_parse() -> None:
     files = sorted((ROOT / "experiments").glob("*.json"))
     assert files
     for f in files:
-        experiment.load(f)
+        assert experiment.load(str(f))[0] == f.stem
+
+
+def test_an_inline_experiment_is_named_by_its_name_field() -> None:
+    assert experiment.load('{"name": "adhoc-1", "shards": 1, "run": "true"}')[0] == "adhoc-1"
+    with pytest.raises(SystemExit):
+        experiment.load('{"shards": 1, "run": "true"}')

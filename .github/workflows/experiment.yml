@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       experiment:
-        description: experiment file, for example experiments/smoke.json
+        description: an experiment file (experiments/smoke.json) or the same JSON inline, with a name
         required: true
         type: string
 
