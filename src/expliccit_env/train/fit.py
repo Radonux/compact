@@ -345,7 +345,6 @@ def _calibrate(
 
 def fit_net1(spec: Net1Spec, steps: Steps, seed: int) -> tuple[Net1, dict[str, Any]]:
     torch.manual_seed(seed)
-    rng = np.random.default_rng(seed)
     tr, va = steps.rows("train"), steps.rows("val")
     y = targets(steps, spec.lcfs)
     scaler = Scaler.fit(spec.obs_cols, steps.obs[tr][:, spec.obs_cols], spec.scaling)
@@ -361,20 +360,54 @@ def fit_net1(spec: Net1Spec, steps: Steps, seed: int) -> tuple[Net1, dict[str, A
 
     (xt, yt, mt), (xv, yv, mv) = tensors(tr), tensors(va)
     net = _net1_module(spec)
+    log: dict[str, Any]
     if isinstance(net, BinNet1):
         net.bounds.copy_(torch.from_numpy(_bin_bounds(y[tr], net.b)))
         with torch.no_grad():  # targets become bin indices
             yt = net.bin_of(torch.from_numpy(np.nan_to_num(y[tr]))).float()
             yv = net.bin_of(torch.from_numpy(np.nan_to_num(y[va]))).float()
+        # Each member is trained on its own, with its own batch order.
+        runs = []
+        for i, member in enumerate(net.members):
+            one = BinNet1([member], net.k, net.b)
+            one.bounds.copy_(net.bounds)
+            runs.append(_train(one, spec, (xt, yt, mt), (xv, yv, mv), seed + i))
+        net.eval()
+        with torch.no_grad():
+            ensemble = float(_loss(net, spec, xv, yv, mv)) if xv.shape[0] else float("nan")
+        log = {"val_loss": runs[0], "members_val_loss": runs, "ensemble_val_loss": ensemble}
+    else:
+        log = {"val_loss": _train(net, spec, (xt, yt, mt), (xv, yv, mv), seed)}
+        if isinstance(net, IntervalNet1) and xv.shape[0]:
+            _calibrate(net, xv, yv, mv, spec.coverage)
+    log["epochs"] = len(log["val_loss"])
+    return Net1(scaler, net, lcf_scaler, tuple(spec.lcfs), spec.intervals), log
 
-    def loss_of(x: torch.Tensor, y: torch.Tensor, m: torch.Tensor) -> torch.Tensor:
-        if isinstance(net, BinNet1):  # the log score of the true bin
-            lp = net.log_probs(x).gather(2, y.long().unsqueeze(2)).squeeze(2)
-            return -(lp * m).sum() / m.sum().clamp(min=1)
-        if spec.intervals:
-            return _masked_pinball(net(x), y, m, spec.coverage)
-        return _masked_mse(net(x), y, m)
 
+def _loss(
+    net: nn.Module, spec: Net1Spec, x: torch.Tensor, y: torch.Tensor, m: torch.Tensor
+) -> torch.Tensor:
+    """The training objective: the log score of the true bin for a
+    distribution, the pinball loss for an interval, else squared error."""
+    if isinstance(net, BinNet1):
+        lp = net.log_probs(x).gather(2, y.long().unsqueeze(2)).squeeze(2)
+        return -(lp * m).sum() / m.sum().clamp(min=1)
+    if spec.intervals:
+        return _masked_pinball(net(x), y, m, spec.coverage)
+    return _masked_mse(net(x), y, m)
+
+
+def _train(
+    net: nn.Module,
+    spec: Net1Spec,
+    train: tuple[torch.Tensor, torch.Tensor, torch.Tensor],
+    val: tuple[torch.Tensor, torch.Tensor, torch.Tensor],
+    seed: int,
+) -> list[float]:
+    """Adam with early stopping on the validation loss; leaves ``net`` at its
+    best epoch and returns the validation loss per epoch."""
+    rng = np.random.default_rng(seed)
+    (xt, yt, mt), (xv, yv, mv) = train, val
     opt = torch.optim.AdamW(net.parameters(), lr=spec.lr, weight_decay=spec.weight_decay)
     best, best_state, stale = float("inf"), copy.deepcopy(net.state_dict()), 0
     history: list[float] = []
@@ -385,26 +418,23 @@ def fit_net1(spec: Net1Spec, steps: Steps, seed: int) -> tuple[Net1, dict[str, A
             b = order[i : i + spec.batch_size]
             if b.numel() < 2:
                 continue
-            loss = loss_of(xt[b], yt[b], mt[b])
+            loss = _loss(net, spec, xt[b], yt[b], mt[b])
             opt.zero_grad()
             loss.backward()
             nn.utils.clip_grad_norm_(net.parameters(), 1.0)
             opt.step()
         net.eval()
         with torch.no_grad():
-            val = float(loss_of(xv, yv, mv)) if xv.shape[0] else float("nan")
-        history.append(val)
-        if val < best:
-            best, best_state, stale = val, copy.deepcopy(net.state_dict()), 0
+            val_loss = float(_loss(net, spec, xv, yv, mv)) if xv.shape[0] else float("nan")
+        history.append(val_loss)
+        if val_loss < best:
+            best, best_state, stale = val_loss, copy.deepcopy(net.state_dict()), 0
         else:
             stale += 1
             if stale >= spec.patience:
                 break
     net.load_state_dict(best_state)
-    if isinstance(net, IntervalNet1) and xv.shape[0]:
-        _calibrate(net, xv, yv, mv, spec.coverage)
-    net1 = Net1(scaler, net, lcf_scaler, tuple(spec.lcfs), spec.intervals)
-    return net1, {"val_loss": history, "epochs": len(history)}
+    return history
 
 
 @dataclass(frozen=True, slots=True)
@@ -650,14 +680,23 @@ def load_net1(path: Path) -> tuple[Net1, Net1Spec]:
     lcf_scaler = Scaler.fit(tuple(range(k)), np.zeros((2, k), np.float32), "standard")
     lcf_scaler.load_state_dict(saved["lcf_scaler"])
     net = _net1_module(spec)
-    net.load_state_dict(saved["net"])
+    state = saved["net"]
+    if spec.bins is not None:  # saved before ensembles: one member, named "base"
+        state = {
+            k.replace("base.", "members.0.", 1) if k.startswith("base.") else k: v
+            for k, v in state.items()
+        }
+    net.load_state_dict(state)
     return Net1(scaler, net.eval(), lcf_scaler, tuple(spec.lcfs), spec.intervals), spec
 
 
 def _net1_module(spec: Net1Spec) -> nn.Module:
     k, f = len(spec.lcfs), len(spec.obs_cols)
     if spec.bins is not None:
-        return BinNet1(NET1[spec.arch](f, k, spec.width, spec.dropout, spec.bins), k, spec.bins)
+        members = [
+            NET1[spec.arch](f, k, spec.width, spec.dropout, spec.bins) for _ in range(spec.members)
+        ]
+        return BinNet1(members, k, spec.bins)
     if not spec.intervals:
         return NET1[spec.arch](f, k, spec.width, spec.dropout)
     return IntervalNet1(NET1[spec.arch](f, k, spec.width, spec.dropout, 3), k)

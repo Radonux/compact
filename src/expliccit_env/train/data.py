@@ -55,8 +55,10 @@ def load(
     val: float,
     test: float,
     controllers: frozenset[str] | None = None,
+    stride: int = 1,
 ) -> Steps:
-    """Every ok episode's steps (only those of ``controllers``, if given)."""
+    """Every ok episode's steps (only those of ``controllers``, if given),
+    keeping every ``stride``-th step of each episode."""
     shards = sorted({p.parent for d in dirs for p in d.rglob("steps.parquet")})
     if not shards:
         raise FileNotFoundError(f"no steps.parquet under {[str(d) for d in dirs]}")
@@ -77,8 +79,11 @@ def load(
     if not split_of:
         raise ValueError(f"no steps of controllers {sorted(controllers or ())}")
     t = pa.concat_tables(tables).combine_chunks()
-    keep = pc.is_in(t["episode_id"], value_set=pa.array(list(split_of), pa.string()))  # pyright: ignore[reportUnknownMemberType]
-    t = t.filter(keep)
+    ids = pa.array(list(split_of), pa.string())
+    keep = np.asarray(pc.is_in(t["episode_id"], value_set=ids).to_numpy(zero_copy_only=False))  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+    if stride > 1:
+        keep &= np.asarray(t["step"].to_numpy(zero_copy_only=False)) % stride == 0
+    t = t.filter(pa.array(keep))
     eid_col = [str(e) for e in t["episode_id"].to_pylist()]
     episode_ids = tuple(dict.fromkeys(eid_col))
     index = {e: i for i, e in enumerate(episode_ids)}

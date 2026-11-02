@@ -160,6 +160,7 @@ def test_load_keeps_only_the_named_controllers(tmp_path: Path) -> None:
         pa.table(
             {
                 "episode_id": ids,
+                "step": [k for _, _, n in eps for k in range(n)],
                 "obs": obs,
                 "action": np.zeros(len(ids), np.float32),
                 "reward": np.zeros(len(ids), np.float32),
@@ -173,6 +174,8 @@ def test_load_keeps_only_the_named_controllers(tmp_path: Path) -> None:
     assert data.load([tmp_path], seed=0, val=0.0, test=0.0).obs.shape[0] == 9
     with pytest.raises(ValueError, match="no steps"):
         data.load([tmp_path], seed=0, val=0.0, test=0.0, controllers=frozenset({"vegas"}))
+    # Every second step of each episode: steps 0 and 2 of e0, 0 of e1, 0 and 2 of e2.
+    assert data.load([tmp_path], seed=0, val=0.0, test=0.0, stride=2).obs.shape[0] == 5
 
 
 def test_as_deployed_rounds_beliefs_and_actions() -> None:
@@ -448,3 +451,33 @@ def test_crps_matches_known_values() -> None:
     point[0, 0, 20] = 1.0  # all mass in [0.20, 0.21)
     score = fit.crps(point, bounds, np.array([[0.7]], np.float32))[0, 0]
     assert abs(score - 0.495) < 6e-3  # a point forecast scores its absolute error
+
+
+def test_an_ensemble_averages_its_members_and_round_trips(tmp_path: Path) -> None:
+    torch.manual_seed(0)
+    steps = _noisy(n_episodes=20)
+    spec = Net1Spec(width=64, epochs=2, batch_size=256, lcfs=("capacity_bps",), bins=16, members=3)
+    net1, log = fit.fit_net1(spec, steps, seed=0)
+    assert len(log["members_val_loss"]) == 3 and np.isfinite(log["ensemble_val_loss"])
+    obs = steps.obs[:32]
+    with torch.no_grad():
+        x = net1.scaler(torch.from_numpy(obs))
+        each = [torch.softmax(m(x).reshape(-1, 1, 16), dim=2) for m in net1.net.members]
+    assert np.allclose(net1.distributions(obs), torch.stack(each).mean(0).numpy(), atol=1e-6)
+    assert not np.allclose(each[0].numpy(), each[1].numpy())  # trained apart
+    fit.save_net1(net1, spec, tmp_path / "net1.pt")
+    again, _ = fit.load_net1(tmp_path / "net1.pt")
+    assert np.array_equal(again.beliefs(obs), net1.beliefs(obs))
+    # A distribution net1 saved before ensembles named its one member "base".
+    one = Net1Spec(width=64, epochs=1, batch_size=256, lcfs=("capacity_bps",), bins=16)
+    single, _ = fit.fit_net1(one, steps, seed=0)
+    state = {k.replace("members.0.", "base.", 1): v for k, v in single.net.state_dict().items()}
+    torch.save(
+        {"spec": one.model_dump(mode="json"), "scaler": single.scaler.state_dict(),
+         "lcf_scaler": single.lcf_scaler.state_dict(), "net": state},
+        tmp_path / "old.pt",
+    )  # fmt: skip
+    old, _ = fit.load_net1(tmp_path / "old.pt")
+    assert np.array_equal(old.beliefs(obs), single.beliefs(obs))
+    with pytest.raises(ValueError, match="needs bins"):
+        Net1Spec(members=2)

@@ -18,6 +18,7 @@ LCF_UNITS: Final = {
     "queue_bytes": (1.0, "bytes"),
     "capacity_bps": (1e-6, "Mbit/s"),
     "free_buffer_pkts": (1.0, "pkts"),
+    "buffer_pkts": (1.0, "pkts"),
     "buffer_fill": (1.0, ""),
     "busy_fraction": (1.0, ""),
     "base_rtt_ns": (1e-6, "ms"),
@@ -47,6 +48,7 @@ type Lcf = Literal[
     "queue_bytes",
     "capacity_bps",
     "free_buffer_pkts",
+    "buffer_pkts",
     "buffer_fill",
     "busy_fraction",
     "base_rtt_ns",
@@ -80,6 +82,9 @@ class Net1Spec(_Frozen):
     # trained with the log score (docs/methodology.md, section 3). net2
     # then sees every bin's probability.
     bins: Annotated[int, Field(ge=4, le=256)] | None = None
+    # Distributions only: train this many net1s on their own (different
+    # initial weights and batch order) and average their distributions.
+    members: Annotated[int, Field(ge=1, le=16)] = 1
     width: PositiveInt = 512
     dropout: Annotated[float, Field(ge=0, lt=1)] = 0.3
     epochs: PositiveInt = 50
@@ -92,6 +97,8 @@ class Net1Spec(_Frozen):
     def _one_output(self) -> Net1Spec:
         if self.intervals and self.bins is not None:
             raise ValueError("net1 reports intervals or bins, not both")
+        if self.members > 1 and self.bins is None:
+            raise ValueError("an ensemble (members > 1) needs bins")
         return self
 
 
@@ -155,6 +162,9 @@ class TrainSpec(_Frozen):
     # Train only on episodes of these controllers (the episodes table's
     # "controller": a stock name, or agent:<sha12>); all when unset.
     controllers: frozenset[str] | None = None
+    # Keep every n-th step of each episode: consecutive 10 ms steps are
+    # strongly correlated, and this bounds memory on large campaigns.
+    step_stride: PositiveInt = 1
     net1: Net1Spec = Net1Spec()
     # A trained net1 to reuse (a run's net1.pt): net1 is then not trained, and
     # its saved spec replaces the "net1" field.

@@ -11,6 +11,7 @@ so its released checkpoints load into them unchanged.
 from __future__ import annotations
 
 import warnings
+from collections.abc import Sequence
 from typing import Literal
 
 import numpy as np
@@ -150,23 +151,30 @@ class BinNet1(nn.Module):
     classifying a value, the first bin also takes everything below and the
     last everything above; the outer boundaries only serve to read
     quantiles. Output: the K distributions in LCF order, each summing to 1.
+    With several members (an ensemble, each trained on its own), the
+    distribution is their average, which widens where they disagree.
     """
 
     bounds: torch.Tensor
 
-    def __init__(self, base: nn.Module, lcfs: int, bins: int) -> None:
+    def __init__(self, members: Sequence[nn.Module], lcfs: int, bins: int) -> None:
         super().__init__()
-        self.base, self.k, self.b = base, lcfs, bins
+        self.members = nn.ModuleList(members)
+        self.k, self.b = lcfs, bins
         self.register_buffer("bounds", torch.zeros(lcfs, bins + 1))
+
+    def _probs(self, x: torch.Tensor) -> torch.Tensor:
+        p = [torch.softmax(m(x).reshape(-1, self.k, self.b), dim=2) for m in self.members]
+        return p[0] if len(p) == 1 else torch.stack(p).mean(dim=0)
 
     def log_probs(self, x: torch.Tensor) -> torch.Tensor:
         """[n, K, B] log-probabilities."""
-        return torch.log_softmax(self.base(x).reshape(-1, self.k, self.b), dim=2)
+        if len(self.members) == 1:
+            return torch.log_softmax(self.members[0](x).reshape(-1, self.k, self.b), dim=2)
+        return torch.log(self._probs(x).clamp(min=1e-12))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return torch.softmax(self.base(x).reshape(-1, self.k, self.b), dim=2).reshape(
-            -1, self.k * self.b
-        )
+        return self._probs(x).reshape(-1, self.k * self.b)
 
     def bin_of(self, y: torch.Tensor) -> torch.Tensor:
         """[n, K] bin index of each value; NaN lands in bin 0 (mask it)."""
