@@ -77,7 +77,7 @@ of 0.95 (about 200 ms) barely sees that window.
 | `seed` | 0 | the split, initialization and batches |
 | `split_by` | `spec` | what a path is for the split: everything but controller and seed, or `link` (below) |
 | `val_fraction`, `test_fraction` | 0.1, 0.1 | share of paths held out for validation and for test |
-| `step_stride` | 1 | keep every n-th step of each episode; net2 needs 1, since it pairs consecutive steps |
+| `step_stride` | 1 | keep every n-th step of each episode and the step after it, since net2 learns from consecutive steps |
 | `controllers` | all | train only on these controllers' episodes (`["bbr", "vegas"]`) |
 | `net1_from` | none | a trained net1 to reuse (a run's `net1.pt`); its saved spec replaces `net1` |
 | `net1.arch` | `expliccit-v1` | expliCCit's encoder (1,265,927 parameters at width 512) |
@@ -126,8 +126,9 @@ seed land in the same split, so no path is both trained and tested on.
 With `"split_by": "link"`, a path is the bottleneck link alone (capacity
 trace, delay, buffer): its episodes under every cross-traffic and loss
 condition share one split, so a test link is new to net1. `step_stride`
-keeps every n-th step of each episode, which bounds memory on large
-campaigns; steps 10 ms apart are strongly correlated anyway.
+keeps every n-th step of each episode and the step after it (net2 learns
+from consecutive pairs), which bounds memory on large campaigns; steps
+10 ms apart are strongly correlated anyway.
 
 Output: `net1.pt`, `net2.pt`, `policy.onnx` (contract `sage-v1`),
 `report.json` and the spec. The report has net1's error per LCF on the

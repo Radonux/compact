@@ -181,8 +181,9 @@ class TrainSpec(_Frozen):
     # Train only on episodes of these controllers (the episodes table's
     # "controller": a stock name, or agent:<sha12>); all when unset.
     controllers: frozenset[str] | None = None
-    # Keep every n-th step of each episode: consecutive 10 ms steps are
-    # strongly correlated, and this bounds memory on large campaigns.
+    # Keep every n-th step of each episode and the step after it (net2
+    # learns from consecutive steps): consecutive 10 ms steps are strongly
+    # correlated, and this bounds memory on large campaigns.
     step_stride: PositiveInt = 1
     net1: Net1Spec = Net1Spec()
     # A trained net1 to reuse (a run's net1.pt): net1 is then not trained, and

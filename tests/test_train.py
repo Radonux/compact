@@ -181,6 +181,10 @@ def test_load_keeps_only_the_named_controllers(tmp_path: Path) -> None:
         data.load([tmp_path], seed=0, val=0.0, test=0.0, controllers=frozenset({"vegas"}))
     # Every second step of each episode: steps 0 and 2 of e0, 0 of e1, 0 and 2 of e2.
     assert data.load([tmp_path], seed=0, val=0.0, test=0.0, stride=2).obs.shape[0] == 5
+    # With pairs, every third step and the one after it: 0 and 1 of each
+    # episode, and step 3 of e2 (its successor would be step 4, past the end).
+    paired = data.load([tmp_path], seed=0, val=0.0, test=0.0, stride=3, pairs=True)
+    assert paired.step.tolist() == [0, 1, 0, 1, 0, 1, 3]
 
 
 def test_as_deployed_rounds_beliefs_and_actions() -> None:

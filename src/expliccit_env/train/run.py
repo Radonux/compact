@@ -29,6 +29,7 @@ def train(spec: TrainSpec, out: Path) -> dict[str, Any]:
         test=spec.test_fraction,
         controllers=spec.controllers,
         stride=spec.step_stride,
+        pairs=True,  # net2 learns from consecutive steps
         split_by=spec.split_by,
     )
     if spec.net1_from is None:

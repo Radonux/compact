@@ -67,10 +67,12 @@ def load(
     test: float,
     controllers: frozenset[str] | None = None,
     stride: int = 1,
+    pairs: bool = False,
     split_by: SplitBy = "spec",
 ) -> Steps:
     """Every ok episode's steps (only those of ``controllers``, if given),
-    keeping every ``stride``-th step of each episode."""
+    keeping every ``stride``-th step of each episode and, with ``pairs``,
+    the step after each, so net2's transitions survive the stride."""
     shards = sorted({p.parent for d in dirs for p in d.rglob("steps.parquet")})
     if not shards:
         raise FileNotFoundError(f"no steps.parquet under {[str(d) for d in dirs]}")
@@ -97,7 +99,8 @@ def load(
             ok = pc.is_in(t["episode_id"], value_set=ids)  # pyright: ignore[reportUnknownMemberType]
             keep = np.asarray(ok.to_numpy(zero_copy_only=False))  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
             if stride > 1:
-                keep &= np.asarray(t["step"].to_numpy(zero_copy_only=False)) % stride == 0
+                phase = np.asarray(t["step"].to_numpy(zero_copy_only=False)) % stride
+                keep &= (phase == 0) | (pairs & (phase == 1))
             if keep.any():
                 tables.append(t.filter(pa.array(keep)))
     if not split_of:
