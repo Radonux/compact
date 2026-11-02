@@ -966,13 +966,44 @@ conditions, so most of the gap is the data, not the network.
   of the data; whether they matter for control is for the experiments
   below.
 
-**Not yet measured.** The fixed rule on net1 v4:
-`experiments/rule-net1v4-val.json` chooses its u for net1 v4, net1 v3
-and the true BDP on the validation links, under the training conditions
-and the families of "New conditions" above, and a single test run
-follows. net1 v4's estimates under net1 v3's three narrow conditions are
-UNRUN as an estimation check; the rule experiments measure them for
-control.
+**The fixed rule on net1 v4, validation links only.** Release
+[`exp-rule-net1v4-val-11`](https://github.com/Radonux/palaestra/releases/tag/exp-rule-net1v4-val-11)
+(`experiments/rule-net1v4-val.json`) ran the rule for u in {-0.25, 0,
+0.125, 0.25, 0.375, 0.5} on net1 v4, on net1 v3 and on the true BDP,
+with BBRv3, on net1 v3's 21 validation links: the training conditions at
+20 s and 60 s, and the three families of "New conditions" above. No
+episode failed. Each group's u is the one with the best mean difference
+from BBRv3 over the five campaigns. Log utility minus BBRv3, paired by
+link:
+
+| Campaign | net1 v4, u = 0.125 | net1 v3, u = 0.375 | net1 v3, u = 0.25 (its earlier choice) | true BDP, u = 0.375 |
+|---|---|---|---|---|
+| training conditions, 20 s | +0.154 | +0.084 | +0.123 | +0.130 |
+| training conditions, 60 s | +0.131 | -0.015 | +0.003 | +0.130 |
+| new conditions, 20 s | +0.271 | +0.163 | +0.148 | +0.292 |
+| deep buffers and long RTTs, 20 s | +0.274 | +0.199 | +0.204 | +0.230 |
+| a Cubic flow from 0 s, 60 s | -0.082 (-0.253 to +0.082) | -0.526 (-0.911 to -0.185) | -0.668 | +0.066 (-0.059 to +0.182) |
+| mean of the five | +0.150 | -0.019 | -0.038 | +0.169 |
+
+- On these links the rule on net1 v4 leads BBRv3 by 0.150 on average,
+  within 0.02 of the same rule on the true BDP; on net1 v3 it trails by
+  0.019 at best. Most of the difference is the competition net1 v3 had
+  not seen: with a Cubic flow from the start for 60 s, the rule on net1
+  v4 ties BBRv3, and on net1 v3 it loses by 0.53.
+- It also does better under net1 v3's own training conditions (+0.154
+  against +0.123 at 20 s, +0.131 against +0.003 at 60 s).
+- For net1 v4 the choice of u is flat: 0.125 and 0.25 differ by 0.002.
+  On deep, long paths the rule on net1 v4 beats the rule on the true BDP
+  (+0.274 against +0.230); with one u for every campaign, the true BDP is
+  not an upper bound for the rule.
+- Limits of this result: these are the links u was chosen on, and each
+  number is the best of six, so it leans optimistic; there are 21 links;
+  and most of these families lie inside net1 v4's training conditions
+  (only 3% loss and part of the deep, long paths are outside), so it
+  shows that the broader data repairs net1 v3's failure, not that net1 v4
+  generalizes beyond its data. The test run waits for the learning-rate
+  search and is UNRUN. net1 v4's estimates under net1 v3's three narrow
+  conditions are UNRUN as an estimation check.
 
 ### Tuned comparison
 

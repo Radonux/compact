@@ -294,7 +294,11 @@ design above, on links neither network has seen, in log utility:
   Westwood competitor it never saw, and 87% and 88% under loss and
   delays beyond its training range. On buffers deeper than any in training its
   free-buffer statements hold 42% of the time. Its learning rate and
-  seeds are still being searched, and the fixed rule on it is UNRUN.
+  seeds are still being searched. On net1 v3's validation links the
+  fixed rule on it leads BBRv3 by 0.150 on average over five campaigns,
+  within 0.02 of the rule on the true BDP, against -0.019 on net1 v3
+  (release `exp-rule-net1v4-val-11`); most of those conditions are
+  inside net1 v4's training data, and the test run is UNRUN.
 - net2 setting the window to a fixed multiple of net1's believed BDP
   beats every kernel controller on average: by 0.079 (95% interval 0.032
   to 0.123) over BBRv3, the best of them. The average is over three
