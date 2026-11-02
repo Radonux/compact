@@ -282,7 +282,9 @@ design above, on links neither network has seen, in log utility:
   over BBRv3, the best of them.
 - The same rule on the true BDP (arm A1) does 0.041 to 0.065 better on
   two held-out sets (27 and 158 links): the cost of estimation for that
-  rule (H2).
+  rule (H2). On a classical estimate (largest delivery rate times min
+  RTT, as BBR builds it) it does 0.155 to 0.228 worse: net1 closes about
+  85% of the gap between that estimate and the truth.
 - A net2 trained online on net1's distributions (arm A3, three seeds)
   beats BBRv3 by 0.12, but the fixed multiple by only 0.04, 0.01 and 0
   on the two held-out sets and the validation links. It learned to

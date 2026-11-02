@@ -249,9 +249,11 @@ utility (log of the throughput share, minus delay and loss penalties):
 - **Fixed multiple.** A fixed multiple (u = 0.25) beats every kernel
   controller: it scores -0.39, against -0.47 for BBRv3, the best of them,
   and -1.21 for Cubic.
-- **True BDP.** The same rule on the true BDP scores -0.33. That 0.065
-  difference (0.041 on a second held-out set of 158 links) is what
-  estimation costs this rule.
+- **True BDP and a classical estimate.** The same rule on the true BDP
+  scores -0.33. That 0.065 difference (0.041 on a second held-out set of
+  158 links) is what estimation costs this rule. On a classical estimate
+  (largest delivery rate times min RTT, as BBR builds it) the rule scores
+  -0.55, so net1's belief is worth 0.155 (0.228 on the 158 links).
 - **Learned online.** A net2 trained online scores -0.35 over three
   seeds by competing harder with Cubic cross traffic. That is only 0.04
   better than the fixed multiple here, 0.01 on the 158 links, and no

@@ -595,7 +595,12 @@ discount 0.97, 512 rows per update, 2,000 updates per iteration) with
 one-step returns and exploration 0.3 held 10 steps or 0.5 held 20, then
 20- and 40-step returns; online IQL (beta 10, expectile 0.9). The learned
 policy with 40-step returns and the constant at u = 0.25 went to test,
-with the same rule on the true BDP (arm A1, the guest's live truth).
+with the same rule on the true BDP (arm A1, the guest's live truth) and
+on a classical estimate, without net1: the largest delivery rate over
+Sage's long window (10 s) times the min RTT, at least 10 packets, the
+estimate BBR builds. Its multiple was tuned the same way: on the
+validation links it scored -2.59 (u = 0, which never probes), -1.33
+(0.125), -0.59 (0.25), -0.60 (0.375), -0.66 (0.5) and -1.12 (1).
 
 Test links (27 links, three conditions, 81 episodes each, scored once):
 
@@ -604,6 +609,7 @@ Test links (27 links, three conditions, 81 episodes each, scored once):
 | u = 0.25 on the true BDP (oracle) | -0.328 (-0.380 to -0.279) | 0.980 | 14.7 | 0.39% |
 | learned net2, 40-step returns (three seeds) | -0.348, -0.349, -0.353 | 0.962 to 0.969 | 11.1 to 12.3 | 0.34% to 0.62% |
 | u = 0.25 on net1's BDP | -0.393 (-0.461 to -0.328) | 0.960 | 14.5 | 0.48% |
+| u = 0.25 on a classical BDP estimate (no net1) | -0.548 (-0.606 to -0.488) | 0.929 | 18.5 | 2.0% |
 | BBRv3 | -0.472 (-0.530 to -0.418) | 0.880 | 15.5 | 0.78% |
 | BBRv1 | -0.490 (-0.566 to -0.420) | 0.945 | 17.8 | 3.2% |
 | Illinois, the next kernel controller | -0.691 | 0.846 | 23.0 | 0.61% |
@@ -633,10 +639,13 @@ only 3 of them):
 | u = 0.25 on the true BDP (oracle) | -0.333 (-0.356 to -0.314) |
 | learned net2 (seeds 1, 0, 2) | -0.360, -0.367, -0.373 |
 | u = 0.25 on net1's BDP | -0.374 (-0.399 to -0.352) |
+| u = 0.25 on the classical BDP | -0.602 (-0.635 to -0.571) |
 
-There, the oracle beats the constant by 0.041 (0.033 to 0.049), and the
-learned net2 beats it by 0.001 to 0.014 (one seed's interval above 0,
-two include 0).
+There, the oracle beats the constant by 0.041 (0.033 to 0.049), the
+constant beats the classical rule by 0.228 (0.196 to 0.259), and the
+learned net2 beats the constant by 0.001 to 0.014 (one seed's interval
+above 0, two include 0). On the 27 test links the constant beats the
+classical rule by 0.155 (0.075 to 0.238).
 
 Reading:
 
@@ -644,8 +653,10 @@ Reading:
   multiple of the believed BDP, beats every controller in the kernel on
   links neither network has seen, and the old design by 0.6 in log
   utility.
-- Estimation costs 0.041 to 0.065 under that rule: the same rule on the
-  true BDP does that much better, on both held-out sets.
+- net1 is worth having: under the same rule, its belief beats the
+  classical estimate by 0.155 and 0.228 on the two held-out sets, and
+  falls short of the truth by 0.065 and 0.041. Between the classical
+  estimate and the truth, net1 closes about 85% of the gap (158 links).
 - The learned net2 does not reliably beat the constant: by about 0.04 on
   the 27 test links, 0.01 on the 158 others, and nothing on the
   validation links, consistently over three seeds. What it learned, to
