@@ -51,6 +51,9 @@ jobs:
       - run: uv sync --locked
       - id: plan
         run: uv run python tools/ci/experiment.py plan "$EXPERIMENT" >> "$GITHUB_OUTPUT"
+      # prepare may need PyTorch too, for example to export a policy.
+      - if: steps.plan.outputs.train == 'true' && steps.plan.outputs.prepare == 'true'
+        run: uv sync --locked --extra train
       - if: steps.plan.outputs.inputs == 'true' && steps.plan.outputs.prepare == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
