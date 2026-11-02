@@ -1,0 +1,94 @@
+"""Score the held-out campaigns of experiments/rule_eval.sh and, on
+validation links, choose u for each group of rules.
+
+Usage: python experiments/rule_report.py OUT [--select GROUP ...]
+
+Scores every OUT/c-* campaign against BBRv3 (log utility per 10 ms step,
+paired by link) and writes OUT/scores-CAMPAIGN.json and OUT/summary.md: one
+row per controller, its difference from BBRv3 in each campaign and the mean
+of those differences, which weights each campaign equally. With --select,
+policies named GROUP-uU are candidates and each group's u is the one with
+the highest mean; a candidate with a failed episode is never chosen. The
+choice goes to OUT/chosen.json ({GROUP: U}).
+"""
+
+import argparse
+import json
+import re
+from pathlib import Path
+from typing import Any
+
+from expliccit_env.train import score
+from expliccit_env.train.spec import Net2Spec
+
+REFERENCE = "bbr3"
+
+
+def main() -> None:
+    p = argparse.ArgumentParser()
+    p.add_argument("out", type=Path)
+    p.add_argument("--select", nargs="*", default=[])
+    a = p.parse_args()
+    aliases: dict[str, str] = json.loads((a.out / "aliases.json").read_text())
+    results: dict[str, dict[str, Any]] = {}
+    for c in sorted(a.out.glob("c-*")):
+        r = score.compare(
+            score.episode_scores([c], Net2Spec(reward="log_utility")), REFERENCE, aliases
+        )
+        r["failed"] = {aliases.get(k, k): v for k, v in score.failures([c]).items()}
+        (a.out / f"scores-{c.name[2:]}.json").write_text(json.dumps(r, indent=1) + "\n")
+        results[c.name[2:]] = r
+    names = sorted({n for r in results.values() for n in r["controllers"]} - {REFERENCE})
+    failed = {n for r in results.values() for n, k in r["failed"].items() if k}
+
+    def diff(n: str, camp: str) -> float | None:
+        e = results[camp]["controllers"].get(n, {}).get("all", {}).get("minus_reference")
+        return None if e is None else e["mean"]
+
+    def overall(n: str) -> float:
+        ds = [diff(n, c) for c in results]
+        return sum(d for d in ds if d is not None) / len(ds) if None not in ds else float("nan")
+
+    camps = list(results)
+    lines = [
+        f"Log utility minus {REFERENCE}, paired by link, per campaign (all its conditions)"
+        " and the mean over campaigns. A * marks a controller with failed episodes.",
+        "",
+        "| controller | " + " | ".join(camps) + " | mean |",
+        "|" + "---|" * (len(camps) + 2),
+    ]
+    for n in sorted(names, key=lambda n: -overall(n)):
+        cells = []
+        for c in camps:
+            e = results[c]["controllers"].get(n, {}).get("all", {}).get("minus_reference")
+            cells.append(
+                ""
+                if e is None
+                else f"{e['mean']:+.3f} ({e['ci95'][0]:+.3f} to {e['ci95'][1]:+.3f})"
+            )
+        lines.append(
+            f"| {n}{' *' if n in failed else ''} | " + " | ".join(cells) + f" | {overall(n):+.3f} |"
+        )
+    chosen: dict[str, float] = {}
+    for g in a.select:
+        cands = {
+            float(m[1]): n for n in names if (m := re.fullmatch(rf"{re.escape(g)}-u(-?[0-9.]+)", n))
+        }
+        ok = {u: n for u, n in cands.items() if n not in failed and overall(n) == overall(n)}
+        if ok:
+            chosen[g] = max(ok, key=lambda u: overall(ok[u]))
+    if a.select:
+        (a.out / "chosen.json").write_text(json.dumps(chosen, indent=1) + "\n")
+        lines += [
+            "",
+            "Chosen u, by the mean over campaigns: "
+            + ", ".join(f"{g} {u:g}" for g, u in chosen.items())
+            + ".",
+        ]
+    for c, r in results.items():
+        lines += ["", f"## {c}", "", score.markdown(r)]
+    (a.out / "summary.md").write_text("\n".join(lines) + "\n")
+
+
+if __name__ == "__main__":
+    main()

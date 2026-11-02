@@ -1,0 +1,15 @@
+{
+  "title": "The fixed rule on net1 v3 and v4: choosing u on validation links",
+  "description": "The fixed rule (window = 2^u times net1's believed BDP) on net1 v4 (the run chosen in exp-net1v4-grid-10), on net1 v3 (model-net1v3) and on the true BDP, each for u in {-0.25, 0, 0.125, 0.25, 0.375, 0.5}, with BBRv3 as the reference, on the validation links: the training conditions at 20 s and 60 s, and the new, deep-long and cubic-first families (experiments/heldout.py), campaign seed 11. Each group's u is the one with the best mean difference from BBRv3 over the five campaigns (chosen.json); the test links are not touched.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "grid": "release:exp-net1v4-grid-10",
+    "models": "release:model-net1v3"
+  },
+  "prepare": "G=\"$IN/grid/$(cat \"$IN/grid/chosen.txt\")/net1.pt\"; U=\"-0.25 0 0.125 0.25 0.375 0.5\"; uv run python experiments/rule_export.py \"$OUT/v4\" \"$G\" --u $U; uv run python experiments/rule_export.py \"$OUT/v3\" \"$IN/models/net1v3.pt\" --u $U; uv run python experiments/rule_export.py \"$OUT/oracle\" \"$IN/models/net1v3.pt\" --u $U --oracle; P=(); for u in $U; do P+=(--policy \"v4-u$u=$OUT/v4/rule-u$u.onnx\" --policy \"v3-u$u=$OUT/v3/rule-u$u.onnx\" --policy \"oracle-u$u=$OUT/oracle/rule-u$u-oracle.onnx\"); done; experiments/rule_eval.sh \"$OUT\" val 11 11 bbr3 \"${P[@]}\"",
+  "shards": 20,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps; done",
+  "collect": "uv run python experiments/rule_report.py \"$OUT\" --select v4 v3 oracle",
+  "timeout_minutes": 180
+}
