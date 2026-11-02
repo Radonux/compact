@@ -401,6 +401,9 @@ class CampaignSpec(_Frozen):
     # every condition), drawn with the campaign's seed: breadth over paths
     # instead of every controller on every path, for estimator data.
     ccs_per_point: PositiveInt | None = None
+    # Likewise, run only this many of the conditions on each sweep point:
+    # many conditions over many links without their full product.
+    conditions_per_point: PositiveInt | None = None
     steps: bool = False
     duration_ms: PositiveInt = 20_000
     seed: Annotated[int, Field(ge=0, lt=U64)] = 0
@@ -410,6 +413,9 @@ class CampaignSpec(_Frozen):
     def _subset(self) -> CampaignSpec:
         if self.ccs_per_point is not None and self.ccs_per_point > len(self.ccs):
             raise ValueError(f"ccs_per_point {self.ccs_per_point} exceeds the {len(self.ccs)} ccs")
+        n = len(self.conditions)
+        if self.conditions_per_point is not None and self.conditions_per_point > n:
+            raise ValueError(f"conditions_per_point {self.conditions_per_point} exceeds {n}")
         return self
 
     @classmethod
@@ -418,7 +424,7 @@ class CampaignSpec(_Frozen):
 
     def episodes(self) -> list[EpisodeSpec]:
         """Deterministic expansion: points x conditions x ccs (or each
-        point's subset of them) x replicates, each with its own seed drawn
+        point's subsets of them) x replicates, each with its own seed drawn
         from the campaign seed."""
         rng = np.random.default_rng(self.seed)
         paths = paths_of(self.sweep, rng)
@@ -428,7 +434,11 @@ class CampaignSpec(_Frozen):
             if self.ccs_per_point is not None:
                 pick = rng.choice(len(self.ccs), self.ccs_per_point, replace=False)
                 ccs = [self.ccs[int(i)] for i in np.sort(pick)]
-            for cond, cc, _ in itertools.product(self.conditions, ccs, range(self.replicates)):
+            conds = self.conditions
+            if self.conditions_per_point is not None:
+                pick = rng.choice(len(conds), self.conditions_per_point, replace=False)
+                conds = [conds[int(i)] for i in np.sort(pick)]
+            for cond, cc, _ in itertools.product(conds, ccs, range(self.replicates)):
                 out.append(
                     EpisodeSpec(
                         path=path.model_copy(update={"loss": cond.loss}),

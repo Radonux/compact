@@ -27,6 +27,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Final, Self
 
+import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 
@@ -38,10 +39,17 @@ TABLES: Final = ("obs", "labels", "link_events", "link_opp", "agent_action", "st
 
 
 class ShardWriter:
-    def __init__(self, directory: Path, tables: frozenset[str] = frozenset(TABLES)) -> None:
+    def __init__(
+        self, directory: Path, tables: frozenset[str] = frozenset(TABLES), step_stride: int = 1
+    ) -> None:
         """``tables``: which per-episode tables to keep (episodes.parquet is
         always written). Dropping link_events and link_opp saves most of the
-        space, but labels can then never be recomputed for those episodes."""
+        space, but labels can then never be recomputed for those episodes.
+        ``step_stride``: keep only the steps whose number is a multiple of it,
+        which shrinks estimator data (each step's message already summarizes
+        the steps before it) but leaves no consecutive steps for net2."""
+        if step_stride < 1:
+            raise ValueError(f"step_stride {step_stride} must be at least 1")
         if not tables <= frozenset(TABLES):
             raise ValueError(f"unknown tables {sorted(tables - frozenset(TABLES))}")
         if directory.exists():
@@ -49,6 +57,7 @@ class ShardWriter:
         directory.mkdir(parents=True)
         self.dir = directory
         self.tables = tables
+        self.step_stride = step_stride
         self.rows: list[dict[str, object]] = []
         self.writers: dict[str, pq.ParquetWriter] = {}
 
@@ -62,6 +71,9 @@ class ShardWriter:
                 assert name in TABLES, name
                 if name not in self.tables:
                     continue
+                if name == "steps" and self.step_stride > 1:
+                    step = np.asarray(table["step"].to_numpy(), np.int64)
+                    table = table.take(np.flatnonzero(step % self.step_stride == 0))  # noqa: PLW2901
                 if name not in self.writers:
                     self.writers[name] = pq.ParquetWriter(
                         self.dir / f"{name}.parquet.tmp", table.schema, compression="zstd"

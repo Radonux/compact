@@ -52,6 +52,7 @@ def _run(a: argparse.Namespace) -> int:
         keep_raw=a.keep_raw,
         timeout_s=a.timeout,
         tables=frozenset(a.tables.split(",")) if a.tables else frozenset(TABLES),
+        step_stride=a.steps_stride,
     ):
         ok = isinstance(o, EpisodeOk)
         failed += not ok
@@ -247,6 +248,12 @@ def _campaign_args(c: argparse._SubParsersAction[argparse.ArgumentParser]) -> No
     cr.add_argument(
         "--tables",
         help=f"comma-separated tables to keep (default all: {','.join(TABLES)})",
+    )
+    cr.add_argument(
+        "--steps-stride",
+        type=int,
+        default=1,
+        help="keep every K-th step in steps.parquet (estimator data; no consecutive steps)",
     )
     _common(cr)
     cr.set_defaults(fn=_run)

@@ -140,6 +140,26 @@ def test_ccs_per_point_runs_a_seeded_subset_on_each_point() -> None:
         CampaignSpec.parse(json.dumps(base | {"ccs_per_point": n + 1}))
 
 
+def test_conditions_per_point_runs_a_seeded_subset_of_conditions_on_each_point() -> None:
+    base = json.loads((EXAMPLES / "campaign-smoke.json").read_text())
+    conds = [{}, {"loss": {"downlink": 0.01}}, {"loss": {"downlink": 0.02}}]
+    spec = CampaignSpec.parse(json.dumps(base | {"conditions": conds, "conditions_per_point": 2}))
+    eps = spec.episodes()
+    assert eps == spec.episodes()
+    by_point: dict[str, set[tuple[str, float]]] = {}
+    for e in eps:
+        key = json.dumps(e.path.model_dump(mode="json", exclude={"loss"}), sort_keys=True)
+        by_point.setdefault(key, set()).add((e.cc.model_dump_json(), e.path.loss.downlink))
+    picks = set()
+    for runs in by_point.values():  # every controller under the same 2 conditions
+        losses = {x for _, x in runs}
+        assert len(losses) == 2 and len(runs) == 2 * len(base["ccs"])
+        picks.add(frozenset(losses))
+    assert len(picks) > 1  # the subsets differ between points
+    with pytest.raises(ValidationError):
+        CampaignSpec.parse(json.dumps(base | {"conditions": conds, "conditions_per_point": 4}))
+
+
 def test_paths_sweep_takes_any_trace_and_conditions_override_loss() -> None:
     path = {
         "trace": {"kind": "periodic_levels", "levels_mbps": [24, 48], "level_ms": 7000},

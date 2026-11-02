@@ -112,6 +112,7 @@ def run_shard(
     keep_raw: bool = False,
     timeout_s: float = 1800.0,
     tables: frozenset[str] = frozenset(TABLES),
+    step_stride: int = 1,
 ) -> Iterator[EpisodeOutcome]:
     """Run one shard, yielding outcomes as they are written."""
     specs = load_episodes(out)[shard.index :: shard.count]
@@ -119,7 +120,7 @@ def run_shard(
         work = out / "raw" if keep_raw else Path(tmp)
         jobs = [_Job(s, build.root, work, keep_raw, timeout_s) for s in specs]
         with (
-            ShardWriter(out / "shards" / shard.name(), tables) as writer,
+            ShardWriter(out / "shards" / shard.name(), tables, step_stride) as writer,
             ProcessPoolExecutor(
                 max_workers=max(1, workers), mp_context=multiprocessing.get_context("forkserver")
             ) as pool,
