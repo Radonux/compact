@@ -827,8 +827,18 @@ the same policies:
   true BDP, is 0.373 better: net1's belief, not the rule, fails there
   (next paragraph). The learned net2 recovers 0.117 of it.
 - So the headline holds for 20 s episodes only. At 60 s the constant
-  ties BBRv3 and BBRv1 on average and beats the other kernel controllers
-  run (Illinois, Cubic, Reno, Vegas; the other 11 were not run at 60 s).
+  ties BBRv3 and BBRv1 on average and beats the other kernel controllers.
+
+Release
+[`exp-test-links-duration-2`](https://github.com/Radonux/palaestra/releases/tag/exp-test-links-duration-2)
+(`experiments/test-links-duration.json`) repeats both lengths with all 17
+kernel controllers and the policies on the same episode seeds, which
+removes the seed difference of the pairing above; no episode failed. At
+20 s the constant leads BBRv3 by 0.079 (0.037 to 0.119), the learned net2
+by 0.126 and the oracle by 0.145. At 60 s the constant ties BBRv3
+(-0.004, -0.087 to +0.070), as do BBRv1 (+0.029) and the learned net2
+(+0.047, -0.020 to +0.112); the oracle still leads by 0.140, and every
+other kernel controller trails BBRv3 by 0.20 (Illinois) to 1.02 (CDG).
 
 **New conditions: net1's capacity belief fails under competition it has
 not seen.** The same policies, BBRv3, BBRv1 and Cubic ran once on the 27
