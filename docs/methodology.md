@@ -286,6 +286,15 @@ design above, on links neither network has seen, in log utility:
   it has not seen it is not: with a Cubic flow present from the start,
   its 90% capacity statements hold 26% of the time, and its median
   belief is 0.59 of the true capacity.
+- net1 v4, the same design trained on a broad set of conditions
+  (`docs/training.md`, "net1 on a broad set of conditions"; release
+  `exp-net1v4-grid-10`), is honest where net1 v3 was not: on new links
+  under those conditions its 90% statements hold 90% to 97% of the time
+  per LCF, capacity's 90% statements hold 90% of the time with a BBRv3 or
+  Westwood competitor it never saw, and 87% and 88% under loss and
+  delays beyond its training range. On buffers deeper than any in training its
+  free-buffer statements hold 42% of the time. Its learning rate and
+  seeds are still being searched, and the fixed rule on it is UNRUN.
 - net2 setting the window to a fixed multiple of net1's believed BDP
   beats every kernel controller on average: by 0.079 (95% interval 0.032
   to 0.123) over BBRv3, the best of them. The average is over three
@@ -338,7 +347,8 @@ ranking holds for this mix only. A probe outside it (`docs/training.md`,
 "Longer episodes" and "New conditions") found net1 honest under other
 loss rates and on deeper, longer paths, and badly over-confident under
 competition it had not seen, which also costs the fixed multiple its
-lead over BBRv3 and BBRv1 once competition lasts 52 s.
+lead over BBRv3 and BBRv1 once competition lasts 52 s. net1 v4's data
+widens the conditions for net1; the control results on it are pending.
 
 **What the environment supports**
 

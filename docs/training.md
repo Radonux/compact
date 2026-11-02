@@ -885,6 +885,95 @@ training data had no variety.
 These runs used a harness kept outside the repository; the specs above
 reproduce them with `train run` and `train online`.
 
+### net1 on a broad set of conditions (net1 v4)
+
+The checks above found net1 v3 honest only within its three conditions.
+net1 v4 keeps its design (the seven LCFs, 64 bins, an ensemble of three
+members) and is trained on a much broader dataset, generated on GitHub
+Actions by `examples/net1_broad.py` and published as releases:
+
+- [`exp-data-net1-broad-30s-5`](https://github.com/Radonux/palaestra/releases/tag/exp-data-net1-broad-30s-5)
+  and [`exp-data-net1-broad-60s-8`](https://github.com/Radonux/palaestra/releases/tag/exp-data-net1-broad-60s-8):
+  2,400 links with 30 s episodes and 1,200 more with 60 s episodes
+  (21,600 episodes, none failed). Capacity starts at 4 to 150 Mbit/s and
+  is constant or steps by 0.25x to 4x every 2 to 20 s; one-way delay is 5
+  to 60 ms; buffers hold 0.25 to 8 BDP. Each link runs under two of 64
+  conditions: up to three competing TCP flows (any kernel controller but
+  BBRv3 and Westwood, arriving at the start in a third of cases, some
+  leaving early), UDP at 5% to 50% of capacity, and random loss of 0.01%
+  to 2% on either path; 70% of episodes have a competing flow. The
+  observed flow is one of the 17 kernel controllers, the four
+  delay-threshold policies or the fixed rule on net1 v3 (with and without
+  exploration), three per link.
+- [`exp-data-net1-broad-ood-9`](https://github.com/Radonux/palaestra/releases/tag/exp-data-net1-broad-ood-9):
+  four families held out whole, 900 episodes each on new links: competing
+  BBRv3 or Westwood flows, random loss of 3% to 6%, one-way delay of 61
+  to 90 ms, and buffers of 8 to 16 BDP.
+
+Training follows net1 v3: every 12th step, split by link (seed 1, 15% of
+links each for validation and test), with BBRv3, Westwood and
+threshold-0.3 held out of the training rows; 3.61M training rows, twice
+net1 v3's.
+
+**What was searched.** Dropout 0, 0.05 and 0.1 by width 512 and 1024,
+with net1 v3's other settings (learning rate 1e-3, up to 12 epochs,
+stopping after 3 without improvement), in release
+[`exp-net1v4-grid-10`](https://github.com/Radonux/palaestra/releases/tag/exp-net1v4-grid-10).
+Ranked by mean CRPS skill over the seven LCFs on the validation rows, the
+six runs span 0.768 to 0.780; dropout 0.05 at width 512 won, and width
+1024 took three times as long for no gain. Every run stopped after 4 to 7
+epochs: each member's validation loss was lowest after 1 to 4 epochs and
+rose after, fastest at dropout 0.1. That points at the learning rate, not
+the network's size, so learning rates 3e-4 and 1e-4 are being searched
+next (`experiments/net1v4-lr.json`), and the winner is not yet confirmed
+over seeds. The numbers below are the grid's winner, not a tuned net1 v4.
+
+**Against net1 v3**, 90% coverage / R^2 on the same rows of the broad
+dataset's test links and held-out families. net1 v3 never saw these
+conditions, so most of the gap is the data, not the network.
+
+| Rows | net1 | capacity | free buffer | queue | busy fraction | one-way delay | lowest coverage, 7 LCFs |
+|---|---|---|---|---|---|---|---|
+| test links | v4 | 0.90 / 0.82 | 0.90 / 0.53 | 0.92 / 0.90 | 0.91 / 0.88 | 0.97 / 1.00 | 0.90 |
+| | v3 | 0.63 / 0.68 | 0.67 / 0.19 | 0.78 / 0.75 | 0.86 / 0.80 | 0.90 / 0.97 | 0.63 |
+| held-out controllers, test links | v4 | 0.87 / 0.79 | 0.88 / 0.51 | 0.88 / 0.79 | 0.90 / 0.81 | 0.97 / 1.00 | 0.87 |
+| | v3 | 0.59 / 0.63 | 0.65 / 0.21 | 0.75 / 0.58 | 0.86 / 0.73 | 0.91 / 0.97 | 0.59 |
+| BBRv3 or Westwood competing | v4 | 0.90 / 0.85 | 0.90 / 0.48 | 0.90 / 0.87 | 0.91 / 0.79 | 0.97 / 1.00 | 0.90 |
+| | v3 | 0.56 / 0.72 | 0.72 / 0.23 | 0.74 / 0.72 | 0.87 / 0.60 | 0.89 / 0.97 | 0.56 |
+| random loss 3% to 6% | v4 | 0.87 / 0.59 | 0.90 / 0.26 | 0.92 / 0.59 | 0.85 / 0.82 | 0.97 / 1.00 | 0.85 |
+| | v3 | 0.64 / 0.50 | 0.63 / 0.18 | 0.90 / 0.57 | 0.80 / 0.91 | 0.94 / 0.98 | 0.63 |
+| one-way delay 61 to 90 ms | v4 | 0.88 / 0.69 | 0.91 / 0.33 | 0.90 / 0.80 | 0.91 / 0.78 | 0.92 / -2.40 | 0.87 |
+| | v3 | 0.61 / 0.54 | 0.62 / -0.00 | 0.75 / 0.47 | 0.86 / 0.60 | 0.89 / -7.05 | 0.61 |
+| buffers 8 to 16 BDP | v4 | 0.89 / 0.85 | 0.42 / 0.06 | 0.90 / 0.85 | 0.91 / 0.88 | 0.95 / 1.00 | 0.42 |
+| | v3 | 0.69 / 0.73 | 0.19 / -0.22 | 0.77 / 0.59 | 0.87 / 0.79 | 0.77 / 0.90 | 0.19 |
+
+- On new links under the broad conditions, net1 v4's 90% statements hold
+  90% to 97% of the time per LCF. Competition from the start, which broke
+  net1 v3, is now in the training data, and capacity is covered 90% of
+  the time.
+- Controllers it has not seen cost little. With BBRv3, Westwood or
+  threshold-0.3 as the observed flow, capacity is covered 87% of the time
+  (82% for BBRv3 alone); with BBRv3 or Westwood as the competitor, which
+  no training condition had, every LCF is covered at least 90% of the
+  time.
+- Loss above the training range costs accuracy more than honesty:
+  coverage stays at 0.85 to 0.97, but capacity R^2 falls to 0.59.
+- Two families remain outside what net1 v4 can state. Its bins end just
+  above the training range, and the last bin takes everything beyond it,
+  so one-way delays above 60 ms count as covered (0.92) while the median
+  cannot leave the training range (R^2 -2.40). On buffers of 8 to 16 BDP
+  its free-buffer statements hold 42% of the time. Both are range limits
+  of the data; whether they matter for control is for the experiments
+  below.
+
+**Not yet measured.** The fixed rule on net1 v4:
+`experiments/rule-net1v4-val.json` chooses its u for net1 v4, net1 v3
+and the true BDP on the validation links, under the training conditions
+and the families of "New conditions" above, and a single test run
+follows. net1 v4's estimates under net1 v3's three narrow conditions are
+UNRUN as an estimation check; the rule experiments measure them for
+control.
+
 ### Tuned comparison
 
 The search below ran on the expliCCit-like data. Its harness (grid
@@ -1113,12 +1202,13 @@ target from its beliefs. Three seeds of the learned net2, 60 iterations
 of online training and arm A2 (the means) have run; on validation none
 beat the constant. What it leaves open, in the order the plan needs it:
 
-- First, a net1 trained on a broad set of conditions, with whole families
-  held out for testing: other competing controllers and more flows,
-  competitors that arrive first (the observed flow cannot start late
-  yet), other loss rates and directions, larger steps, deeper buffers and
-  longer RTTs, and episodes long enough for competition to settle. The
-  checks above show net1's honesty failing outside its three conditions.
+- First, finish net1 v4 (section 7, "net1 on a broad set of
+  conditions"): search its learning rate, confirm the winner over seeds,
+  then run the fixed rule and the learned net2 on it, on the test links
+  and the conditions that broke net1 v3. Its data still lacks
+  competitors that arrive before the observed flow (the observed flow
+  cannot start late yet), and its bins end at the training ranges of
+  delay and buffer.
 - The human reading (a few percentiles per LCF) as net2's input, against
   the means and the distributions.
 - Arm A1 for the learned net2 (trained and run on the truth), and A4
