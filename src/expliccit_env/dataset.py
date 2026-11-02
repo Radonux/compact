@@ -32,7 +32,7 @@ import pyarrow.parquet as pq
 
 from expliccit_env.episode import EpisodeOk, EpisodeOutcome
 
-DATASET_VERSION: Final = 5
+DATASET_VERSION: Final = 6
 # "steps" exists only for episodes that record them (spec.steps or a policy).
 TABLES: Final = ("obs", "labels", "link_events", "link_opp", "agent_action", "steps")
 

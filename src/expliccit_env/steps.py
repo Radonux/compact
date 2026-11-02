@@ -105,6 +105,15 @@ def step_table(
         "done": pa.array(np.arange(n) == n - 1),
         "applied_action": pa.array(np.asarray(steps["applied_action"], dtype=np.float64)),
         "cwnd_set": pa.array(np.asarray(steps["cwnd_set"], dtype=np.uint32)),
+        # The sender's window when the step was read (TCP_INFO tcpi_snd_cwnd),
+        # whatever controller set it.
+        "cwnd": pa.array(
+            np.frombuffer(steps["info"].tobytes(), np.uint8)
+            .reshape(n, INFO_LEN)[:, 80:84]
+            .copy()
+            .view("<u4")
+            .ravel()
+        ),
         **{f"label_{name}": pa.array(v) for name, v in lab.items()},
     }
     return pa.Table.from_pydict(cols)

@@ -84,6 +84,7 @@ def test_step_table(build: UmlBuild, tmp_path: Path) -> None:
     cwnd = info[:, 80:84].copy().view("<u4").ravel().astype(np.float64)
     min_rtt = info[:, 148:152].copy().view("<u4").ravel().astype(np.float64)
     assert np.array_equal(obs[:, 77], min_rtt / 1000.0)  # expliCCit's column
+    assert np.array_equal(table["cwnd"].to_numpy(), cwnd.astype(np.uint32))  # the window read
     ratio = cwnd / np.concatenate(([10.0], cwnd[:-1]))
     x = np.log2(ratio.astype(np.float32)) * np.float32(1000)
     rounded = np.sign(x) * np.floor(np.abs(x) + np.float32(0.5))  # C round(): half away from 0
