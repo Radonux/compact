@@ -1,0 +1,13 @@
+{
+  "title": "net1 v4 training data, 60 s episodes",
+  "description": "Training data for net1 v4: 1,200 links, two conditions each from a broad set of 64, three controllers per link, 60 s episodes so competition can settle, every 6th step kept (examples/net1_broad.py, set train60).",
+  "uml": true,
+  "inputs": {
+    "models": "release:model-net1v3"
+  },
+  "prepare": "for s in train60; do uv run python examples/net1_broad.py \"$OUT/spec-$s\" --set $s --models \"$IN/models\"; uv run expliccit campaign plan \"$OUT/spec-$s/campaign.json\" \"$OUT/campaign-$s\"; done",
+  "shards": 20,
+  "run": "for s in train60; do uv run expliccit campaign run \"$OUT/campaign-$s\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps --steps-stride 6; done",
+  "collect": "echo '| set | status |' > \"$OUT/summary.md\"; echo '|---|---|' >> \"$OUT/summary.md\"; for s in train60; do uv run expliccit campaign status \"$OUT/campaign-$s\" > \"$OUT/status-$s.json\"; echo \"| $s | $(jq -c . \"$OUT/status-$s.json\") |\" >> \"$OUT/summary.md\"; done",
+  "timeout_minutes": 180
+}
