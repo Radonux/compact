@@ -179,8 +179,10 @@ class BinNet1(nn.Module):
         return self._probs(x).reshape(-1, self.k * self.b)
 
     def bin_of(self, y: torch.Tensor) -> torch.Tensor:
-        """[n, K] bin index of each value; NaN lands in bin 0 (mask it)."""
-        return (y.unsqueeze(2) >= self.bounds[:, 1:-1]).sum(dim=2)
+        """[n, K] bin index of each value: the number of inner boundaries at
+        or below it. A NaN's bin means nothing (mask it)."""
+        inner = self.bounds[:, 1:-1].contiguous()
+        return torch.searchsorted(inner, y.t().contiguous(), right=True).t()
 
 
 def pool_bins(z: torch.Tensor, k: int, b: int, into: int) -> torch.Tensor:

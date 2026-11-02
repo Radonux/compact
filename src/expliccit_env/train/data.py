@@ -76,8 +76,9 @@ def load(
     shards = sorted({p.parent for d in dirs for p in d.rglob("steps.parquet")})
     if not shards:
         raise FileNotFoundError(f"no steps.parquet under {[str(d) for d in dirs]}")
-    tables: list[pa.Table] = []
     split_of: dict[str, Split] = {}
+    parts: list[dict[str, npt.NDArray[Any]]] = []
+    index: dict[str, int] = {}  # episode id -> its index, in order of appearance
     for shard in shards:
         # pyarrow-stubs leave read_table partly untyped.
         eps = pq.read_table(  # pyright: ignore[reportUnknownMemberType]
@@ -89,8 +90,9 @@ def load(
         ):
             if status == "ok" and (controllers is None or ctl in controllers):
                 split_of[str(eid)] = _split_of(_path_key(str(spec_json), split_by), seed, val, test)
-        # One row group at a time, keeping only the rows and columns used:
-        # a campaign's full table can exceed memory.
+        # One row group at a time, keeping only the rows and columns used and
+        # turning them into float32 arrays at once: a campaign's full table
+        # (float64 observations) can exceed memory.
         ids = pa.array(list(split_of), pa.string())
         f = pq.ParquetFile(shard / "steps.parquet")
         columns = [c for c in f.schema_arrow.names if c in _COLUMNS or c.startswith("label_")]
@@ -102,35 +104,45 @@ def load(
                 phase = np.asarray(t["step"].to_numpy(zero_copy_only=False)) % stride
                 keep &= (phase == 0) | (pairs & (phase == 1))
             if keep.any():
-                tables.append(t.filter(pa.array(keep)))
+                parts.append(_arrays(t.filter(pa.array(keep)), index))
     if not split_of:
         raise ValueError(f"no steps of controllers {sorted(controllers or ())}")
-    t = pa.concat_tables(tables).combine_chunks()
-    eid_col = [str(e) for e in t["episode_id"].to_pylist()]
-    episode_ids = tuple(dict.fromkeys(eid_col))
-    index = {e: i for i, e in enumerate(episode_ids)}
+    if not parts:
+        raise ValueError("no steps left after the stride")
+    cat = {k: np.concatenate([q[k] for q in parts]) for k in parts[0]}
+    episode_ids = tuple(index)
+    by_episode = np.array([split_of[e] for e in episode_ids])
+    return Steps(
+        obs=cat.pop("obs"),
+        action=cat.pop("action"),
+        reward=cat.pop("reward"),
+        cwnd=cat.pop("cwnd"),
+        episode=cat["episode"],
+        step=cat.pop("step"),
+        episode_ids=episode_ids,
+        split=by_episode[cat.pop("episode")],
+        labels={k.removeprefix("label_"): v for k, v in cat.items()},
+    )
+
+
+def _arrays(t: pa.Table, index: dict[str, int]) -> dict[str, npt.NDArray[Any]]:
+    """A step table's rows as arrays (float32 but for step and episode);
+    ``index`` gives each episode id its number, adding new ones."""
     n = t.num_rows
+
+    def f32(name: str) -> F32:
+        if name not in t.column_names:  # cwnd: tables before dataset version 6
+            return np.full(n, np.nan, np.float32)
+        return np.asarray(t[name].to_numpy(zero_copy_only=False), np.float32)
+
     obs_list = cast("pa.FixedSizeListArray[Any, Any]", t["obs"].combine_chunks())
     flat = cast("pa.Array[Any]", obs_list.flatten())  # pyright: ignore[reportUnknownMemberType]
-    obs = np.asarray(flat, np.float32).reshape(n, OBS_DIM)
-    labels = {
-        name.removeprefix("label_"): np.asarray(t[name].to_numpy(zero_copy_only=False), np.float32)
-        for name in t.column_names
-        if name.startswith("label_")
-    }
-    return Steps(
-        obs=obs,
-        labels=labels,
-        action=np.asarray(t["action"].to_numpy(zero_copy_only=False), np.float32),
-        reward=np.asarray(t["reward"].to_numpy(zero_copy_only=False), np.float32),
-        # Tables before dataset version 6 have no window.
-        cwnd=(
-            np.asarray(t["cwnd"].to_numpy(zero_copy_only=False), np.float32)
-            if "cwnd" in t.column_names
-            else np.full(n, np.nan, np.float32)
-        ),
-        episode=np.array([index[e] for e in eid_col], dtype=np.int64),
-        step=np.asarray(t["step"].to_numpy(zero_copy_only=False), np.int64),
-        episode_ids=episode_ids,
-        split=np.array([split_of[e] for e in eid_col]),
-    )
+    eids = [str(e) for e in t["episode_id"].to_pylist()]
+    return {
+        "obs": np.asarray(flat, np.float32).reshape(n, OBS_DIM),
+        "action": f32("action"),
+        "reward": f32("reward"),
+        "cwnd": f32("cwnd"),
+        "step": np.asarray(t["step"].to_numpy(zero_copy_only=False), np.int64),
+        "episode": np.array([index.setdefault(e, len(index)) for e in eids], np.int64),
+    } | {c: f32(c) for c in t.column_names if c.startswith("label_")}
