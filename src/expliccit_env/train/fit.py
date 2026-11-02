@@ -12,7 +12,7 @@ import copy
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -32,6 +32,8 @@ from expliccit_env.train.models import (
     PolicyGraph,
     Scaler,
     Value,
+    WindowTarget,
+    pool_bins,
 )
 from expliccit_env.train.spec import EXPLICCIT_LCFS, LCF_UNITS, Net1Spec, Net2Spec
 
@@ -477,17 +479,24 @@ class Transitions:
         return self.s, self.a, self.r, self.s2
 
 
+def _consecutive(steps: Steps) -> npt.NDArray[np.bool_]:
+    """[n - 1]: whether row t + 1 is the step right after row t, in its
+    episode (not when a step stride dropped the steps between)."""
+    return (steps.episode[:-1] == steps.episode[1:]) & (steps.step[1:] == steps.step[:-1] + 1)
+
+
 def transitions(
-    steps: Steps, states: F32, spec: Net2Spec, split: Split
+    steps: Steps, states: F32, actions: F32, spec: Net2Spec, split: Split
 ) -> tuple[Transitions, float]:
-    """(s_t, a_t, r, s_t+1) within episodes; a scaled to [-1, 1] and clipped.
-    Returns the fraction of actions that needed clipping."""
-    i = np.flatnonzero(steps.rows(split)[:-1] & (steps.episode[:-1] == steps.episode[1:]))
+    """(s_t, a_t, r, s_t+1) over consecutive steps; a (logged_actions) scaled
+    to [-1, 1] and clipped. Returns the fraction of actions that needed
+    clipping."""
+    i = np.flatnonzero(steps.rows(split)[:-1] & _consecutive(steps))
     reward = steps.reward if spec.reward == "sage" else utility(steps, spec)
     r = reward[i + 1] if spec.reward_alignment == "next" else reward[i]
-    keep = np.isfinite(steps.action[i]) & np.isfinite(r)
+    keep = np.isfinite(actions[i]) & np.isfinite(r)
     i, r = i[keep], r[keep]
-    a = steps.action[i] / spec.action_max
+    a = actions[i] / spec.action_max
     clipped = float(np.mean(np.abs(a) > 1)) if a.size else 0.0
     t = Transitions(
         torch.from_numpy(states[i]),
@@ -499,14 +508,16 @@ def transitions(
 
 
 def utility(steps: Steps, spec: Net2Spec) -> F32:
-    """Per step: receive rate over capacity, minus the delay and loss terms,
-    from ground truth. An empty window (no departures) costs no delay."""
+    """Per step: receive rate over capacity (its log, at least 0.01, for
+    "log_utility"), minus the delay and loss terms, from ground truth. An
+    empty window (no departures) costs no delay."""
     lab = steps.labels
     with np.errstate(divide="ignore", invalid="ignore"):
         used = lab["receive_rate_bps"] / lab["capacity_bps"]
         delay = np.nan_to_num(lab["queue_delay_mean_ns"] / lab["base_rtt_ns"])
     loss = np.nan_to_num(lab["drop_fraction"])
-    r = used - spec.delay_weight * delay - spec.loss_weight * loss
+    gain = np.log(np.maximum(used, 0.01)) if spec.reward == "log_utility" else used
+    r = gain - spec.delay_weight * delay - spec.loss_weight * loss
     return np.where(np.isfinite(used), r, np.nan).astype(np.float32)
 
 
@@ -650,18 +661,90 @@ class Learner:
         return out
 
 
+def window_target(net1: Net1) -> WindowTarget:
+    if not isinstance(net1.net, BinNet1) or not {"capacity_bps", "one_way_delay_ns"} <= set(
+        net1.lcfs
+    ):
+        raise ValueError(
+            "a window target needs a distribution net1 with capacity_bps and one_way_delay_ns"
+        )
+    return WindowTarget(
+        net1.net.bounds, net1.lcfs.index("capacity_bps"), net1.lcfs.index("one_way_delay_ns")
+    )
+
+
+def _pool(net1: Net1, input_bins: int | None) -> tuple[int, int, int] | None:
+    if input_bins is None:
+        return None
+    if not isinstance(net1.net, BinNet1) or net1.net.b % input_bins:
+        raise ValueError(
+            f"input_bins {input_bins} needs a distribution net1 with a multiple of bins"
+        )
+    return net1.net.k, net1.net.b, input_bins
+
+
+def net2_width(net1: Net1, spec: Net2Spec) -> int:
+    """Numbers per row in net2's input."""
+    pool = _pool(net1, spec.input_bins)
+    return net1.width if pool is None else pool[0] * pool[2]
+
+
+def _oracle(net1: Net1, z: torch.Tensor, y: F32) -> torch.Tensor:
+    """net2's input when every LCF comes from the truth, as the exported
+    graph builds it: for a distribution net1, all mass on the true value's
+    bin (net1's own belief where the truth is NaN); otherwise the scaled
+    truth, 0 where that is not finite."""
+    yt = torch.from_numpy(y)
+    if isinstance(net1.net, BinNet1):
+        k, b = net1.net.k, net1.net.b
+        onehot = (net1.net.bin_of(torch.nan_to_num(yt)).unsqueeze(2) == torch.arange(b)).float()
+        keep = torch.isfinite(yt).unsqueeze(2)
+        return torch.where(keep, onehot, z.reshape(-1, k, b)).reshape(-1, k * b)
+    zt = net1.lcf_scaler(yt)
+    return torch.where(torch.isfinite(zt), zt, torch.zeros_like(zt))
+
+
+@torch.no_grad()
+def net2_view(net1: Net1, spec: Net2Spec, steps: Steps) -> tuple[F32, F32]:
+    """Per step, as the exported graph computes them: net2's input (net1's
+    beliefs, or the oracle's with inputs "true_lcfs"), pooled to
+    spec.input_bins, and log2 of the believed BDP in packets (NaN unless
+    spec.action is "bdp"). In batches, so memory follows net2's input."""
+    pool = _pool(net1, spec.input_bins)
+    target = window_target(net1) if spec.action == "bdp" else None
+    y = targets(steps, net1.lcfs) if spec.inputs == "true_lcfs" else None
+    states, log2_bdp = [], []
+    for i in range(0, steps.obs.shape[0], _EVAL_BATCH):
+        z = torch.from_numpy(net1.beliefs(steps.obs[i : i + _EVAL_BATCH]))
+        if y is not None:
+            z = _oracle(net1, z, y[i : i + _EVAL_BATCH])
+        log2_bdp.append(target(z) if target else torch.full((z.shape[0],), float("nan")))
+        states.append(z if pool is None else pool_bins(z, *pool))
+    if not states:
+        return np.zeros((0, net2_width(net1, spec)), np.float32), np.zeros(0, np.float32)
+    return torch.cat(states).numpy(), torch.cat(log2_bdp).numpy()
+
+
+def logged_actions(steps: Steps, spec: Net2Spec, log2_bdp: F32) -> F32:
+    """The action each step took, in net2's terms: the contract's a, or with
+    action "bdp" log2 of the next step's window over this step's believed
+    BDP (NaN where the next row is not the next step)."""
+    if spec.action == "multiplier":
+        return steps.action
+    nxt = np.full(steps.cwnd.shape, np.nan, np.float32)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        nxt[:-1] = np.where(_consecutive(steps), np.log2(steps.cwnd[1:]), np.nan)
+    return (nxt - log2_bdp).astype(np.float32)
+
+
 def fit_net2(
     spec: Net2Spec, steps: Steps, net1: Net1, seed: int
 ) -> tuple[nn.Module, dict[str, Any]]:
     torch.manual_seed(seed)
     rng = np.random.default_rng(seed)
-    if spec.inputs == "net1":
-        states = net1.beliefs(steps.obs)
-    else:
-        with torch.no_grad():
-            z = net1.lcf_scaler(torch.from_numpy(targets(steps, net1.lcfs))).numpy()
-        states = np.where(np.isfinite(z), z, 0).astype(np.float32)
-    data, clipped = transitions(steps, states, spec, "train")
+    states, log2_bdp = net2_view(net1, spec, steps)
+    actions = logged_actions(steps, spec, log2_bdp)
+    data, clipped = transitions(steps, states, actions, spec, "train")
     if data.s.shape[0] == 0:
         raise ValueError("no training transitions")
     learner = Learner(spec, states.shape[1])
@@ -672,7 +755,7 @@ def fit_net2(
         for name, v in learner.update(batch, step).items():
             log.setdefault(name, []).append(v)
     actor = learner.actor.eval()
-    val, _ = transitions(steps, states, spec, "val")
+    val, _ = transitions(steps, states, actions, spec, "val")
     with torch.no_grad():
         val_bc = float(((actor(val.s) - val.a) ** 2).mean()) if val.s.shape[0] else float("nan")
     tail = max(1, spec.steps // 10)
@@ -738,11 +821,17 @@ def policy_graph(
     action_decimals: int | None = None,
     *,
     truth: frozenset[str] = frozenset(),
+    action: Literal["multiplier", "bdp"] = "multiplier",
+    input_bins: int | None = None,
 ) -> PolicyGraph:
     """The exported policy; the LCFs named in ``truth`` come from the
-    contract's "truth" input (policy.TRUTH_COLUMNS) instead of net1."""
+    contract's "truth" input (policy.TRUTH_COLUMNS) instead of net1.
+    ``action`` and ``input_bins`` are net2's (Net2Spec)."""
     graph = PolicyGraph(net1.scaler, net1.net, net1.lcf_scaler, actor, action_max)
     graph.action_decimals = action_decimals
+    graph.pool = _pool(net1, input_bins)
+    if action == "bdp":
+        graph.target = window_target(net1)
     if truth:
         missing = sorted(truth - set(net1.lcfs))
         if missing or not set(net1.lcfs) <= set(TRUTH_COLUMNS):

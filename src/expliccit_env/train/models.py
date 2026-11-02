@@ -21,6 +21,8 @@ from torch import nn
 
 type F32 = npt.NDArray[np.float32]
 _BIG = 3.0e38
+# Inside the contract's |a| <= MAX_ACTION (policy.py), with room for float32.
+_A_LIMIT = 7.99
 
 
 class Scaler(nn.Module):
@@ -181,6 +183,36 @@ class BinNet1(nn.Module):
         return (y.unsqueeze(2) >= self.bounds[:, 1:-1]).sum(dim=2)
 
 
+def pool_bins(z: torch.Tensor, k: int, b: int, into: int) -> torch.Tensor:
+    """[n, K * B] distributions -> [n, K * into]: each group of B / into
+    adjacent bins summed into one."""
+    return z.reshape(-1, k, into, b // into).sum(dim=3).reshape(-1, k * into)
+
+
+# Bits per packet in the BDP: Mahimahi's 1500-byte packets.
+_PACKET_BITS = 1500 * 8
+
+
+class WindowTarget(nn.Module):
+    """log2 of the path's believed bandwidth-delay product in packets, from
+    a distribution net1's output: its mean capacity (Mbit/s) times twice
+    its mean one-way delay (ms), each mean putting a bin's mass at the
+    bin's midpoint, as Net1.predict does. At least one packet."""
+
+    mid: torch.Tensor
+
+    def __init__(self, bounds: torch.Tensor, capacity: int, one_way: int) -> None:
+        super().__init__()
+        self.register_buffer("mid", ((bounds[:, :-1] + bounds[:, 1:]) / 2).float())
+        self.capacity, self.one_way = capacity, one_way
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        k, b = self.mid.shape
+        mean = (z.reshape(-1, k, b) * self.mid).sum(dim=2)
+        bdp = mean[:, self.capacity] * 1e6 * mean[:, self.one_way] * 2e-3 / _PACKET_BITS
+        return torch.log2(torch.clamp(bdp, min=1.0))
+
+
 class ExpliccitActor(nn.Module):
     """LCF beliefs -> a in [-1, 1] (two hidden ReLU layers, tanh)."""
 
@@ -243,7 +275,13 @@ class PolicyGraph(nn.Module):
     a perfect net1 would have said; for an interval net1, its centre and
     both bounds become the truth; for a distribution net1, all probability
     goes to the truth's bin, except where the truth is NaN, which keeps
-    net1's own belief."""
+    net1's own belief.
+
+    ``pool`` (K, B, into) sums a distribution net1's bins into ``into``
+    groups per LCF before net2. With a ``target``, net2's output u is the
+    next window as a log2 multiple of the believed BDP, and the graph
+    answers a = log2(BDP) + u - log2(cwnd) from the contract's "cwnd"
+    input, kept within the contract's bound."""
 
     truth_cols: torch.Tensor
     truth_units: torch.Tensor
@@ -270,6 +308,8 @@ class PolicyGraph(nn.Module):
         self.register_buffer("truth_units", torch.zeros(0))
         self.register_buffer("from_truth", torch.zeros(0, dtype=torch.bool))
         self.register_buffer("truth_bounds", torch.zeros(0))
+        self.pool: tuple[int, int, int] | None = None
+        self.target: WindowTarget | None = None
 
     def take_from_truth(
         self,
@@ -293,7 +333,12 @@ class PolicyGraph(nn.Module):
     def uses_truth(self) -> bool:
         return bool(self.from_truth.any())
 
-    def forward(self, obs: torch.Tensor, truth: torch.Tensor | None = None) -> torch.Tensor:
+    def forward(
+        self,
+        obs: torch.Tensor,
+        truth: torch.Tensor | None = None,
+        cwnd: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         z = self.net1(self.scaler(obs))
         if truth is not None and self.uses_truth and self.truth_bounds.numel():
             y = truth.index_select(1, self.truth_cols) * self.truth_units
@@ -310,7 +355,12 @@ class PolicyGraph(nn.Module):
             c = torch.relu(self.lcf_scaler.inverse(z))
             c = torch.cat([torch.round(c[:, :6]), c[:, 6:]], dim=1)
             z = (c - self.lcf_scaler.center) / self.lcf_scaler.spread
-        a = self.net2(z) * self.action_max
+        a = self.net2(z if self.pool is None else pool_bins(z, *self.pool)) * self.action_max
+        if self.target is not None:
+            if cwnd is None:
+                raise ValueError("a window target needs the cwnd input")
+            a = self.target(z).unsqueeze(1) + a - torch.log2(torch.clamp(cwnd, min=1.0))
+            a = torch.clamp(a, -_A_LIMIT, _A_LIMIT)
         decimals = 3 if self.as_deployed else self.action_decimals
         if decimals is None:
             return a

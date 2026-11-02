@@ -32,7 +32,9 @@ class Steps:
     labels: dict[str, F32]  # label name -> [n], NaN where undefined
     action: F32  # [n], the action taken from the step; NaN on the last one
     reward: F32  # [n], Sage's reward at the step
+    cwnd: F32  # [n], the sender's window (packets) when the step was read
     episode: npt.NDArray[np.int64]  # [n], index into episode_ids
+    step: npt.NDArray[np.int64]  # [n], the step's number in its episode
     episode_ids: tuple[str, ...]
     split: npt.NDArray[np.str_]  # [n], "train" | "val" | "test"
 
@@ -40,7 +42,7 @@ class Steps:
         return self.split == split
 
 
-_COLUMNS = frozenset({"episode_id", "step", "obs", "action", "reward"})
+_COLUMNS = frozenset({"episode_id", "step", "obs", "action", "reward", "cwnd"})
 
 
 def _path_key(spec_json: str, by: SplitBy = "spec") -> str:
@@ -118,7 +120,14 @@ def load(
         labels=labels,
         action=np.asarray(t["action"].to_numpy(zero_copy_only=False), np.float32),
         reward=np.asarray(t["reward"].to_numpy(zero_copy_only=False), np.float32),
+        # Tables before dataset version 6 have no window.
+        cwnd=(
+            np.asarray(t["cwnd"].to_numpy(zero_copy_only=False), np.float32)
+            if "cwnd" in t.column_names
+            else np.full(n, np.nan, np.float32)
+        ),
         episode=np.array([index[e] for e in eid_col], dtype=np.int64),
+        step=np.asarray(t["step"].to_numpy(zero_copy_only=False), np.int64),
         episode_ids=episode_ids,
         split=np.array([split_of[e] for e in eid_col]),
     )

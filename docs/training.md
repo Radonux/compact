@@ -75,7 +75,9 @@ of 0.95 (about 200 ms) barely sees that window.
 | Field | Default | Meaning |
 |---|---|---|
 | `seed` | 0 | the split, initialization and batches |
+| `split_by` | `spec` | what a path is for the split: everything but controller and seed, or `link` (below) |
 | `val_fraction`, `test_fraction` | 0.1, 0.1 | share of paths held out for validation and for test |
+| `step_stride` | 1 | keep every n-th step of each episode; net2 needs 1, since it pairs consecutive steps |
 | `controllers` | all | train only on these controllers' episodes (`["bbr", "vegas"]`) |
 | `net1_from` | none | a trained net1 to reuse (a run's `net1.pt`); its saved spec replaces `net1` |
 | `net1.arch` | `expliccit-v1` | expliCCit's encoder (1,265,927 parameters at width 512) |
@@ -86,7 +88,9 @@ of 0.95 (about 200 ms) barely sees that window.
 | `net1.bins` | none | a probability distribution over this many bins per LCF, trained with the log score (section 5); excludes `intervals` |
 | `net2.algo` | `td3bc` | TD3+BC; `iql` is implicit Q-learning (`expectile`, `beta`); `bc` clones; `expliccit-v1` is expliCCit's objective, kept for comparison |
 | `net2.inputs` | `net1` | `true_lcfs` trains on the labels, and the exported policy reads the live truth (an oracle, section 3) |
-| `net2.reward` | `sage` | Sage's reward; `utility` is the ground-truth utility below |
+| `net2.input_bins` | none | distribution net1 only: net2 sees each LCF's distribution summed into this many groups of adjacent bins |
+| `net2.action` | `multiplier` | `multiplier`: net2 outputs a; `bdp`: net2 outputs the next window as a log2 multiple of the believed bandwidth-delay product (below) |
+| `net2.reward` | `sage` | Sage's reward; `utility` and `log_utility` are the ground-truth utilities below |
 | `net2.discount` | 0.95 | per step |
 | `net2.reward_alignment` | `next` | the reward step t+1 reports; `same` is step t's, as expliCCit and Sage's offline data pair them |
 | `net2.action_max` | 1.0 | a = action_max * tanh(...); the critic and the noise settings work in units of it |
@@ -101,6 +105,21 @@ is the receive rate over the capacity, minus `delay_weight` (default 0.5)
 times the mean queueing delay over the base RTT, minus `loss_weight`
 (default 4) times the flow's dropped fraction. A step with no departures
 costs no delay. Every utility on this page uses the default weights.
+`"log_utility"` takes the log of the receive rate over the capacity
+(floored at 0.01) instead, so flows that share a link settle at
+proportionally fair rates (Kelly, 1998), and starving costs far more than
+a small queue.
+
+With `"action": "bdp"`, net2's output u sets the next window to
+2^u times the believed bandwidth-delay product: net1's mean capacity times
+twice its mean one-way delay, in 1500-byte packets. The exported graph
+reads the sender's window (the contract's `cwnd` input) and answers
+a = log2(BDP) + u - log2(cwnd), so the window lands on the target in one
+step whatever it was. For training, the logged u of any step, from any
+controller, is log2 of the next step's window over that step's believed
+BDP. The precise scale thus comes from net1's full distributions, and net2
+learns only the correction, which turns the control problem into one of
+choosing a target from beliefs rather than tracking a window through time.
 
 Splits are by path. Episodes that differ only in congestion control or
 seed land in the same split, so no path is both trained and tested on.
@@ -327,7 +346,10 @@ are ignored.
 
 Each iteration exports the policy with net1 frozen and runs
 `episodes_per_iteration` episodes on paths drawn from `paths_from`, with
-Gaussian noise of `noise_sigma` on each action (seeded per episode). It
+Gaussian noise of `noise_sigma` on each action (seeded per episode), each
+draw kept for `noise_hold_steps` steps. With a window target, held noise
+holds the window at the perturbed target long enough for the effect to
+show. It
 then adds their transitions to a replay buffer and runs
 `updates_per_iteration` off-policy updates. `history.json` records each
 iteration's rollouts and losses and, every `eval_every` iterations, the

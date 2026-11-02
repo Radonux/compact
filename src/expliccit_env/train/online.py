@@ -50,6 +50,8 @@ class OnlineSpec(BaseModel):
     episodes_per_iteration: PositiveInt = 16
     duration_ms: PositiveInt = 20_000
     noise_sigma: Annotated[float, Field(ge=0, le=2)] = 0.05
+    # Keep each noise draw for this many steps (AgentCC.noise_hold_steps).
+    noise_hold_steps: Annotated[int, Field(ge=1, le=1000)] = 1
     updates_per_iteration: PositiveInt = 2000
     # Critic-only updates before the first iteration, on whatever the replay
     # buffer holds (offline_data), so the actor does not follow a blank critic.
@@ -102,13 +104,16 @@ def _transitions_from(
     controllers: frozenset[str] | None = None,
 ) -> fit.Transitions:
     steps = data.load(dirs, seed=0, val=0.0, test=0.0, controllers=controllers)
-    t, _ = fit.transitions(steps, net1.beliefs(steps.obs), spec, "train")
+    states, log2_bdp = fit.net2_view(net1, spec, steps)
+    t, _ = fit.transitions(steps, states, fit.logged_actions(steps, spec, log2_bdp), spec, "train")
     return t
 
 
-def _agent(policy: Path, sigma: float) -> AgentCC:
+def _agent(policy: Path, sigma: float, hold: int = 1) -> AgentCC:
     sha = hashlib.sha256(policy.read_bytes()).hexdigest()
-    return AgentCC(policy=OnnxPolicy(path=policy, sha256=sha), noise_sigma=sigma)
+    return AgentCC(
+        policy=OnnxPolicy(path=policy, sha256=sha), noise_sigma=sigma, noise_hold_steps=hold
+    )
 
 
 def _run(
@@ -136,8 +141,7 @@ def run_online(
     rng = np.random.default_rng(spec.seed)
     net1, net1_spec = fit.load_net1(spec.net1_from)
     fit.save_net1(net1, net1_spec, out / "net1.pt")
-    k = net1.width
-    learner = fit.Learner(spec.net2, k)
+    learner = fit.Learner(spec.net2, fit.net2_width(net1, spec.net2))
     if spec.init_from is not None:
         state = torch.load(spec.init_from, map_location="cpu", weights_only=True)
         learner.actor.load_state_dict(state)
@@ -159,7 +163,12 @@ def run_online(
 
     def export(path: Path) -> Path:
         graph = fit.policy_graph(
-            net1, learner.actor, spec.net2.action_max, spec.net2.action_decimals
+            net1,
+            learner.actor,
+            spec.net2.action_max,
+            spec.net2.action_decimals,
+            action=spec.net2.action,
+            input_bins=spec.net2.input_bins,
         )
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(to_onnx(graph))
@@ -177,7 +186,7 @@ def run_online(
     for it in range(spec.iterations):
         it_dir = out / f"iter{it:03d}"
         policy = export(it_dir / "policy.onnx")
-        cc = _agent(policy, spec.noise_sigma)
+        cc = _agent(policy, spec.noise_sigma, spec.noise_hold_steps)
         picks = rng.integers(0, len(train_paths), spec.episodes_per_iteration)
         episodes = [
             EpisodeSpec(

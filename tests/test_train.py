@@ -39,7 +39,9 @@ def synthetic(n_episodes: int = 40, steps: int = 200, seed: int = 0) -> data.Ste
         labels=labels,
         action=action,
         reward=(-np.abs(action)).astype(np.float32),
+        cwnd=rng.integers(4, 400, n).astype(np.float32),
         episode=episode.astype(np.int64),
+        step=np.tile(np.arange(steps), n_episodes).astype(np.int64),
         episode_ids=tuple(str(i) for i in range(n_episodes)),
         split=split,
     )
@@ -97,6 +99,9 @@ def test_utility_reward_prices_unused_capacity_delay_and_loss() -> None:
     lab["drop_fraction"] = np.array([np.nan, 0.0, 0.01], np.float32)
     r = fit.utility(steps, Net2Spec(reward="utility", delay_weight=0.5, loss_weight=4.0))
     assert np.allclose(r, [1.0, 0.5, 1.0 - 0.25 - 0.04])
+    lab["receive_rate_bps"][0] = 0.0  # starved: the log is floored at 0.01
+    r = fit.utility(steps, Net2Spec(reward="log_utility", delay_weight=0.5, loss_weight=4.0))
+    assert np.allclose(r, [np.log(0.01), np.log(0.5), -0.25 - 0.04])
 
 
 def _bandit(n: int = 4096) -> fit.Transitions:
@@ -320,14 +325,18 @@ def test_exported_graph_runs_in_the_guest(build: object, tmp_path: Path) -> None
 
 
 @pytest.mark.uml
-def test_online_loop_runs_an_iteration(build: object, tmp_path: Path) -> None:
+@pytest.mark.parametrize("action", ["multiplier", "bdp"])
+def test_online_loop_runs_an_iteration(build: object, tmp_path: Path, action: str) -> None:
     from expliccit_env.uml import UmlBuild  # noqa: PLC0415
 
     assert isinstance(build, UmlBuild)
     steps = synthetic()
     steps.labels["drop_fraction"] = np.zeros_like(steps.obs[:, 0])
-    net1, _ = fit.fit_net1(Net1Spec(width=64, epochs=1, batch_size=256), steps, 0)
-    fit.save_net1(net1, Net1Spec(width=64), tmp_path / "net1.pt")
+    # The window target needs a distribution net1; its exported policy reads
+    # cwnd, and held noise perturbs the target for 5 steps at a time.
+    net1_spec = Net1Spec(width=64, epochs=1, batch_size=256, bins=16 if action == "bdp" else None)
+    net1, _ = fit.fit_net1(net1_spec, steps, 0)
+    fit.save_net1(net1, net1_spec, tmp_path / "net1.pt")
     path = {
         "trace": {"kind": "periodic_levels", "levels_mbps": [24], "level_ms": 1000},
         "delay": {"mahak_compat_mrtt_ms": 10},
@@ -343,11 +352,20 @@ def test_online_loop_runs_an_iteration(build: object, tmp_path: Path) -> None:
         paths_from=tmp_path / "paths.json",
         eval_from=tmp_path / "paths.json",
         net1_from=tmp_path / "net1.pt",
-        net2=Net2Spec(hidden=16, batch_size=64, reward="utility"),
+        net2=Net2Spec(
+            hidden=16,
+            batch_size=64,
+            reward="utility",
+            action=action,  # type: ignore[arg-type]
+            input_bins=4 if action == "bdp" else None,
+            action_max=2.0,
+        ),
         iterations=1,
         episodes_per_iteration=2,
         duration_ms=3000,
         updates_per_iteration=20,
+        noise_sigma=0.2,
+        noise_hold_steps=5,
     )
     report = run_online(spec, tmp_path / "out", build, workers=2)
     (entry,) = report["iterations"]
@@ -449,6 +467,65 @@ def test_distribution_net1_saves_patches_and_feeds_net2(tmp_path: Path) -> None:
     model = onnx.load_from_string(to_onnx(graph))
     assert [i.name for i in model.graph.input] == ["obs", "truth"]
     assert not {"IsInf", "IsNaN"} & {n.op_type for n in model.graph.node}
+
+
+def _bdp_net1() -> tuple[data.Steps, fit.Net1]:
+    """A distribution net1 on synthetic(): capacity about 50 Mbit/s, one-way
+    delay 20 ms (a BDP near 167 packets); the other LCFs unknown."""
+    steps = _noisy(n_episodes=20)
+    keep = {"capacity_bps", "one_way_delay_ns"}
+    for n in EXPLICCIT_LCFS:
+        if n not in keep:
+            steps.labels[n] = np.full(steps.obs.shape[0], np.nan, np.float32)
+    spec = Net1Spec(width=64, epochs=2, batch_size=256, lcfs=EXPLICCIT_LCFS, bins=16)
+    return steps, fit.fit_net1(spec, steps, seed=0)[0]
+
+
+def test_bdp_action_logs_and_sets_the_window_relative_to_the_believed_bdp() -> None:
+    torch.manual_seed(0)
+    steps, net1 = _bdp_net1()
+    spec = Net2Spec(action="bdp", input_bins=4, action_max=3.0, algo="bc", hidden=32, steps=50)
+    states, log2_bdp = fit.net2_view(net1, spec, steps)
+    # Each LCF's 16 bins pooled into 4, still a distribution.
+    assert states.shape == (steps.obs.shape[0], 7 * 4)
+    assert np.allclose(states.reshape(-1, 7, 4).sum(axis=2), 1, atol=1e-5)
+    mean = net1.predict(steps.obs)
+    bdp = mean[:, 2] * 1e6 * mean[:, 5] * 2e-3 / (1500 * 8)  # capacity, one-way delay
+    assert np.allclose(log2_bdp, np.log2(bdp), atol=1e-4) and 6 < np.median(log2_bdp) < 8.5
+    # The logged action: log2 of the next step's window over this step's
+    # BDP; none at an episode's end or where the next step is missing.
+    steps.step[5] += 1
+    logged = fit.logged_actions(steps, spec, log2_bdp)
+    t = np.array([0, 1, 3])
+    assert np.allclose(logged[t], np.log2(steps.cwnd[t + 1]) - log2_bdp[t])
+    assert np.isnan(logged[4]) and np.isnan(logged[199])
+    actor, log = fit.fit_net2(spec, steps, net1, 0)
+    assert log["transitions"] > 0
+    # The graph inverts it: the window it sets is the believed BDP times 2^u.
+    graph = fit.policy_graph(net1, actor, 3.0, action="bdp", input_bins=4)
+    obs = torch.from_numpy(steps.obs[:8])
+    cwnd = torch.tensor([[1.0], [10.0], [100.0], [150.0], [300.0], [1000.0], [5000.0], [0.0]])
+    with torch.no_grad():
+        a = graph(obs, cwnd=cwnd)[:, 0].numpy()
+        u = actor(torch.from_numpy(states[:8]))[:, 0].numpy() * 3.0
+    assert np.all(np.abs(a) <= 7.99)
+    applied = np.log2(np.maximum(cwnd[:, 0].numpy(), 1)) + a - log2_bdp[:8]
+    assert np.allclose(applied, u, atol=1e-4)
+    model = onnx.load_from_string(to_onnx(graph))
+    assert [i.name for i in model.graph.input] == ["obs", "cwnd"]
+    assert not any(m.training for m in graph.modules())  # export leaves it as it was
+    with pytest.raises(ValueError, match="distribution net1"):
+        fit.policy_graph(_net1(), actor, 1.0, action="bdp")
+
+
+def test_an_oracle_net2_on_a_distribution_net1_sees_the_true_bins() -> None:
+    steps, net1 = _bdp_net1()
+    states, _ = fit.net2_view(net1, Net2Spec(inputs="true_lcfs"), steps)
+    z = states.reshape(-1, 7, 16)
+    cap = net1.net.bin_of(torch.from_numpy(fit.targets(steps, net1.lcfs)))[:, 2].numpy()
+    assert np.array_equal(z[:, 2].argmax(axis=1), cap) and np.all(z[:, 2].max(axis=1) == 1)
+    beliefs = net1.beliefs(steps.obs).reshape(-1, 7, 16)
+    assert np.array_equal(z[:, 0], beliefs[:, 0])  # unknown truth: net1's own belief
 
 
 def test_crps_matches_known_values() -> None:

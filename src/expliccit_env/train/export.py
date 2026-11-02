@@ -18,9 +18,21 @@ from expliccit_env.policy import OBS_DIM, TRUTH_DIM
 from expliccit_env.train.models import PolicyGraph
 
 
+class _ByName(torch.nn.Module):
+    """The graph with its inputs passed by name, for the ones it uses."""
+
+    def __init__(self, graph: PolicyGraph, names: list[str]) -> None:
+        super().__init__()
+        self.graph, self.names = graph, names
+
+    def forward(self, *xs: torch.Tensor) -> torch.Tensor:
+        return self.graph(**dict(zip(self.names, xs, strict=True)))
+
+
 def to_onnx(graph: PolicyGraph) -> bytes:
     """Input "obs" [1, 78], plus "truth" [1, 7] when the graph takes LCFs from
-    the truth; one output "a" [1, 1].
+    the truth and "cwnd" [1, 1] when it sets a window target; one output
+    "a" [1, 1].
 
     ponytail: TorchScript exporter (deprecated in torch 2.x, simple ops that
     tract runs); move to dynamo=True with onnxscript when it is removed."""
@@ -32,8 +44,13 @@ def to_onnx(graph: PolicyGraph) -> bytes:
         names = ["obs"]
         if graph.uses_truth:
             args, names = (*args, torch.zeros(1, TRUTH_DIM)), [*names, "truth"]
+        if graph.target is not None:
+            args, names = (*args, torch.full((1, 1), 10.0)), [*names, "cwnd"]
+        # In eval mode: the exporter restores the module's mode afterwards,
+        # and a new module starts in training mode, which would switch the
+        # caller's graph (BatchNorm, dropout) to training.
         torch.onnx.export(
-            graph,
+            _ByName(graph, names).eval(),
             args,
             path,
             input_names=names,

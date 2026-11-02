@@ -116,12 +116,27 @@ class Net2Spec(_Frozen):
     # arm that splits a policy's loss into the LCF set's cost and net1's
     # error. Its exported policy reads the guest's live truth (policy.py).
     inputs: Literal["net1", "true_lcfs"] = "net1"
+    # Distribution net1 only: net2 sees each LCF's distribution summed into
+    # this many groups of adjacent bins (net1's bin count must be a
+    # multiple), which bounds the size of its input and replay buffer.
+    input_bins: Annotated[int, Field(ge=2, le=256)] | None = None
+    # What net2's output means. "multiplier": a, the log2 of the window
+    # multiplier (the contract's action). "bdp": u, the next window as a
+    # log2 multiple of the path's believed bandwidth-delay product (net1's
+    # mean capacity times twice its mean one-way delay); the policy graph
+    # turns u into a with the sender's window. The logged u is log2 of the
+    # next step's window over the believed BDP, which any controller's trace
+    # gives. Needs a distribution net1 with capacity_bps and
+    # one_way_delay_ns, and step data with every step (step_stride 1).
+    action: Literal["multiplier", "bdp"] = "multiplier"
     hidden: PositiveInt = 256
     # "sage": Sage's reward. "utility": a ground-truth utility that prices
     # probing: receive rate over capacity, minus delay_weight times the mean
     # queueing delay over the base RTT, minus loss_weight times the flow's
-    # dropped fraction (docs/methodology.md).
-    reward: Literal["sage", "utility"] = "sage"
+    # dropped fraction (docs/methodology.md). "log_utility": the same with
+    # the log of receive rate over capacity (at least 0.01), so that flows
+    # sharing a link settle at proportionally fair rates.
+    reward: Literal["sage", "utility", "log_utility"] = "sage"
     delay_weight: Annotated[float, Field(ge=0)] = 0.5
     loss_weight: Annotated[float, Field(ge=0)] = 4.0
     # The reward a transition from step t earns: "next" is step t+1's (what
