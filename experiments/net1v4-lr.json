@@ -1,0 +1,26 @@
+{
+  "title": "net1 v4 learning rate: 3e-4 and 1e-4 on the broad dataset",
+  "description": "In the first grid (exp-net1v4-grid-10) every run stopped after 4 to 7 epochs: validation loss was lowest after 1 to 4 epochs at the constant learning rate of 1e-3 and rose after, fastest with the most dropout. This grid tries learning rates 3e-4 and 1e-4 at dropout 0 and 0.05, width 512, net1 v3's other settings, and ranks its runs together with the first grid's on validation rows only.",
+  "train": true,
+  "inputs": {
+    "d30": "release:exp-data-net1-broad-30s-5",
+    "d60": "release:exp-data-net1-broad-60s-8",
+    "ood": "release:exp-data-net1-broad-ood-9",
+    "models": "release:model-net1v3",
+    "grid": "release:exp-net1v4-grid-10"
+  },
+  "matrix": {
+    "lr": [
+      0.0003,
+      0.0001
+    ],
+    "dropout": [
+      0.0,
+      0.05
+    ]
+  },
+  "run": "uv run python experiments/net1_train.py \"$OUT/net1-d$DROPOUT-w512-lr$LR\" --spec experiments/specs/net1v4.json --set dropout=$DROPOUT --set width=512 --set lr=$LR --data \"$IN/d30/campaign-train30\" \"$IN/d60/campaign-train60\" --ood competitors=\"$IN/ood/campaign-ood-competitors\" --ood loss=\"$IN/ood/campaign-ood-loss\" --ood rtt=\"$IN/ood/campaign-ood-rtt\" --ood buffer=\"$IN/ood/campaign-ood-buffer\" --compare \"$IN/models/net1v3.pt\"",
+  "collect": "uv run python experiments/net1_grid.py \"$OUT\" \"$OUT\"/net1-* \"$IN\"/grid/net1-*",
+  "collect_inputs": true,
+  "timeout_minutes": 360
+}
