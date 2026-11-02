@@ -160,6 +160,33 @@ def test_conditions_per_point_runs_a_seeded_subset_of_conditions_on_each_point()
         CampaignSpec.parse(json.dumps(base | {"conditions": conds, "conditions_per_point": 4}))
 
 
+def test_a_udp_share_becomes_a_rate_on_each_paths_mean_capacity() -> None:
+    def path(levels: list[float]) -> dict[str, object]:
+        return {
+            "trace": {"kind": "periodic_levels", "levels_mbps": levels, "level_ms": 1000},
+            "delay": {"mahak_compat_mrtt_ms": 20},
+            "buffer": {"packets": 100},
+        }
+
+    udp = {"kind": "udp_share", "share": 0.25, "start_ms": 2000, "stop_ms": 9000}
+    spec = {
+        "name": "u",
+        "ccs": [{"kind": "stock", "name": "cubic"}],
+        "sweep": {"kind": "paths", "paths": [path([8.0]), path([24.0, 48.0])]},
+        "conditions": [{"cross": [udp, {"kind": "tcp", "cc": "reno", "start_ms": 0}]}],
+        "duration_ms": 10_000,
+    }
+    eps = CampaignSpec.parse(json.dumps(spec)).episodes()
+    rates = [e.cross[0].rate_mbps for e in eps if e.cross[0].kind == "udp_cbr"]
+    assert rates == [2.0, 9.0]  # a quarter of 8 and of (24 + 48) / 2
+    assert all(
+        (e.cross[0].start_ms, e.cross[0].stop_ms, e.cross[1].kind) == (2000, 9000, "tcp")
+        for e in eps
+    )
+    with pytest.raises(ValidationError):
+        CampaignSpec.parse(json.dumps(spec | {"conditions": [{"cross": [udp | {"share": 1.5}]}]}))
+
+
 def test_paths_sweep_takes_any_trace_and_conditions_override_loss() -> None:
     path = {
         "trace": {"kind": "periodic_levels", "levels_mbps": [24, 48], "level_ms": 7000},

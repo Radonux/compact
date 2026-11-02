@@ -213,6 +213,26 @@ class UdpCross(_Frozen):
 
 
 type CrossFlow = Annotated[TcpCross | UdpCross, Field(discriminator="kind")]
+
+
+class UdpShare(_Frozen):
+    """Constant bit rate UDP at a share of the path's mean capacity, for a
+    campaign condition: each sweep point turns it into a UdpCross, so one
+    condition loads slow and fast links alike."""
+
+    kind: Literal["udp_share"] = "udp_share"
+    share: Annotated[float, Field(gt=0, lt=1)]
+    start_ms: Annotated[int, Field(ge=0)] = 0
+    stop_ms: PositiveInt | None = None
+
+    def on(self, trace: Trace) -> UdpCross:
+        ts = trace.timestamps()  # one 1500-byte packet per entry, in ms
+        mean_mbps = 12.0 * ts.size / float(ts[-1])
+        rate = round(self.share * mean_mbps, 3)
+        return UdpCross(rate_mbps=rate, start_ms=self.start_ms, stop_ms=self.stop_ms)
+
+
+type ConditionFlow = Annotated[TcpCross | UdpCross | UdpShare, Field(discriminator="kind")]
 # guest/src/plan.rs MAX_CROSS: every flow runs sender to receiver.
 MAX_CROSS: Final = 16
 
@@ -383,9 +403,12 @@ class Condition(_Frozen):
     point runs under every condition."""
 
     loss: Loss = Loss()
-    cross: Annotated[list[CrossFlow], Field(max_length=MAX_CROSS)] = Field(
-        default_factory=list[CrossFlow]
+    cross: Annotated[list[ConditionFlow], Field(max_length=MAX_CROSS)] = Field(
+        default_factory=list[ConditionFlow]
     )
+
+    def flows(self, trace: Trace) -> list[CrossFlow]:
+        return [c.on(trace) if isinstance(c, UdpShare) else c for c in self.cross]
 
 
 class CampaignSpec(_Frozen):
@@ -446,7 +469,7 @@ class CampaignSpec(_Frozen):
                         duration_ms=self.duration_ms,
                         seed=int(rng.integers(0, U64, dtype=np.uint64)),
                         sysctls=self.sysctls,
-                        cross=cond.cross,
+                        cross=cond.flows(path.trace),
                         steps=self.steps,
                     )
                 )

@@ -129,7 +129,7 @@ def _episode(arm: tuple[PathSpec, Condition], cc: AgentCC, ms: int, seed: int) -
     path, cond = arm
     return EpisodeSpec(
         path=path.model_copy(update={"loss": cond.loss}),
-        cross=cond.cross,
+        cross=cond.flows(path.trace),
         cc=cc,
         duration_ms=ms,
         seed=seed,
