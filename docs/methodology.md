@@ -281,8 +281,11 @@ of the reproduction.
 **Results so far** (`docs/training.md`, section 7). The first run of the
 design above, on links neither network has seen, in log utility:
 
-- net1 is honest on new links: its 90% statements hold 88.8% to 97.1% of
-  the time per LCF.
+- net1 is honest on new links under the training conditions: its 90%
+  statements hold 88.8% to 97.1% of the time per LCF. Under competition
+  it has not seen it is not: with a Cubic flow present from the start,
+  its 90% capacity statements hold 26% of the time, and its median
+  belief is 0.59 of the true capacity.
 - net2 setting the window to a fixed multiple of net1's believed BDP
   beats every kernel controller on average: by 0.079 (95% interval 0.032
   to 0.123) over BBRv3, the best of them. The average is over three
@@ -290,7 +293,11 @@ design above, on links neither network has seen, in log utility:
   and under 1% random loss, but under cross traffic it trails BBRv3 (by
   0.112, 0.026 to 0.202), Illinois, Scalable and BIC, since a fixed
   window takes a small share against a growing Cubic flow. Scored on log
-  throughput alone, BBRv1 would beat it by 0.067.
+  throughput alone, BBRv1 would beat it by 0.067. All of this is with
+  20 s episodes: at 60 s, where the Cubic flow competes for 52 s instead
+  of 12 s, it ties BBRv3 (-0.008, -0.114 to +0.087) and BBRv1 on
+  average, and the same rule on the true BDP would gain 0.373 under
+  cross traffic, so the loss is net1's.
 - The same rule on the true BDP (arm A1) does 0.041 to 0.065 better on
   two held-out sets (27 and 158 links): the cost of estimation for that
   rule (H2). On a classical estimate (largest delivery rate times min
@@ -325,11 +332,13 @@ conditions
 stepping capacity of 8 to 100 Mbit/s, one-way delay of 5 to 50 ms,
 buffers of 0.25 to 4 BDP, and 20 s episodes with one observed flow, each
 link clean, with UDP and a Cubic flow, or with 1% random loss. Test links
-are new combinations of these, but the conditions are not held out, so
-generalization to new conditions (other competing controllers, several
-flows, other loss rates, other traces) is untested. The kernel
-controllers ran on the same links and conditions, so their ranking holds
-for this mix only.
+are new combinations of these, but the conditions are not held out. The
+kernel controllers ran on the same links and conditions, so their
+ranking holds for this mix only. A probe outside it (`docs/training.md`,
+"Longer episodes" and "New conditions") found net1 honest under other
+loss rates and on deeper, longer paths, and badly over-confident under
+competition it had not seen, which also costs the fixed multiple its
+lead over BBRv3 and BBRv1 once competition lasts 52 s.
 
 **What the environment supports**
 

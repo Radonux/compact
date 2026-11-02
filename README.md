@@ -184,8 +184,7 @@ Run every check at once:
     git clone https://github.com/Ppazhooh/mahak /tmp/mahak && git -C /tmp/mahak checkout 5077583
     EXPLICCIT_UML_DIR=build/uml EXPLICCIT_MAHAK_DIR=/tmp/mahak uv run pytest -q
 
-The suite has 94 tests. In the last full run, 91 of the 93 it had then
-passed (the n-step test came later). The other 2 compare our port of Sage's
+The suite has 105 tests. All pass except 2 that compare our port of Sage's
 step with `sage.cc`'s own code; they need a Sage checkout and g++ and are
 UNRUN. CI runs the same checks on every push, split across jobs
 (`.github/workflows/ci.yml`).
@@ -257,7 +256,12 @@ utility (log of the throughput share, minus delay and loss penalties):
   weighted conditions: it beats all 17 controllers on clean links and
   under 1% random loss, but trails BBRv3, Illinois, Scalable and BIC
   under cross traffic, where a fixed window takes a small share against a
-  growing Cubic flow.
+  growing Cubic flow. With 60 s episodes instead of 20 s, that loss grows
+  and the fixed multiple ties BBRv3 and BBRv1 on average.
+- **Unseen competition.** With a Cubic flow present from the start, a
+  case no training campaign had, net1 believes the link is about 0.59 of
+  its capacity, and its 90% capacity statements hold 26% of the time.
+  Its honesty holds only within the conditions it was trained on.
 - **True BDP and a classical estimate.** The same rule on the true BDP
   scores -0.33. That 0.065 difference (0.041 on a second held-out set of
   158 links) is what estimation costs this rule. On a classical estimate
@@ -279,9 +283,11 @@ utility (log of the throughput share, minus delay and loss penalties):
 These net2 results, and net1's on unseen links, use one family of links
 (constant or stepping capacity, 8 to 100 Mbit/s) and three conditions
 (clean, UDP plus a Cubic flow, 1% random loss). Test links are new
-combinations of these, but the conditions are not held out:
-generalization to other conditions is untested, and the ranking against
-the kernel controllers holds for this mix only.
+combinations of these, but the conditions are not held out, and the
+ranking against the kernel controllers holds for this mix only. Under
+conditions outside it (`docs/training.md`, "New conditions"), net1 stays
+honest about random loss and new paths but not about competition it has
+not seen.
 
 ## Working conventions
 

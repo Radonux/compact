@@ -14,13 +14,14 @@ the current one.
 
 ## Summary (M15, 2026-11-02)
 
-The suite has 94 tests: 66 unit tests and 28 that need a UML build. The
-last full local run (with a UML build and a Mahak checkout, before the
-commit that adds this entry) had 93 of them, since the n-step test came
-later: 91 passed. The other 2 are the comparisons of Sage's step with
-`sage.cc` (`test_step_matches_sage_cc`), which skipped: UNRUN. On
-2026-11-02 the suite ran again without a UML build: 60 passed and 34
-skipped, the 28 UML tests among them.
+The suite has 105 tests: 77 unit tests and 28 that need a UML build.
+The last full local run with a Mahak checkout had 93 of them: 91 passed,
+and the other 2, the comparisons of Sage's step with `sage.cc`
+(`test_step_matches_sage_cc`), skipped: UNRUN. On 2026-11-02 the 94 tests
+of that day ran with a UML build but without Mahak: 86 passed, and 8
+skipped (6 need Mahak, 2 are the Sage comparisons). The 11 tests of the
+experiment file parser (`tests/test_ci_experiment.py`) came after that
+run and pass.
 
 The passing tests show that:
 

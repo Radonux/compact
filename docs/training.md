@@ -799,9 +799,76 @@ of UDP from 5 to 15 s plus one Cubic flow from 8 s, and 1% random loss on
 the downlink. Test links are new combinations of these, but the
 conditions themselves are not held out, so generalization to new
 conditions (other competing controllers, several flows, other loss
-rates, other traces) is untested. The kernel controllers ran on the same
-links and conditions, so the comparison is matched, but its ranking
-holds for this mix only.
+rates, other traces) was untested when these runs were made. The kernel
+controllers ran on the same links and conditions, so the comparison is
+matched, but its ranking holds for this mix only. The next two checks
+test both limits.
+
+**Longer episodes: at 60 s the constant ties BBRv3 and BBRv1.** A 20 s
+episode might charge slow-starting controllers a startup cost they would
+amortize over a longer transfer, and gives the Cubic competitor only
+12 s. The 27 test links were run again under the same three conditions
+with 60 s episodes (the Cubic flow then runs from 8 to 60 s), once, with
+the same policies:
+
+| Condition | constant, 20 s | constant, 60 s | minus BBRv3, 20 s | minus BBRv3, 60 s | minus BBRv1, 60 s | oracle minus constant, 60 s |
+|---|---|---|---|---|---|---|
+| clean | -0.133 | -0.121 | +0.129 (0.079 to 0.179) | +0.145 (0.097 to 0.195) | +0.220 | +0.022 |
+| 1% random loss | -0.134 | -0.134 | +0.220 (0.172 to 0.267) | +0.253 (0.197 to 0.309) | +0.161 | +0.039 |
+| cross traffic | -0.911 | -1.433 | -0.112 (-0.202 to -0.026) | -0.422 (-0.659 to -0.207) | -0.468 | +0.373 |
+| mean | -0.393 | -0.563 | +0.079 (0.029 to 0.127) | -0.008 (-0.114 to +0.087) | -0.029 (-0.141 to +0.070) | +0.145 |
+
+- Startup is not what the constant gains from. On clean links and under
+  random loss its lead over the kernel controllers stays or grows at
+  60 s, and it still beats Illinois (+0.205), Reno (+0.758), Cubic
+  (+0.760) and Vegas (+0.911) on average.
+- Longer competition is what it loses to. Under cross traffic the gap to
+  BBRv3 grows from 0.112 to 0.422, and the oracle, the same rule on the
+  true BDP, is 0.373 better: net1's belief, not the rule, fails there
+  (next paragraph). The learned net2 recovers 0.117 of it.
+- So the headline holds for 20 s episodes only. At 60 s the constant
+  ties BBRv3 and BBRv1 on average and beats the other kernel controllers
+  run (Illinois, Cubic, Reno, Vegas; the other 11 were not run at 60 s).
+
+**New conditions: net1's capacity belief fails under competition it has
+not seen.** The same policies, BBRv3, BBRv1 and Cubic ran once on the 27
+test links under six conditions no campaign contained, on a deep-buffer,
+long-RTT version of the same links (4 to 16 BDP, RTT up to 160 ms, under
+the three usual conditions), and under 60 s of competition with a Cubic
+flow present from the start:
+
+| Condition | constant minus BBRv3 | constant minus BBRv1 | oracle minus constant | net1's 90% capacity statements held |
+|---|---|---|---|---|
+| random loss 0.1% | +0.116 | +0.189 | +0.041 | 86% |
+| random loss 3% | +0.859 | +0.182 | +0.026 | 84% |
+| 1% loss on the ACK path | +0.139 | +0.210 | +0.041 | 88% |
+| deep buffers and long RTTs, clean | +0.268 | +0.221 | +0.006 | 78% |
+| a BBRv1 flow from 4 s | +0.290 | -0.181 | +0.153 | 57% |
+| Cubic flows from 2 s and 10 s | -0.301 | -0.316 | +0.255 | 57% |
+| a Cubic flow from 0 s | -0.387 | -0.547 | +0.476 | 26% |
+| a Cubic flow from 0 s, 60 s | -0.606 | -0.743 | +0.614 | 29% |
+
+- Non-congestive loss and new paths leave the constant ahead. It ignores
+  random loss, and BBRv3 collapses at 3% loss (-0.995).
+- Competition net1 has not seen breaks its honesty. With a Cubic flow
+  from the start, net1's median capacity belief is 0.59 of the truth
+  (10th to 90th percentile 0.30 to 0.85), and its 90% statements hold
+  26% of the time. In training the Cubic flow always arrived at 8 s,
+  after the observed flow had measured the link alone, and Sage's
+  longest window (10 s) still remembered that. Believing a smaller link,
+  the constant sets a smaller window and takes a smaller share (0.37),
+  which keeps the belief low. On the true BDP the same rule competes as
+  well as the kernel controllers (-1.19 against -1.12 to -1.28).
+- Outside the training ranges net1 is not honest either. On deep
+  buffers its free-buffer statements hold 6% to 16% of the time at 90%,
+  and its one-way delay has R^2 0.43 at RTTs above the 100 ms it was
+  trained on, though the constant still matches the oracle there.
+- The learned net2 stays within 0.05 of the constant everywhere: it does
+  not repair net1's errors.
+
+These two checks are why the next net1 needs a broader set of
+conditions: its honesty, the claim the method rests on, fails where the
+training data had no variety.
 
 These runs used a harness kept outside the repository; the specs above
 reproduce them with `train run` and `train online`.
@@ -1034,6 +1101,12 @@ target from its beliefs. Three seeds of the learned net2, 60 iterations
 of online training and arm A2 (the means) have run; on validation none
 beat the constant. What it leaves open, in the order the plan needs it:
 
+- First, a net1 trained on a broad set of conditions, with whole families
+  held out for testing: other competing controllers and more flows,
+  competitors that arrive first (the observed flow cannot start late
+  yet), other loss rates and directions, larger steps, deeper buffers and
+  longer RTTs, and episodes long enough for competition to settle. The
+  checks above show net1's honesty failing outside its three conditions.
 - The human reading (a few percentiles per LCF) as net2's input, against
   the means and the distributions.
 - Arm A1 for the learned net2 (trained and run on the truth), and A4
@@ -1041,9 +1114,6 @@ beat the constant. What it leaves open, in the order the plan needs it:
   split for a learned decision, not only for the constant rule.
 - Several learned flows on one bottleneck, for fairness between copies:
   the constant aims at the link's BDP, not a fair share.
-- Conditions beyond the three of these runs (other competing
-  controllers, more flows, other loss rates, other traces); none is held
-  out yet.
 
 `docs/methodology.md` has the claims (section 1), the plan (section 3),
 the arms (section 5) and the status (section 6).
