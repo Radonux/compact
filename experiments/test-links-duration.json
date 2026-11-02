@@ -1,7 +1,10 @@
 {
+  "title": "Test links at 20 s and 60 s: net2 on net1 v3 against all kernel controllers",
   "description": "net2 on net1 v3 against all 17 kernel controllers on the 27 test links, with 20 s and 60 s episodes and the same episode seeds for every controller: does episode length change the ranking?",
   "uml": true,
-  "inputs": {"models": "release:model-net1v3"},
+  "inputs": {
+    "models": "release:model-net1v3"
+  },
   "prepare": "P=\"--policy rule=$IN/models/rule-u0.25.onnx --policy oracle=$IN/models/rule-u0.25-oracle.onnx --policy learned-s0=$IN/models/learned-td3bc-n40-s0.onnx\"; for d in 20 60; do uv run python experiments/heldout.py \"$OUT/spec$d\" --split test --duration-ms ${d}000 --seed 13 $P; uv run expliccit campaign plan \"$OUT/spec$d/campaign.json\" \"$OUT/c$d\"; done",
   "shards": 20,
   "run": "for d in 20 60; do uv run expliccit campaign run \"$OUT/c$d\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps; done",

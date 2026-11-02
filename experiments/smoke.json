@@ -1,4 +1,5 @@
 {
+  "title": "Smoke test of the experiment workflow",
   "description": "Smoke test of the experiment workflow: the smoke campaign (2 controllers on 4 paths) in 2 shards.",
   "uml": true,
   "prepare": "uv run expliccit campaign plan examples/campaign-smoke.json \"$OUT/campaign\"",

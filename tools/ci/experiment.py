@@ -9,6 +9,7 @@ one job per cell (`run`; at most 256 cells, 20 at a time, 6 h each), collect
 
     {
       "name": "smoke",              # the release tag's NAME; default: the file's stem
+      "title": "a readable release title; default: NAME",
       "description": "one line, for the release notes",
       "uml": true,                  # cells get a built UML tree in $UML
       "train": false,               # install the trainer's extra (PyTorch)
@@ -59,6 +60,7 @@ class Experiment(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     name: Slug | None = None
+    title: Annotated[str, Field(max_length=120, pattern=r"^[^\n]*$")] = ""
     description: str = ""
     uml: bool = False
     train: bool = False
@@ -136,6 +138,7 @@ def plan(source: str, name: str, exp: Experiment) -> None:
         "prepare": bool(exp.prepare),
     }
     print(f"name={name}")
+    print(f"title={exp.title or name}")
     print("matrix=" + json.dumps({"cell": cells}, separators=(",", ":")))
     print(f"timeout={exp.timeout_minutes}")
     for k, v in flags.items():

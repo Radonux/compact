@@ -28,6 +28,7 @@ jobs:
       actions: read
     outputs:
       name: ${{ steps.plan.outputs.name }}
+      title: ${{ steps.plan.outputs.title }}
       matrix: ${{ steps.plan.outputs.matrix }}
       timeout: ${{ steps.plan.outputs.timeout }}
       uml: ${{ steps.plan.outputs.uml }}
@@ -193,7 +194,8 @@ jobs:
       - env:
           GH_TOKEN: ${{ github.token }}
           NAME: ${{ needs.plan.outputs.name }}
+          TITLE: ${{ needs.plan.outputs.title }}
         run: |
           gh release create "exp-$NAME-$GITHUB_RUN_NUMBER" dist/*.part-* \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --latest=false \
-            --title "$NAME (run $GITHUB_RUN_NUMBER)" --notes-file dist/notes.md
+            --title "$TITLE (run $GITHUB_RUN_NUMBER)" --notes-file dist/notes.md
