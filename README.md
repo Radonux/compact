@@ -102,6 +102,10 @@ musl-tools, perl, rustup and uv; no root.
     # a Slurm array job (one shard per task, one guest per core); never submitted (UNRUN)
     uv run expliccit campaign slurm out/smoke --build build/uml --shards 200 --cpus-per-task 32
 
+    # an experiment in GitHub Actions: up to 256 cells, 20 at a time, 6 h each;
+    # -f publish=true keeps the result as a release (docs/architecture.md)
+    gh workflow run experiment.yml -f experiment=experiments/smoke.json
+
     # Mahak's oracle_query(X, metric, CC), in UML
     uv run expliccit mahak-query --build build/uml --cc bbr --metric first_power \
         --buffer 8000 --mrtt 4 --bw 70 --step 0.2

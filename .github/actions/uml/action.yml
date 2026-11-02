@@ -1,0 +1,47 @@
+name: uml build
+description: >-
+  The UML kernel and guest that episodes run in (DIR/linux, DIR/rootfs,
+  DIR/BUILD_INFO), restored from the cache when the kernel tree, our kernel
+  config and modules, the guest and both build scripts are unchanged, and
+  built otherwise. Needs a checkout that includes third_party/linux. Only
+  those three paths are cached, so callers may rely on nothing else in DIR.
+
+inputs:
+  dir:
+    description: where the build goes
+    default: build/uml
+
+runs:
+  using: composite
+  steps:
+    - id: key
+      shell: bash
+      run: |
+        tree="$(git rev-parse HEAD:third_party/linux HEAD:kernel HEAD:guest \
+          HEAD:scripts/build-uml.sh HEAD:scripts/build-guest.sh | sha256sum | cut -c1-32)"
+        echo "key=uml-$RUNNER_OS-$tree" >> "$GITHUB_OUTPUT"
+    - id: cache
+      uses: actions/cache/restore@v6
+      with:
+        key: ${{ steps.key.outputs.key }}
+        path: |
+          ${{ inputs.dir }}/linux
+          ${{ inputs.dir }}/rootfs
+          ${{ inputs.dir }}/BUILD_INFO
+    - if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        DIR: ${{ inputs.dir }}
+      run: |
+        sudo apt-get update -q && sudo apt-get install -y -q flex bison bc libelf-dev musl-tools
+        scripts/build-uml.sh "$DIR"
+        (cd guest && rustup toolchain install)
+        scripts/build-guest.sh "$DIR"
+    - if: steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        key: ${{ steps.key.outputs.key }}
+        path: |
+          ${{ inputs.dir }}/linux
+          ${{ inputs.dir }}/rootfs
+          ${{ inputs.dir }}/BUILD_INFO

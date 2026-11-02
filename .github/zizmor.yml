@@ -1,10 +1,20 @@
-# zizmor policy for this repository's workflows.
+# zizmor policy for this repository's workflows. This is a research
+# repository: a compromised dependency costs little, and only writers can
+# dispatch the experiment workflow, so the rules that guard against supply
+# chain attacks are relaxed. The rules against running untrusted input (for
+# example template injection) stay on.
 rules:
   unpinned-uses:
     config:
       policies:
-        # sync-skills.yml is the bundled updater from BTreeMap/SKILLs, installed
-        # verbatim as its README directs; it calls that repository's reusable
-        # workflow at @main by design. Only that repository may be ref-pinned.
-        "BTreeMap/SKILLs/*": ref-pin
-        "*": hash-pin
+        # GitHub's own actions may follow their major tag.
+        "actions/*": any
+        # Everything else is pinned at least to a tag. sync-skills.yml is
+        # the bundled updater from BTreeMap/SKILLs, installed verbatim as its
+        # README directs; it calls that repository's reusable workflow at
+        # @main by design.
+        "*": ref-pin
+  # Local actions are referenced as ./.github/actions/... after checkout, the
+  # documented form, rather than the newer self-repository syntax.
+  self-repository:
+    disable: true

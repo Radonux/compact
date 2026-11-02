@@ -1,0 +1,204 @@
+name: experiment
+
+# Runs one experiment file (experiments/*.json, format in tools/ci/experiment.py):
+# plan -> uml build (if needed) -> one job per cell -> collect -> publish.
+# Cells keep their output 7 days as artifacts; the collected result keeps 90
+# days; publish makes it a release, the long-term record.
+on:
+  workflow_dispatch:
+    inputs:
+      experiment:
+        description: experiment file, for example experiments/smoke.json
+        required: true
+        type: string
+      publish:
+        description: publish the collected result as a GitHub release
+        type: boolean
+        default: false
+
+run-name: experiment ${{ inputs.experiment }}
+
+permissions: {}
+
+env:
+  EXPERIMENT: ${{ inputs.experiment }}
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      name: ${{ steps.plan.outputs.name }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+      timeout: ${{ steps.plan.outputs.timeout }}
+      uml: ${{ steps.plan.outputs.uml }}
+      train: ${{ steps.plan.outputs.train }}
+      inputs: ${{ steps.plan.outputs.inputs }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            src
+            examples
+            experiments
+            tools
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --locked
+      - id: plan
+        run: uv run python tools/ci/experiment.py plan "$EXPERIMENT" >> "$GITHUB_OUTPUT"
+      - if: steps.plan.outputs.inputs == 'true' && steps.plan.outputs.prepare == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run python tools/ci/experiment.py fetch "$EXPERIMENT"
+      - run: uv run python tools/ci/experiment.py prepare "$EXPERIMENT"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: prepared
+          path: out/
+          retention-days: 7
+
+  uml:
+    needs: plan
+    if: needs.plan.outputs.uml == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/uml
+      - run: tar -C build/uml -cf uml.tar linux rootfs BUILD_INFO
+      - uses: actions/upload-artifact@v7
+        with:
+          name: uml
+          path: uml.tar
+          retention-days: 1
+          compression-level: 6
+
+  cells:
+    name: ${{ matrix.cell.label }}
+    needs: [plan, uml]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.uml.result != 'failure' && needs.uml.result != 'cancelled' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ fromJSON(needs.plan.outputs.timeout) }}
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            src
+            examples
+            experiments
+            tools
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - env:
+          TRAIN: ${{ needs.plan.outputs.train }}
+        run: if [[ "$TRAIN" == true ]]; then uv sync --locked --extra train; else uv sync --locked; fi
+      - uses: actions/download-artifact@v8
+        with:
+          name: prepared
+          path: out
+      - if: needs.plan.outputs.uml == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: uml
+      - if: needs.plan.outputs.uml == 'true'
+        run: mkdir -p build/uml && tar -C build/uml -xf uml.tar && rm uml.tar
+      - if: needs.plan.outputs.inputs == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run python tools/ci/experiment.py fetch "$EXPERIMENT"
+      - env:
+          CELL: ${{ matrix.cell.index }}
+        run: uv run python tools/ci/experiment.py run "$EXPERIMENT" "$CELL"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cell-${{ matrix.cell.index }}
+          path: out/
+          retention-days: 7
+          compression-level: 1
+
+  collect:
+    needs: [plan, cells]
+    if: ${{ !cancelled() && needs.cells.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            src
+            examples
+            experiments
+            tools
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - env:
+          TRAIN: ${{ needs.plan.outputs.train }}
+        run: if [[ "$TRAIN" == true ]]; then uv sync --locked --extra train; else uv sync --locked; fi
+      - uses: actions/download-artifact@v8
+        with:
+          name: prepared
+          path: out
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: cell-*
+          path: out
+          merge-multiple: true
+      - if: needs.plan.outputs.inputs == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run python tools/ci/experiment.py fetch "$EXPERIMENT"
+      - run: uv run python tools/ci/experiment.py collect "$EXPERIMENT"
+      - run: uv run python tools/ci/experiment.py pack "$EXPERIMENT"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: result
+          path: dist/
+          retention-days: 90
+          compression-level: 0
+
+  publish:
+    needs: [plan, collect]
+    if: ${{ inputs.publish && needs.collect.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: result
+          path: dist
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          NAME: ${{ needs.plan.outputs.name }}
+        run: |
+          gh release create "exp-$NAME-$GITHUB_RUN_NUMBER" dist/*.part-* \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --latest=false \
+            --title "$NAME (run $GITHUB_RUN_NUMBER)" --notes-file dist/notes.md

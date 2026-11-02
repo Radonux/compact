@@ -91,11 +91,8 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
-      - run: sudo apt-get update -q && sudo apt-get install -y -q flex bison bc libelf-dev musl-tools
       - run: scripts/check-kernel.sh
-      - run: scripts/build-uml.sh build/uml
-      - run: cd guest && rustup toolchain install
-      - run: scripts/build-guest.sh build/uml
+      - uses: ./.github/actions/uml
       - run: uv sync --locked --extra train
       - name: end-to-end tests in UML
         env:

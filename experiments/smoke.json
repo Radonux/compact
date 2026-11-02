@@ -1,0 +1,9 @@
+{
+  "description": "Smoke test of the experiment workflow: the smoke campaign (2 controllers on 4 paths) in 2 shards.",
+  "uml": true,
+  "prepare": "uv run expliccit campaign plan examples/campaign-smoke.json \"$OUT/campaign\"",
+  "shards": 2,
+  "run": "uv run expliccit campaign run \"$OUT/campaign\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run expliccit campaign status \"$OUT/campaign\" && uv run expliccit campaign summary \"$OUT/campaign\" > \"$OUT/summary.json\"",
+  "timeout_minutes": 30
+}

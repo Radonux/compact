@@ -360,6 +360,39 @@ point leaves the candidate pool, and it never becomes a label. Every queried
 episode is also written to a dataset shard, so a map's queries can be
 reused as training data.
 
+## Experiments in GitHub Actions
+
+Large runs go to GitHub Actions. For this public repository that is 20
+concurrent jobs, each on a runner with 4 cores, 16 GB of memory and 14 GB
+of disk, for up to 6 hours, and at most 256 jobs per workflow run. An
+experiment is one file under `experiments/` (its format is in
+`tools/ci/experiment.py`), dispatched to `.github/workflows/experiment.yml`:
+
+1. **plan** parses the file once, expands its cells (the shards of a
+   campaign, or the product of matrix axes) and runs `prepare`, for
+   example `campaign plan`.
+2. **uml** restores the UML build from the Actions cache, or builds it
+   (`.github/actions/uml`). The key is the git trees of the kernel, our
+   modules and config, the guest and both build scripts, so a build is
+   reused until one of them changes. CI's `uml` job uses the same action.
+3. **cells** runs `run` once per cell, 20 at a time. A cell writes only
+   paths no other cell writes, and its output is an artifact kept 7 days.
+4. **collect** merges the cells' outputs, runs `collect`, and packs the
+   result as `NAME.tar.zst` in parts under 2 GiB, kept 90 days (the most
+   Actions allows) as the artifact `result`.
+5. **publish**, when asked, makes the result a release, `exp-NAME-RUN`,
+   at the commit that produced it, with the experiment's record and its
+   `summary.md` in the notes. Releases are the long-term record: anything
+   shown to others comes from one.
+
+Episodes are pure functions of their specs, so any runner can run any
+shard, and "Re-run failed jobs" repeats only the cells that failed.
+collect starts only once every cell has succeeded, so a partial campaign
+never produces metrics. A later experiment reads an earlier one's result
+through `inputs`: `release:TAG`, or `run:RUN_ID/result` within 90 days.
+
+    gh workflow run experiment.yml -f experiment=experiments/smoke.json -f publish=false
+
 ## Known limits
 
 Limits marked `ponytail` in the code name their upgrade path there.
@@ -411,7 +444,7 @@ Each row records a decision as it was made, and a later row can change an
 earlier one. D1 to D5 came from the project brief: real kernel TCP; Tier 1
 on UML; Tier 2 on native 7.0; kernel 7.0 only; custom controllers as kernel
 modules. M0 confirmed D2 and D5 and measured their consequences. D19 later
-dropped D3, which leaves UML as the only tier. D6 to D23 were made during
+dropped D3, which leaves UML as the only tier. D6 to D24 were made during
 the build, where the brief did not specify (its later sections were
 missing).
 
@@ -435,6 +468,7 @@ missing).
 | D21 | One policy contract: the whole message in, the graph selects and scales, optional recurrent state | Any network design (MLP, recurrent, a different column set, uncertainty heads) runs without guest changes. It replaced `tcpinfo-v1` (8 features in, absolute cwnd and pacing out), which no policy used. |
 | D22 | The trainer lives here, on PyTorch, with architectures and algorithms chosen by name, and exports one ONNX graph per policy | A network redesign is a registry entry, not a new pipeline. The scaling travels inside the graph, so deployment needs no scaler files. expliCCit's layer layout and parameter names are kept, so its released checkpoints load unchanged (from a local copy; its code is not in this repository). Splits are by path, never by row, so held-out numbers are not training accuracy. Default scaling is robust (quantile clipping, then standardization). TD3+BC is the default net2 objective, and expliCCit's own is kept for comparison. |
 | D23 | The truth a policy can read is computed live in the guest from the link records, with the labels' definitions, and checked equal to them | Arms that feed true or patched LCFs to a running policy (oracle, repair) need ground truth during the episode, and a policy must see exactly what training called the truth. Rejected: an independent estimate in the kernel module (a second definition), and replaying an episode with the truth injected (the closed loop would change the trajectory). |
+| D24 | Large runs are GitHub Actions runs of an experiment file; results meant for others are releases | Twenty 4-core runners for 6 hours each, free for a public repository, with no queue to wait in and no cluster account. The fan-out is the campaign's own sharding, so the workflow holds no experiment logic. Artifacts expire after at most 90 days, so a result worth keeping becomes a release, pinned to its commit. Rejected: the Slurm array script (generated and checked, but no cluster is available), and one workflow per experiment (the same plan, cells, collect steps each time). |
 
 ## Extending
 
