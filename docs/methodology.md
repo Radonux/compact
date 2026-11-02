@@ -280,13 +280,14 @@ design above, on links neither network has seen, in log utility:
 - net2 setting the window to a fixed multiple of net1's believed BDP
   beats every kernel controller: by 0.079 (95% interval 0.032 to 0.123)
   over BBRv3, the best of them.
-- The same rule on the true BDP (arm A1) does 0.065 (0.031 to 0.105)
-  better: the cost of estimation for that rule (H2).
-- A net2 trained online on net1's distributions (arm A3) beats BBRv3 by
-  0.123 (0.087 to 0.160) and the fixed multiple by 0.044 (0.001 to
-  0.091), mostly by competing harder with a buffer-filling Cubic flow.
-  It has one training seed and tied the fixed multiple on the
-  validation links, so that last gain is not yet established.
+- The same rule on the true BDP (arm A1) does 0.041 to 0.065 better on
+  two held-out sets (27 and 158 links): the cost of estimation for that
+  rule (H2).
+- A net2 trained online on net1's distributions (arm A3, three seeds)
+  beats BBRv3 by 0.12, but the fixed multiple by only 0.04, 0.01 and 0
+  on the two held-out sets and the validation links. It learned to
+  compete harder with a buffer-filling Cubic flow; the fixed multiple
+  remains the net2 to beat.
 - Learning from other controllers' logs failed (cloning and IQL, -0.97
   to -1.61 against -0.48 for BBRv3 on validation links), as did the
   earlier design (multiplicative action, single-value net1): its tuned

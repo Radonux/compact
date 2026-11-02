@@ -485,8 +485,12 @@ each scored on the validation links every 5 iterations), then one test
 report of 5 policies on 27 links (405 episodes, all ok). Three online
 runs (both one-step TD3+BC runs and IQL) were stopped after 5 to 10
 iterations, once their evaluations stayed below their start; their
-evaluations are reported as such. Two more seeds of the 40-step run are
-UNRUN at the time of writing. Kernel
+evaluations are reported as such. Two more seeds of the 40-step run
+followed, each scored once on the test links; then the constant, the
+oracle and the three seeds were scored once on a second held-out set
+(158 links, 2,370 episodes, all ok). Disk filled to 99% during that run
+from the online runs' rollout tables, which were deleted (their
+transitions had been used); no episode failed. Kernel
 controllers are scored from the data campaign's episodes on the same
 links, under the same conditions but other episode seeds.
 

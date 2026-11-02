@@ -250,10 +250,12 @@ utility (log of the throughput share, minus delay and loss penalties):
   controller: it scores -0.39, against -0.47 for BBRv3, the best of them,
   and -1.21 for Cubic.
 - **True BDP.** The same rule on the true BDP scores -0.33. That 0.065
-  difference is what estimation costs this rule.
-- **Learned online.** A net2 trained online scores -0.35, mostly by
-  competing harder with Cubic cross traffic. It has one training seed,
-  and it tied the fixed multiple on the validation links.
+  difference (0.041 on a second held-out set of 158 links) is what
+  estimation costs this rule.
+- **Learned online.** A net2 trained online scores -0.35 over three
+  seeds by competing harder with Cubic cross traffic. That is only 0.04
+  better than the fixed multiple here, 0.01 on the 158 links, and no
+  better on the validation links.
 - **Earlier design and expliCCit.** The earlier design scores -1.00 on
   these links: a multiplicative action on a single-value net1, tuned
   over 262 runs (`docs/training.md`, "Tuned comparison"). expliCCit's

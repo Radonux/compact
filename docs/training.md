@@ -602,7 +602,7 @@ Test links (27 links, three conditions, 81 episodes each, scored once):
 | Policy | log utility | utilization | queueing delay (ms) | drops |
 |---|---|---|---|---|
 | u = 0.25 on the true BDP (oracle) | -0.328 (-0.380 to -0.279) | 0.980 | 14.7 | 0.39% |
-| learned net2, 40-step returns (one seed) | -0.348 (-0.405 to -0.295) | 0.968 | 11.5 | 0.45% |
+| learned net2, 40-step returns (three seeds) | -0.348, -0.349, -0.353 | 0.962 to 0.969 | 11.1 to 12.3 | 0.34% to 0.62% |
 | u = 0.25 on net1's BDP | -0.393 (-0.461 to -0.328) | 0.960 | 14.5 | 0.48% |
 | BBRv3 | -0.472 (-0.530 to -0.418) | 0.880 | 15.5 | 0.78% |
 | BBRv1 | -0.490 (-0.566 to -0.420) | 0.945 | 17.8 | 3.2% |
@@ -612,13 +612,31 @@ Test links (27 links, three conditions, 81 episodes each, scored once):
 | expliCCit's released policy | -1.826 | 0.652 | 18.5 | 31% |
 
 Paired differences: the constant rule beats BBRv3 by 0.079 (0.032 to
-0.123) and BBRv1 by 0.097 (0.023 to 0.172); the learned net2 beats BBRv3
-by 0.123 (0.087 to 0.160) and the constant by 0.044 (0.001 to 0.091); the
-oracle beats the constant by 0.065 (0.031 to 0.105) and the learned net2
-by 0.021 (-0.006 to 0.049). By condition, the learned net2 gains on the
-constant mostly under cross traffic (-0.879 against -0.988; clean -0.115
-against -0.125, random loss -0.099 against -0.125), where it raises its
-target (u up to 0.88 at the 90th percentile).
+0.123) and BBRv1 by 0.097 (0.023 to 0.172); the oracle beats the constant
+by 0.065 (0.031 to 0.105). The three seeds of the learned net2 beat BBRv3
+by 0.119 to 0.123 and the constant by 0.040 to 0.044 (each interval
+above 0), and lie within 0.004 of each other. By condition, the learned
+net2 gains on the constant mostly under cross traffic (seed 0: -0.879
+against -0.988; clean -0.115 against -0.125, random loss -0.099 against
+-0.125), where it raises its target (u up to 0.88 at the 90th
+percentile).
+
+On the validation links the same three seeds tied the constant (+0.009,
++0.002, -0.023), so the policies were also scored once on a second
+held-out set, never used for any choice: the 158 test links of the
+1,050-link campaign, under the three conditions (474 episodes per
+policy; kernel controllers are not scored there, since each link has
+only 3 of them):
+
+| Policy | log utility |
+|---|---|
+| u = 0.25 on the true BDP (oracle) | -0.333 (-0.356 to -0.314) |
+| learned net2 (seeds 1, 0, 2) | -0.360, -0.367, -0.373 |
+| u = 0.25 on net1's BDP | -0.374 (-0.399 to -0.352) |
+
+There, the oracle beats the constant by 0.041 (0.033 to 0.049), and the
+learned net2 beats it by 0.001 to 0.014 (one seed's interval above 0,
+two include 0).
 
 Reading:
 
@@ -626,14 +644,14 @@ Reading:
   multiple of the believed BDP, beats every controller in the kernel on
   links neither network has seen, and the old design by 0.6 in log
   utility.
-- Estimation costs 0.065 under that rule: the same rule on the true BDP
-  does that much better. The learned net2 closes two thirds of that gap,
-  on the test links; on the validation links it tied the constant, and it
-  has one training seed, so this gain is not yet established. Two more
-  seeds are UNRUN at the time of writing.
-- The decision that matters beyond the constant is competing with a
-  buffer-filling flow, which the log utility rewards and the learned net2
-  found.
+- Estimation costs 0.041 to 0.065 under that rule: the same rule on the
+  true BDP does that much better, on both held-out sets.
+- The learned net2 does not reliably beat the constant: by about 0.04 on
+  the 27 test links, 0.01 on the 158 others, and nothing on the
+  validation links, consistently over three seeds. What it learned, to
+  compete harder with a buffer-filling flow, is the right direction, but
+  its size depends on how many links have a large buffer for Cubic to
+  fill. The fixed multiple is the net2 to beat.
 - Learning from other controllers' logs is confounded here; online
   training with multi-step returns is what worked.
 
