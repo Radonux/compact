@@ -68,13 +68,17 @@ time 0, and the sender writes until the episode ends. Both set
 Cross traffic shares the same path in the same direction, sender to
 receiver. Cross flow `i` sends from port `6000 + i`. The observed flow sends
 from port 5001, and that port is how link records and labels tell the flows
-apart. A TCP cross flow is a bulk transfer with its own congestion control
-(any of the stock controllers in `spec.py`), connected at its start time and
-shut down at its stop time. A UDP cross flow sends one 1500-byte IP packet
-every `12000 / rate` seconds over its window (rate in bit/s). Cross sockets
-carry no observation mark, so `TCP_OBS` holds the observed flow only.
-Threads drive each flow and sleep on absolute deadlines, so no flow spins in
-virtual time.
+apart. A TCP cross flow is a bulk transfer with its own congestion control,
+connected at its start time and shut down at its stop time. That control is
+a stock controller by name, or an agent with its own policy, exactly as the
+observed flow's `cc` is written; any number of cross flows can be agents,
+each with its own step loop, policy state and exploration noise (D25). A UDP
+cross flow sends one 1500-byte IP packet every `12000 / rate` seconds over
+its window (rate in bit/s). Cross sockets carry no observation mark, so
+`TCP_OBS` holds the observed flow only. Threads drive each flow and sleep on
+absolute deadlines, so no flow spins in virtual time. Each TCP cross flow
+reports the controller its socket ran, and an episode whose flows ran other
+controllers than planned is invalid.
 
 ## The link model (`sch_mmlink`)
 
@@ -310,8 +314,9 @@ CLOCK_MONOTONIC time in us, the 224-byte `TCP_INFO` prefix the message was
 computed from, the 78-value message, the action applied after it (NaN under
 a stock controller), the window that action set (0 if none), and the truth.
 `steps.py` decodes it, and the guest's and host's layouts are checked
-against each other (`tests/test_records_abi.py`). The guest's `result.json`
-carries result version 4.
+against each other (`tests/test_records_abi.py`). An agent cross flow `i`
+writes the same records to `steps-cross<i>.bin`; its truth is computed for
+its own port. The guest's `result.json` carries result version 5.
 
 The training table (`steps.py`, `steps.parquet`) gives each step:
 
@@ -321,12 +326,21 @@ The training table (`steps.py`, `steps.parquet`) gives each step:
 - Sage's single-flow reward, computed with the exact capacity where Sage
   uses the nominal one.
 
+The `cross_steps` table holds the same columns for every agent cross flow,
+with `flow`, its index in the spec's `cross` list; its labels are that
+flow's own (receive rate, drops and the share every other flow took), and
+the path's.
+
 ## Agent controllers (`tcp_agent`)
 
 After each step, the step loop writes the policy's window and pacing rate
-as `struct expl_agent_action` to `/dev/expl_agent`. `tcp_agent` records each
-accepted action as `AGENT_ACTION`, and the action takes effect at the agent
-socket's next ACK.
+as `struct expl_agent_action` to `/dev/expl_agent`, naming the socket by
+its own file descriptor (agent ABI 2). `tcp_agent` keeps each socket's
+latest action in that socket's congestion-control state, so any number of
+agent sockets run side by side, and records each accepted action as
+`AGENT_ACTION` with the socket's port. The action takes effect at that
+socket's next ACK; a write for a socket that does not run an agent
+controller is refused.
 
 - `agent` (Sage-style): `cong_control` holds cwnd and pacing at the latest
   action. The initial window is held until the first action.
@@ -418,15 +432,27 @@ fetches its files, until the ruleset excludes `stash/**`.) An experiment reads a
 
 Limits marked `ponytail` in the code name their upgrade path there.
 
-- One global record ring and one global agent action per kernel. That is
-  fine for one episode, and one agent flow, per UML guest, but several
-  learned flows cannot yet share one bottleneck.
+- One global record ring per kernel, which is fine for one episode per UML
+  guest.
+- A policy's decision costs no virtual time: a learned controller acts the
+  instant its step is read. Real controllers decide a few milliseconds late
+  (an inference or a userspace round trip). ponytail: no decision delay;
+  add one per flow, applied before the action is written, when comparisons
+  between learned controllers need it.
+- With several step loops, each sleeps 1 ns of virtual time after reading
+  its step, so that kernel work at the same instant (softirqs deferred to
+  `ksoftirqd`) is drained before its truth; one loop never needed it, so
+  single-agent episodes are unchanged. Under very heavy load the qdisc can
+  also emit a record after its instant: with 64 agents, 1 of 7,909 steps
+  saw a truth that differed from the labels (docs/validation.md).
+  The labels are always exact; only the live truth input can lag.
 - Per-ms u8 trace counts: at most 255 opportunities per ms (3 Gbit/s), and
   traces up to about 65 s.
 - Each path has one bottleneck with a droptail queue, fixed delay lines and
   i.i.d. random loss: no AQM or ECN, no delay jitter, no bursty loss and no
   multiple bottlenecks.
-- At most 16 cross flows per episode, all sender to receiver. No reverse
+- At most 64 cross flows per episode (ports 6000 to 6063), all sender to
+  receiver; each costs two sockets and up to four guest threads. No reverse
   traffic shares the ACK path.
 - The record reader polls every 20 ms of virtual time. The step loop also
   drains the ring at each step.
@@ -490,6 +516,7 @@ missing).
 | D22 | The trainer lives here, on PyTorch, with architectures and algorithms chosen by name, and exports one ONNX graph per policy | A network redesign is a registry entry, not a new pipeline. The scaling travels inside the graph, so deployment needs no scaler files. expliCCit's layer layout and parameter names are kept, so its released checkpoints load unchanged (from a local copy; its code is not in this repository). Splits are by path, never by row, so held-out numbers are not training accuracy. Default scaling is robust (quantile clipping, then standardization). TD3+BC is the default net2 objective, and expliCCit's own is kept for comparison. |
 | D23 | The truth a policy can read is computed live in the guest from the link records, with the labels' definitions, and checked equal to them | Arms that feed true or patched LCFs to a running policy (oracle, repair) need ground truth during the episode, and a policy must see exactly what training called the truth. Rejected: an independent estimate in the kernel module (a second definition), and replaying an episode with the truth injected (the closed loop would change the trajectory). |
 | D24 | Large runs are GitHub Actions runs of an experiment file, and every result is published as a release | Twenty 4-core runners for 6 hours each, free for a public repository, with no queue to wait in and no cluster account. The fan-out is the campaign's own sharding, so the workflow holds no experiment logic. Artifacts expire after at most 90 days, so every result becomes a release, pinned to its commit. Rejected: the Slurm array script (generated and checked, but no cluster is available), and one workflow per experiment (the same plan, cells, collect steps each time). |
+| D25 | Each agent action names its socket by the writer's own file descriptor, and is kept in that socket's congestion-control state | Any number of learned flows share one bottleneck with no kernel change and no limit in the module: the guest runner owns every socket, so one file descriptor table covers them all, and the action lives as long as the socket. The global lock and the point where an action takes effect are unchanged, so single-agent episodes reproduce exactly (checked on the steps, actions and link records of three episodes). Rejected: slots keyed by `SO_MARK` (a fixed count and mark bookkeeping, and the observation module matches marks), and per-agent processes (separate file tables, for no gain while the runner drives every flow). |
 
 ## Extending
 
@@ -513,7 +540,9 @@ missing).
   multiplier). Then
   use
   `{"kind": "agent", "mode": "hold" | "reno", "policy": {"path": ..., "sha256": ...}}`
-  as the spec's `cc`.
+  as the spec's `cc`, or as a TCP cross flow's `cc` to run it as a
+  competitor; any number of flows can be learned, with the same policy or
+  different ones.
 - **A new kind of cross traffic.** Add a variant next to `TcpCross` and
   `UdpCross` in `spec.py` and `guest_plan.py`, and next to `CrossFlow` in
   `guest/src/plan.rs`, then start it in `guest/src/cross.rs`. It must sleep

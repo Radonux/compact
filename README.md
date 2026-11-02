@@ -66,7 +66,7 @@ claims, the plan and where the work stands.
 | Trainer | `train/` (optional `train` extra, PyTorch) | net1 supervised (point estimates, intervals, or a distribution per LCF from an ensemble); net2 by cloning, TD3+BC, IQL or expliCCit's objective, offline or online in closed loop, as a window multiplier or a window target relative to the believed bandwidth-delay product; one ONNX policy graph out. Imports expliCCit's released models from a local copy. |
 | Link model | `kernel/modules/sch_mmlink.c` | The bottleneck: Mahimahi's `mm-link` and `mm-delay` (and `mm-loss`), as a qdisc. |
 | Observation | `kernel/modules/expl_tcpobs.c` | Sender state at every ACK, for any congestion control. |
-| Agent controllers | `kernel/modules/tcp_agent.c` | `agent` (Sage-style) and `agent_reno` (Orca-style), driven by a policy. |
+| Agent controllers | `kernel/modules/tcp_agent.c` | `agent` (Sage-style) and `agent_reno` (Orca-style), each socket driven by its own policy, any number per bottleneck. |
 | Records | `kernel/modules/expl_rec.c`, `expliccit_rec.h` | One ring, one sequence of events: the only kernel-to-host data path. |
 | Decode, labels, metrics | `records.py`, `labels.py`, `mahimahi.py`, `episode.py` | Validate records, derive ground truth, compute Mahak's metrics. |
 | Mahak driver | `mahak.py` | Mahak's Gaussian-process active learning over its grid, querying UML episodes. |
@@ -228,7 +228,7 @@ twenty-second episodes per core-hour on Mahak's ICNP'25 space, with about
 | UML's virtual time against a real-time kernel | will not run: the native tier (Linux 7.0 on Ubuntu 26.04 hosts, as root, in real time) was dropped. No environment we have can easily boot a patched kernel, so it could never run BBRv3 or later kernel changes (`docs/architecture.md`, D19) |
 | Inference latency | not modelled: a policy's inference costs no virtual time; to be measured outside and added as a delay |
 | Labels recomputed from stored shards | not yet: `link_events` and `link_opp` hold what a new label needs, but nothing reads them back, so a new label means rerunning the episodes |
-| Several learned flows on one bottleneck | not yet: one agent per kernel |
+| Several learned flows on one bottleneck (any mix of policies, stock controllers and UDP; up to 64 cross flows) | done, tested |
 | The full true state of the path beyond the seven LCFs, as a policy input (arm A0) | not yet |
 | AQM or ECN, delay jitter, bursty loss, multiple bottlenecks | not supported |
 

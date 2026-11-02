@@ -12,9 +12,15 @@ entry was written. Entries without a test are one-off runs, each tied to
 its milestone; they describe the build of that milestone, not necessarily
 the current one.
 
-## Summary (M15, 2026-11-02)
+## Summary (M16, 2026-11-02)
 
-The suite has 105 tests: 77 unit tests and 28 that need a UML build.
+The suite has 117 tests: 80 unit tests and 37 that need a UML build or
+another checkout. On 2026-11-02, with a UML build at the multi-agent change
+and without Mahak, 109 passed and 8 skipped (6 need Mahak, 2 are the Sage
+comparisons).
+
+Before that change, the suite had 105 tests: 77 unit tests and 28 that
+need a UML build.
 The last full local run with a Mahak checkout had 93 of them: 91 passed,
 and the other 2, the comparisons of Sage's step with `sage.cc`
 (`test_step_matches_sage_cc`), skipped: UNRUN. On 2026-11-02 the 94 tests
@@ -33,7 +39,10 @@ The passing tests show that:
 - the same build, plan and seed give byte-identical record files;
 - the closed loop applies Sage's window rule exactly, and a policy acts on
   exactly the message and the truth that its step recorded;
-- the truth a policy can read equals the host's labels at every step.
+- the truth a policy can read equals the host's labels at every step;
+- any number of policies drive their own sockets on one bottleneck, next to
+  stock and UDP flows, reproducibly, and single-agent episodes are
+  unchanged by that support.
 - a distribution net1 states calibrated probabilities on data with known
   noise, and its exported policy, patched or not, runs in the guest as
   torch computes it;
@@ -517,6 +526,51 @@ were scored on the validation links every 10 iterations, next to the
 constant run again there. Kernel
 controllers are scored from the data campaign's episodes on the same
 links, under the same conditions but other episode seeds.
+
+## Several learned flows on one bottleneck (M16, 2026-11-02)
+
+Every TCP cross flow can now be an agent with its own policy. Each action
+names its socket by the writer's file descriptor and is kept per socket
+(`docs/architecture.md`, D25).
+
+`tests/test_multi_agent.py`, in UML:
+
+- `test_each_agent_drives_only_its_own_socket`: an observed agent holding
+  10 packets, a cross agent growing by 2^0.05 per step and a cross
+  `agent_reno` shrinking by 2^-0.02, next to Cubic and UDP. Each socket's
+  accepted windows equal Sage's accumulator for its own policy, its action
+  numbers run 1, 2, 3 and so on, and a held socket reads at each step the
+  window its own policy set at the previous one (more than 95% of steps,
+  the rest being the core stack's recovery). The observed socket stays at
+  10 packets while the cross agent grows past 100.
+- `test_a_multi_agent_episode_is_reproducible`: the same episode twice gives
+  the same actions, windows, step times and departures, bit for bit.
+- `test_many_agents_share_the_bottleneck`: ten copies of one policy holding
+  30 packets, on a 20 Mbit/s link with a 20 ms RTT. Their receive rates over
+  the last second have a Jain index above 0.95 and sum to 80% to 101% of
+  capacity, and each flow's live truth equals its own labels, bit for bit,
+  at every step.
+- `test_spec.py::test_cross_flows_take_their_own_agents`: each agent cross
+  flow gets its own agent section and noise stream, a shared policy file is
+  written once, and a stock cross flow keeps its plain form.
+
+Single-agent episodes are unchanged. Three episodes (`agent` with a
+constant policy; the fixed rule on net1 v3 with a Cubic flow and 1% loss;
+`agent_reno` with a BBRv1 flow) were run before and after the change on
+the same build. Every table (observations, labels, link events,
+opportunities, steps, actions) was equal, NaN for NaN; actions only gained
+their port. The 11,340 episode ids of `examples/campaign-net1-varied.json`
+are the same before and after.
+
+The truth with several step loops. Without the 1 ns settle step, 16 agents
+on one link gave 1 step of 6,330 whose queue truth was one packet above
+the labels: kernel work at that instant had not been drained yet. With it,
+10 agents (4,832 steps) and 16 agents (6,266 steps) matched exactly. With
+64 agents (the cap), 1 step of 7,909 still differed (by 2 packets, with
+the busy fraction and mean delay of that window), because at that load the
+qdisc emits some records after their instant. The labels are exact either way; only the
+live truth input can lag. A 6 s episode with 64 agents took 41 s of wall
+time in a 1 GiB guest.
 
 ## Not run (and why)
 

@@ -146,9 +146,10 @@ proportionally fair shares (Kelly, 1998); Copa and PCC Vivace build their
 objectives on the same idea. The reward is therefore now log throughput
 minus penalties on relative queueing delay and loss
 (`net2.reward: "log_utility"`). A single-flow reward cannot
-teach fairness, so training includes competing flows: stock controllers
-now, copies of the policy once the environment runs more than one agent
-per kernel.
+teach fairness, so training includes competing flows: stock controllers,
+and copies of the policy, which the environment now runs on one
+bottleneck (any number of agents per kernel); training against copies is
+UNRUN.
 
 Training is online, in closed loop: the tuning in `docs/training.md` ran
 3,216 closed-loop episodes of 30 s in about 35 minutes on 4 cores, so
@@ -367,7 +368,7 @@ widens the conditions for net1; the control results on it are pending.
 | Varied controllers for net1's data | yes: 17 kernel controllers and four delay-threshold policies on 1,230 sampled links (`examples/net1_varied.py`) |
 | An absolute window target, exploration held over several steps | yes (`net2.action: "bdp"`, `noise_hold_steps`); decisions are still made every step |
 | Log-throughput reward | yes (`net2.reward: "log_utility"`) |
-| Several learned flows on one bottleneck | not yet (one agent per kernel) |
+| Several learned flows on one bottleneck | yes: any TCP cross flow can be an agent with its own policy (up to 64 cross flows), each with its own steps (`cross_steps`) and labels; decisions take no virtual time |
 | Raw-measurement net2 (arm A4) | not yet |
 | net1's beliefs logged during closed-loop runs | not yet (they can be recomputed from the stored measurements) |
 | Labels recomputed from stored shards | not yet (no reader for stored link tables) |
