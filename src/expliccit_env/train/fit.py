@@ -365,13 +365,20 @@ def fit_net1(spec: Net1Spec, steps: Steps, seed: int) -> tuple[Net1, dict[str, A
     torch.manual_seed(seed)
     tr, va = steps.rows("train"), steps.rows("val")
     y = targets(steps, spec.lcfs)
-    scaler = Scaler.fit(spec.obs_cols, steps.obs[tr][:, spec.obs_cols], spec.scaling)
+    cols = list(spec.obs_cols)
+    scaler = Scaler.fit(spec.obs_cols, steps.obs[np.ix_(np.flatnonzero(tr), cols)], spec.scaling)
     lcf_kind = "minmax" if spec.scaling == "minmax" else "standard"
     lcf_scaler = Scaler.fit(tuple(range(len(spec.lcfs))), y[tr], lcf_kind)
 
     def tensors(rows: npt.NDArray[np.bool_]) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        # Scaled in batches into one tensor: memory for the inputs, not for
+        # copies of the whole message.
+        idx = np.flatnonzero(rows)
+        x = torch.empty(idx.size, len(cols))
         with torch.no_grad():
-            x = scaler(torch.from_numpy(steps.obs[rows]))
+            for i in range(0, idx.size, _EVAL_BATCH):
+                b = idx[i : i + _EVAL_BATCH]
+                x[i : i + b.size] = scaler(torch.from_numpy(steps.obs[b]))
             t = lcf_scaler(torch.from_numpy(y[rows]))
         mask = torch.from_numpy(np.isfinite(y[rows]).astype(np.float32))
         return x, t, mask
