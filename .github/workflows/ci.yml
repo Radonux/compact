@@ -8,9 +8,11 @@ on:
 
 permissions: {}
 
+# Every commit on main is checked to the end, each in its own group; on
+# other branches and pull requests a newer push cancels the older run.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   python:
