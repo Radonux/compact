@@ -451,9 +451,8 @@ Reading:
   training path and its buffer, and on a new combination of trace, delay
   and buffer it guesses with confidence it has not earned. The log score
   teaches the uncertainty the measurements leave, not uncertainty about
-  unfamiliar paths. The plan replaces free buffer by buffer size and
-  queue, varies the paths and controllers more, and adds an ensemble
-  (`docs/methodology.md`, section 3).
+  unfamiliar paths. "net1 on unseen links" below tests that reading
+  with links held out, many more links and an ensemble.
 - The widths show the identifiability limit: capacity is known to within
   1.4 Mbit/s (90%) when the link is kept busy and to within 14.9 Mbit/s
   when it is not.
@@ -470,6 +469,83 @@ confirms that its "mRTT" is the one-way delay, 0.899 on receive rate,
 on busy fraction and -59.0 on free buffer. Its
 ground-truth definitions are not in its code, so part of that gap may be
 definitional.
+
+### net1 on unseen links
+
+The comparison above split episodes by path, so a test path's link
+(capacity trace, delay, buffer) could appear in training under another
+condition. Here the split is by link (`"split_by": "link"`; seed 1, 15% of
+links each for validation and test), and three controllers never appear in
+training: BBRv3, Westwood and the threshold-0.3 policy. Their episodes on
+the test links test honesty under controllers net1 has not seen.
+
+Data: the two campaigns of `examples/net1_varied.py`, every 12th step:
+every controller on 180 links, and 3 controllers on each of 1,050 more
+(20,790 episodes of 20 s; 1.84M training rows).
+
+**Link breadth matters more than tuning.** On the 180-link campaign alone
+(132 training links), the validation loss rose from the first epoch on,
+and net1 was over-confident about the quantities fixed by the link: its
+90% statements held 71% of the time for capacity, 79% for one-way delay
+and 69% for free buffer. Dropout 0.3 did not help. With few links, the
+min RTT nearly names a link, and net1 can recall that link's capacity and
+buffer. Adding the 1,050 links raised those coverages to 0.89, 0.82 and
+0.86 with the same network settings (128 bins, dropout 0.1).
+
+What was searched on the validation links (width 512, learning rate 1e-3,
+up to 12 epochs, stopping after 3 without improvement): the seven LCFs or
+a minimal set (capacity, queue, buffer size, one-way delay, cross-traffic
+share), 64 or 128 bins, dropout 0.1 or 0.3; then dropout 0.05 and 0 for
+the winner, which sat at 0.1. The seven LCFs won: their mean CRPS skill
+was 0.81 against 0.74 for the minimal set, and the minimal set's
+validation loss rose from the first epoch, since buffer size and
+cross-traffic share are constant over a link or condition and reward
+recognizing it (its capacity R^2 was 0.84 against 0.86; buffer size 0.70,
+covered 0.81 at 90%). Among the seven-LCF runs, the validation loss chose
+64 bins and dropout 0.05. The final net1 is an ensemble of three such
+members (seeds 0, 1, 2), whose validation log loss is 1.601 against 1.687
+to 1.708 for its members alone.
+
+Test links, scored once:
+
+| LCF | R^2 | CRPS | 90% coverage | 50% coverage | 90% width, link busy / not busy | information (bits) |
+|---|---|---|---|---|---|---|
+| mean queueing delay (ms) | 0.989 | 1.00 | 0.971 | 0.669 | 14.3 / 2.0 | 3.9 |
+| queue (packets) | 0.946 | 7.0 | 0.939 | 0.599 | 69 / 13 | 2.7 |
+| capacity (Mbit/s) | 0.882 | 3.47 | 0.888 | 0.515 | 12.3 / 41.2 | 1.9 |
+| free buffer (packets) | 0.564 | 39 | 0.922 | 0.581 | 141 / 440 | 1.5 |
+| busy fraction | 0.972 | 0.020 | 0.922 | 0.547 | 0.037 / 0.29 | 1.6 |
+| one-way delay (ms) | 0.998 | 0.29 | 0.962 | 0.619 | 2.8 / 2.4 | 4.3 |
+| receive rate (Mbit/s) | 0.991 | 0.99 | 0.940 | 0.562 | 9.9 / 6.0 | 3.6 |
+
+Held-out controllers on the test links, 90% coverage:
+
+| controller | queueing delay | queue | capacity | free buffer | busy fraction | one-way delay | receive rate |
+|---|---|---|---|---|---|---|---|
+| BBRv3 | 0.799 | 0.862 | 0.840 | 0.891 | 0.867 | 0.960 | 0.925 |
+| Westwood | 0.928 | 0.918 | 0.840 | 0.897 | 0.897 | 0.961 | 0.930 |
+| threshold 0.3 | 0.969 | 0.927 | 0.912 | 0.920 | 0.919 | 0.961 | 0.941 |
+
+Reading:
+
+- On new links, net1 is accurate except about free buffer (R^2 0.56),
+  and honest or cautious: every LCF's 90% statements held at least 88.8%
+  of the time, on busy and idle links alike (0.88 to 0.99).
+- The ensemble trades over-confidence for under-confidence. Each member
+  alone covered capacity 0.82 to 0.86 and one-way delay 0.90 to 0.93 at
+  90%; the ensemble covers 0.89 and 0.96, and its 50% sets hold 52% to
+  67%. Its mean coverage error is therefore larger (0.052 against 0.029
+  to 0.034), but its CRPS skill is higher (0.833 against 0.818 to 0.824)
+  and its log score, which weighs both, is better. Erring wide is the safe
+  direction for net2. A calibration step fitted on validation links could
+  narrow it; that is UNRUN.
+- Unseen controllers cost honesty where their behaviour is new. BBRv3's
+  queueing delay is covered 80% of the time and its busy fraction has R^2
+  0.69 (0.97 on the training controllers); the threshold policy, which
+  holds a full queue, is covered as well as the training controllers.
+- Capacity remains the identifiability limit: known to within 12 Mbit/s
+  (90%) on a busy link and 41 Mbit/s on an idle one, across links of 4 to
+  200 Mbit/s.
 
 ### Tuned comparison
 

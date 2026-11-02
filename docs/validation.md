@@ -5,18 +5,20 @@ result, and what has not run. A check ran in this environment unless it
 says CI. Anything not run is marked UNRUN.
 
 Every check below that names a test is part of the test suite, and the
-suite passed in its last full run (M14), apart from the two Sage
+suite passed in its last full run (M15), apart from the two Sage
 comparisons. A test asserts its property, not the exact numbers quoted
 next to it; those numbers come from the run of the milestone where the
 entry was written. Entries without a test are one-off runs, each tied to
 its milestone; they describe the build of that milestone, not necessarily
 the current one.
 
-## Summary (M14, 2026-11-02)
+## Summary (M15, 2026-11-02)
 
-The suite has 85 tests: 60 unit tests and 25 that need a UML build. In the
-last full run (CI, at commit 0d89c7f), 83 passed. The other 2 are the comparisons of Sage's step
-with `sage.cc` (`test_step_matches_sage_cc`), which skipped: UNRUN.
+The suite has 93 tests: 65 unit tests and 28 that need a UML build. In the
+last full local run (with a UML build and a Mahak checkout, before the
+commit that adds this entry), 91 passed. The other 2 are the comparisons
+of Sage's step with `sage.cc` (`test_step_matches_sage_cc`), which
+skipped: UNRUN.
 
 The passing tests show that:
 
@@ -31,7 +33,9 @@ The passing tests show that:
 - the truth a policy can read equals the host's labels at every step.
 - a distribution net1 states calibrated probabilities on data with known
   noise, and its exported policy, patched or not, runs in the guest as
-  torch computes it.
+  torch computes it;
+- held exploration noise reproduces the per-step stream block by block,
+  and a policy that reads the sender's window sets an absolute window.
 
 A one-off check (M6, repeated at M7) showed that adding BBRv3 left seeded
 Cubic and BBRv1 episodes byte-identical.
@@ -429,6 +433,45 @@ a bin, which fails for quantities that take a few exact values (capacity
 levels, one-way delays), and is now tested on bins; and the log score was
 first used to compare different numbers of bins, which favours coarse
 bins, and CRPS now makes that choice.
+
+## net1 on unseen links, and net2's window target (M15)
+
+`tests/test_agent.py`: with `noise_hold_steps` 5, the applied actions
+equal the per-step run's draw at the start of each block of 5 (the
+generator advances every step either way); a policy computing
+a = log2(100) - log2(cwnd) from the `cwnd` input holds the window at
+exactly 100 packets from the third action on, and the step table's `cwnd`
+column is the window the policy read. `tests/test_train.py`: a link split
+keeps a link's episodes together across cross-traffic and loss
+conditions; a paired stride keeps each sampled step's successor; the log
+utility floors the share at 0.01; with the window target, net2's input
+pools the bins into distributions, the believed BDP equals the one from
+net1's means, the logged action is log2 of the next window over that BDP
+(none where the next step is missing), and the exported graph inverts
+it (the window it sets, over the believed BDP, is 2^u); an oracle net2 on
+a distribution net1 sees all mass on the true bin, and net1's own belief
+where the truth is unknown; online training runs one iteration with each
+action kind, drawing its rollouts under two conditions.
+`tests/test_spec.py`: `ccs_per_point` runs the same seeded subset of
+controllers under every condition of a point, and existing campaigns
+expand to the same episodes as before (checked by hashing the expansions
+of the icnp25 sample, the smoke campaign and the 180-link campaign before
+and after the change).
+
+Found and fixed while building it: the ONNX export left the caller's
+graph in training mode (a fresh wrapper module starts in training mode,
+and the exporter restores the wrapper's mode), so a torch reference
+computed after an export disagreed with the guest; the guest was right.
+The oracle net2 on a distribution net1 trained on K scaled values while
+its graph fed K x B bins.
+
+Runs at scale (harness outside the repository; `docs/training.md`,
+section 7, "net1 on unseen links"): two data campaigns, 11,340 and 9,450
+episodes, all ok; 12 tuning runs, the 3-member ensemble, and its single
+report on the test links. Memory: two trainings at once were killed by
+the container (12.9 GB for one) until the loader kept float32 arrays per
+row group and net1 scaled its inputs in batches; then two runs peaked at
+10.7 GB together. Killed runs were rerun and produced no result.
 
 ## Not run (and why)
 

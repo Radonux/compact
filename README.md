@@ -61,9 +61,9 @@ claims, the plan and where the work stands.
 | Specs and campaigns | `src/expliccit_env/spec.py`, `campaign.py` | What to run: path (trace, delay, buffer, random loss), congestion control, cross traffic, duration, seed. A campaign is a grid or sample of Mahak's space, or any list of paths, each run under a list of loss and cross-traffic conditions. |
 | Launcher | `uml.py` | Boots a UML guest in virtual time (`time-travel=inf-cpu`), seeded, under a wall-clock timeout. |
 | Guest runner | `guest/` (Rust) | Inside the kernel: namespaces, qdiscs, the bulk TCP pair, cross-traffic flows, Sage's step loop and the ONNX policy, the live truth, record collection. |
-| Policy contract | `policy.py`, `guest/src/step.rs` | `sage-v1`. In: Sage's 77-value state message (a port of `sage.cc`) plus expliCCit's min RTT column, 78 values; an optional recurrent state; optionally the path's true LCFs (`guest/src/truth.rs`), for oracle and patched policies. Out: a, the log2 of the window multiplier. The graph selects and scales its own inputs. |
+| Policy contract | `policy.py`, `guest/src/step.rs` | `sage-v1`. In: Sage's 77-value state message (a port of `sage.cc`) plus expliCCit's min RTT column, 78 values; an optional recurrent state; optionally the path's true LCFs (`guest/src/truth.rs`), for oracle and patched policies; optionally the sender's window. Out: a, the log2 of the window multiplier. The graph selects and scales its own inputs. |
 | Step data | `steps.py` | Each step with the labels at its instant, Sage's reward from the exact capacity, and the action taken: the rows net1 and net2 train on. |
-| Trainer | `train/` (optional `train` extra, PyTorch) | net1 supervised (point estimates or intervals); net2 by cloning, TD3+BC, IQL or expliCCit's objective, offline or online in closed loop; one ONNX policy graph out. Imports expliCCit's released models from a local copy. |
+| Trainer | `train/` (optional `train` extra, PyTorch) | net1 supervised (point estimates, intervals, or a distribution per LCF from an ensemble); net2 by cloning, TD3+BC, IQL or expliCCit's objective, offline or online in closed loop, as a window multiplier or a window target relative to the believed bandwidth-delay product; one ONNX policy graph out. Imports expliCCit's released models from a local copy. |
 | Link model | `kernel/modules/sch_mmlink.c` | The bottleneck: Mahimahi's `mm-link` and `mm-delay` (and `mm-loss`), as a qdisc. |
 | Observation | `kernel/modules/expl_tcpobs.c` | Sender state at every ACK, for any congestion control. |
 | Agent controllers | `kernel/modules/tcp_agent.c` | `agent` (Sage-style) and `agent_reno` (Orca-style), driven by a policy. |
@@ -180,7 +180,7 @@ Run every check at once:
     git clone https://github.com/Ppazhooh/mahak /tmp/mahak && git -C /tmp/mahak checkout 5077583
     EXPLICCIT_UML_DIR=build/uml EXPLICCIT_MAHAK_DIR=/tmp/mahak uv run pytest -q
 
-Of the 85 tests, 83 run and pass. The other 2 compare our port of Sage's
+Of the 93 tests, 91 run and pass. The other 2 compare our port of Sage's
 step with `sage.cc`'s own code; they need a Sage checkout and g++ and are
 UNRUN. CI runs the same checks on every push, split across jobs
 (`.github/workflows/ci.yml`).
@@ -230,13 +230,17 @@ expliCCit's case study, which traces under-utilization to a capacity
 belief 25% too low, did not reproduce: here the released policy's capacity
 belief is about right.
 
-**Results so far.** net1 now states a probability distribution for each
-LCF. Tuned and checked over three seeds, it is at least as accurate on the
-held-out test paths as a single-value or interval net1 on six of the seven
-LCFs, and its 90% statements hold 88.7% to 90.2% of the time on those six,
-whether or not the link is kept busy. Capacity is stated to within 1.4
-Mbit/s when the link is kept busy and 14.9 Mbit/s when it is not. Free
-buffer stays unpredictable, and net1 is over-confident about it.
+**Results so far.** net1 states a probability distribution for each
+LCF. On held-out paths it is at least as accurate as a single-value or
+interval net1 on six of the seven LCFs. On links it has never seen, with
+three controllers held out of training, an ensemble of three trained on
+1,230 sampled links states each LCF honestly or cautiously: its 90%
+statements hold 88.8% to 97.1% of the time, on busy and idle links alike,
+and 80% to 97% under the held-out controllers. Capacity is stated to
+within 12 Mbit/s (90%) on a busy link and 41 Mbit/s on an idle one; free
+buffer is the least predictable LCF (R^2 0.56). Breadth of links mattered
+more than any setting: on 132 training links, net1 recognized links and
+was over-confident about capacity (0.71 at 90%).
 
 Learned controllers are compared by utility, the trainer's reward:
 utilization minus penalties on queueing delay and drops

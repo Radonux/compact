@@ -111,13 +111,19 @@ truthfully.
   link is busy and where it is not, because average calibration can hide
   over-confidence exactly where identifiability fails.
 
-Status: the histogram head is implemented and tuned (`net1.bins`;
-`docs/training.md`, section 7, "net1 on held-out paths"). On the test
-paths, over three seeds, it is at least as accurate as a single-value or
-interval net1 on six of the seven LCFs, and its 90% statements hold 88.7%
-to 90.2% of the time on those six, on busy and idle links alike. Free
-buffer is unpredictable and over-confident (0.73 at 90%). The minimal set
-of quantities, the varied controllers and the ensemble are UNRUN.
+Status (`docs/training.md`, section 7): the histogram head beats a
+single-value and an interval net1 on held-out paths. On links held out
+entirely, with three controllers held out of training, the net1 that net2
+now builds on is an ensemble of three, trained on 1,230 sampled links and
+21 controllers. Its 90% statements hold 88.8% to 97.1% of the time per
+LCF, on busy and idle links alike, so it errs on the cautious side; on
+held-out controllers they hold 80% to 97%, BBRv3's queueing delay being
+the worst. Link breadth turned out to matter more than any setting: on
+132 training links, net1 recognized links and was over-confident about
+capacity (0.71 at 90%). The minimal set of quantities was tried and lost
+to the seven LCFs (mean CRPS skill 0.74 against 0.81): buffer size and
+cross-traffic share are constant over a link, so predicting them rewards
+recognizing the link.
 
 ### net2: what a good congestion controller optimizes
 
@@ -147,18 +153,23 @@ Training is online, in closed loop: the tuning in `docs/training.md` ran
 3,216 closed-loop episodes of 30 s in about 35 minutes on 4 cores, so
 offline training is not forced on us as it was on Sage, which emulated in
 real time. The results so far
-(`docs/training.md`) point to the design changes to make first:
+(`docs/training.md`) pointed to three design changes, now implemented
+(`docs/training.md`, section 2):
 
-- Act once per RTT on an absolute target. The current action
-  multiplies the window every 10 ms, so a bias of 0.001 per step moves the
-  window by 7% a second. A target such as a multiple of the estimated
-  bandwidth-delay product plus a queue target does not accumulate errors.
-- Explore over an RTT, not per step. Independent noise of 0.005 every
-  10 ms moves the window by about 1% over 100 ms, so it barely explores at
-  the window's own time scale.
+- Act on an absolute target. The old action multiplies the window every
+  10 ms, so a bias of 0.001 per step moves the window by 7% a second.
+  net2 now sets the next window as a multiple of the believed
+  bandwidth-delay product (net1's mean capacity times twice its mean
+  one-way delay), so errors do not accumulate, and net2 learns only the
+  multiple.
+- Explore over several steps. Independent noise of 0.005 every 10 ms
+  moves the window by about 1% over 100 ms, so it barely explores at the
+  window's own time scale. Each noise draw is now held for a set number
+  of steps, which holds the perturbed target long enough to show.
 - Use teacher logs only to start. Cloning and offline RL from them
   reached +0.55 to +0.64 utility on held-out paths, against +0.82 for
-  BBRv1.
+  BBRv1. Online training now draws its rollouts under every condition
+  of its campaign, cross traffic and random loss included.
 
 ### What net2 sees
 
@@ -278,9 +289,10 @@ they set the baseline it must beat.
 | The true LCFs as a policy input (arm A1, patches) | yes, equal to the labels at every step; the full state beyond the LCFs (A0) not yet |
 | Offline and online training, evaluation with bootstrap intervals over paths | yes |
 | net1 as a distribution over bins, trained with the log score | yes (`net1.bins`), tuned and checked over three seeds |
-| Varied controllers for net1's data | not yet (the kernel's controllers and BBRv3 are available) |
-| One decision per RTT, exploration held over an RTT | not yet |
-| Log-throughput reward; several learned flows on one bottleneck | not yet (one agent per kernel) |
+| Varied controllers for net1's data | yes: 17 kernel controllers and four delay-threshold policies on 1,230 sampled links (`examples/net1_varied.py`) |
+| An absolute window target, exploration held over several steps | yes (`net2.action: "bdp"`, `noise_hold_steps`); decisions are still made every step |
+| Log-throughput reward | yes (`net2.reward: "log_utility"`) |
+| Several learned flows on one bottleneck | not yet (one agent per kernel) |
 | Raw-measurement net2 (arm A4) | not yet |
 | net1's beliefs logged during closed-loop runs | not yet (they can be recomputed from the stored measurements) |
 | Labels recomputed from stored shards | not yet (no reader for stored link tables) |
