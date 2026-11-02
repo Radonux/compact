@@ -182,6 +182,8 @@ jobs:
 
   publish:
     needs: [plan, collect]
+    # A skipped uml job (no UML needed) would skip this job by default.
+    if: ${{ !cancelled() && needs.collect.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
@@ -195,6 +197,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           NAME: ${{ needs.plan.outputs.name }}
           TITLE: ${{ needs.plan.outputs.title }}
+          GH_DEBUG: api
         run: |
           gh release create "exp-$NAME-$GITHUB_RUN_NUMBER" dist/*.part-* \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --latest=false \
