@@ -1016,9 +1016,53 @@ link:
   and most of these families lie inside net1 v4's training conditions
   (only 3% loss and part of the deep, long paths are outside), so it
   shows that the broader data repairs net1 v3's failure, not that net1 v4
-  generalizes beyond its data. The test run waits for the learning-rate
-  search and is UNRUN. net1 v4's estimates under net1 v3's three narrow
-  conditions are UNRUN as an estimation check.
+  generalizes beyond its data. net1 v4's estimates under net1 v3's three
+  narrow conditions are UNRUN as an estimation check.
+
+**The fixed rule on net1 v4, test links, once.** Release
+[`exp-rule-net1v4-test-14`](https://github.com/Radonux/palaestra/releases/tag/exp-rule-net1v4-test-14)
+(`experiments/rule-net1v4-test.json`) ran each rule at its validation u
+(net1 v4 0.125, net1 v3 0.375 and its released 0.25, the true BDP 0.375)
+and the learned net2 on net1 v3, with all 17 kernel controllers, on the 27
+test links: the five validation families (campaign seed 13 for the
+training conditions, 31 for the rest) and, on the test links only, a BBRv3
+or a Westwood flow competing from 0 s for 60 s, the competitors neither
+net1 trained on. No episode failed. Log utility differences, paired by
+link, with 95% intervals over the 27 links:
+
+| Campaign | v4 minus BBRv3 | v4 minus v3 (u = 0.375) | v4 minus true BDP | best other kernel controller minus BBRv3 |
+|---|---|---|---|---|
+| training conditions, 20 s | +0.112 (+0.076 to +0.146) | +0.042 (+0.014 to +0.070) | -0.006 (-0.038 to +0.023) | BBRv1 -0.022 |
+| training conditions, 60 s | +0.118 (+0.070 to +0.163) | +0.115 (+0.064 to +0.170) | -0.001 (-0.034 to +0.028) | BBRv1 +0.022 |
+| new conditions, 20 s | +0.250 (+0.194 to +0.302) | +0.078 (+0.040 to +0.117) | -0.045 (-0.072 to -0.018) | BBRv1 +0.217 |
+| deep buffers and long RTTs, 20 s | +0.173 (+0.088 to +0.254) | +0.065 (+0.036 to +0.096) | +0.025 (-0.023 to +0.070) | BBRv1 +0.013 |
+| a Cubic flow from 0 s, 60 s | -0.039 (-0.191 to +0.103) | +0.428 (+0.277 to +0.580) | -0.092 (-0.176 to -0.020) | Scalable +0.395 |
+| mean of the five | +0.123 | +0.146 | -0.024 | BBRv1 +0.070 |
+| BBRv3 or Westwood from 0 s, 60 s (test only) | +0.094 (-0.016 to +0.202) | +0.099 (+0.029 to +0.169) | -0.050 (-0.097 to -0.007) | BIC +0.226 |
+
+- On the test links the rule on net1 v4 leads BBRv3 by 0.123 on average
+  over the five families (validation said 0.150, the best of six), and
+  BBRv1, the best kernel controller on average, by 0.053. It beats the
+  same rule on net1 v3 in every campaign, the interval excluding zero each
+  time: by 0.04 under net1 v3's own conditions at 20 s, and by 0.43 with a
+  Cubic flow from the start.
+- It stays within 0.05 of the same rule on the true BDP everywhere but
+  with a Cubic flow from the start (0.09): the cost of estimation left.
+- With competitors neither net1 saw, it keeps its lead over net1 v3
+  (+0.10) and stays within 0.05 of the true BDP, so its estimates carry to
+  them for control, not only in coverage.
+- Against loss-based flows present from the start, the fixed multiple
+  itself is the limit, not net1: with a Cubic flow from 0 s, Scalable and
+  BIC lead BBRv3 by 0.36 to 0.40 and the rule on the true BDP by only
+  0.05; with BBRv3 or Westwood from 0 s, BIC and Scalable lead by 0.23,
+  the rule on the true BDP by 0.14. A window of 1.09 BDP takes a small
+  share from a flow that fills the buffer. A net2 that recognizes
+  competition and takes more there is the next step; the fixed rule is
+  its starting point.
+- The learned net2 on net1 v3 ties the rule on net1 v4 under the
+  training conditions at 20 s (the rule minus it: -0.011, -0.045 to
+  +0.025) and trails it everywhere else, by 0.30 with the held-out
+  competitors.
 
 ### Tuned comparison
 
@@ -1248,13 +1292,14 @@ target from its beliefs. Three seeds of the learned net2, 60 iterations
 of online training and arm A2 (the means) have run; on validation none
 beat the constant. What it leaves open, in the order the plan needs it:
 
-- First, finish net1 v4 (section 7, "net1 on a broad set of
-  conditions"): search its learning rate, confirm the winner over seeds,
-  then run the fixed rule and the learned net2 on it, on the test links
-  and the conditions that broke net1 v3. Its data still lacks
-  competitors that arrive before the observed flow (the observed flow
-  cannot start late yet), and its bins end at the training ranges of
-  delay and buffer.
+- First, a net2 on net1 v4 that competes: the fixed rule on net1 v4 is
+  within 0.05 of the rule on the true BDP but loses to Scalable and BIC
+  against loss-based flows present from the start (section 7, "The fixed
+  rule on net1 v4, test links, once"). Train it online from the rule,
+  against stock competitors and against copies of itself, which the
+  environment now runs on one bottleneck. net1 v4's data still lacks
+  competitors that arrive before the observed flow, and its bins end at
+  the training ranges of delay and buffer.
 - The human reading (a few percentiles per LCF) as net2's input, against
   the means and the distributions.
 - Arm A1 for the learned net2 (trained and run on the truth), and A4

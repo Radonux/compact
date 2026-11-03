@@ -298,10 +298,16 @@ design above, on links neither network has seen, in log utility:
   not improve it (`exp-net1v4-lr-12`), and two more seeds confirm the
   choice and these coverages to within 0.02 (`exp-net1v4-seeds-13`). On
   net1 v3's validation links the
-  fixed rule on it leads BBRv3 by 0.150 on average over five campaigns,
-  within 0.02 of the rule on the true BDP, against -0.019 on net1 v3
-  (release `exp-rule-net1v4-val-11`); most of those conditions are
-  inside net1 v4's training data, and the test run is UNRUN.
+  fixed rule on it leads BBRv3 by 0.150 on average over five campaigns
+  (release `exp-rule-net1v4-val-11`). Once on the 27 test links
+  (`exp-rule-net1v4-test-14`), it leads BBRv3 by 0.123 and BBRv1, the best
+  kernel controller there, by 0.053 on average, beats the rule on net1 v3
+  in every family (by 0.04 to 0.43, every interval above zero), and stays
+  within 0.05 of the rule on the true BDP except with a Cubic flow from
+  the start (0.09). With competitors neither net1 trained on (BBRv3 or
+  Westwood from 0 s) it still leads net1 v3 by 0.10. There Scalable and
+  BIC beat every fixed rule, the true-BDP one included: the remaining gap
+  is the policy's, not net1's.
 - net2 setting the window to a fixed multiple of net1's believed BDP
   beats every kernel controller on average: by 0.079 (95% interval 0.032
   to 0.123) over BBRv3, the best of them. The average is over three
