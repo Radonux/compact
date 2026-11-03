@@ -931,9 +931,17 @@ reached 0.762 to 0.771, below every run at 1e-3 but one; their validation
 loss still turned after 2 to 5 epochs, at a worse minimum (1.69 to 1.76
 against 1.62). The loss turns because the network starts to fit the
 training links, as net1 v3's did on too few links, not because steps are
-too large. The winner stands; its confirmation over two more seeds
-(`experiments/net1v4-seeds.json`) is running, so the numbers below are
-the search's winner on one seed.
+too large. The winner stands, and release
+[`exp-net1v4-seeds-13`](https://github.com/Radonux/palaestra/releases/tag/exp-net1v4-seeds-13)
+confirms it over two more ensemble seeds (10 and 20, whose members' batch
+orders stay apart from seed 0's): dropout 0.05 scores 0.780, 0.777 and
+0.779, dropout 0 scores 0.777, 0.776 and 0.774. The gap, 0.003 on
+average, is as large as the spread over seeds but lies the same way on
+every seed. The numbers below are seed 0's, the best of the three by at
+most 0.003; over the three seeds, capacity's 90% coverage is 0.896 to
+0.910 on the test links, 0.868 to 0.874 under held-out controllers and
+0.894 to 0.909 with a BBRv3 or Westwood competitor, and free buffer's on
+deep buffers is 0.425 to 0.447.
 
 **Against net1 v3**, 90% coverage / R^2 on the same rows of the broad
 dataset's test links and held-out families. net1 v3 never saw these
