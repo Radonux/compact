@@ -1,0 +1,27 @@
+{
+  "title": "net1 v4 seeds: the two best width-512 settings, seeds 10 and 20",
+  "description": "Confirms the choice of exp-net1v4-grid-10 and exp-net1v4-lr-12 (dropout 0.05 at width 512 and learning rate 1e-3, CRPS skill 0.780 on validation rows; dropout 0 next at 0.777) over two more ensemble seeds each. Seeds 10 and 20 keep every member's batch order apart from seed 0's (member i trains with seed + i). Ranked on validation rows with every earlier run.",
+  "train": true,
+  "inputs": {
+    "d30": "release:exp-data-net1-broad-30s-5",
+    "d60": "release:exp-data-net1-broad-60s-8",
+    "ood": "release:exp-data-net1-broad-ood-9",
+    "models": "release:model-net1v3",
+    "grid": "release:exp-net1v4-grid-10",
+    "lr": "release:exp-net1v4-lr-12"
+  },
+  "matrix": {
+    "seed": [
+      10,
+      20
+    ],
+    "dropout": [
+      0.0,
+      0.05
+    ]
+  },
+  "run": "uv run python experiments/net1_train.py \"$OUT/net1-d$DROPOUT-w512-s$SEED\" --spec experiments/specs/net1v4.json --set dropout=$DROPOUT --set width=512 --seed $SEED --data \"$IN/d30/campaign-train30\" \"$IN/d60/campaign-train60\" --ood competitors=\"$IN/ood/campaign-ood-competitors\" --ood loss=\"$IN/ood/campaign-ood-loss\" --ood rtt=\"$IN/ood/campaign-ood-rtt\" --ood buffer=\"$IN/ood/campaign-ood-buffer\" --compare \"$IN/models/net1v3.pt\"",
+  "collect": "uv run python experiments/net1_grid.py \"$OUT\" \"$OUT\"/net1-* \"$IN\"/grid/net1-* \"$IN\"/lr/net1-*",
+  "collect_inputs": true,
+  "timeout_minutes": 360
+}

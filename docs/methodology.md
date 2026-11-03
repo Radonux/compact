@@ -294,8 +294,9 @@ design above, on links neither network has seen, in log utility:
   per LCF, capacity's 90% statements hold 90% of the time with a BBRv3 or
   Westwood competitor it never saw, and 87% and 88% under loss and
   delays beyond its training range. On buffers deeper than any in training its
-  free-buffer statements hold 42% of the time. Its learning rate and
-  seeds are still being searched. On net1 v3's validation links the
+  free-buffer statements hold 42% of the time. Lower learning rates did
+  not improve it (`exp-net1v4-lr-12`); its confirmation over seeds is
+  running. On net1 v3's validation links the
   fixed rule on it leads BBRv3 by 0.150 on average over five campaigns,
   within 0.02 of the rule on the true BDP, against -0.019 on net1 v3
   (release `exp-rule-net1v4-val-11`); most of those conditions are

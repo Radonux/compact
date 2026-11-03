@@ -26,14 +26,15 @@ def main(out: Path, runs: list[Path]) -> None:
         return mean([x[key] for x in v.values()])
 
     ranked = sorted(reps.items(), key=lambda kv: -val(kv[1], "skill"))
-    head = "| run | dropout | width | lr | epochs | CRPS skill | mean abs(coverage at 90% - 0.9) |"
-    lines = ["Grid, ranked on the validation rows:", "", head, "|---|---|---|---|---|---|---|"]
+    cols = ["run", "dropout", "width", "lr", "seed", "epochs", "CRPS skill"]
+    head = "| " + " | ".join(cols) + " | mean abs(coverage at 90% - 0.9) |"
+    lines = ["Grid, ranked on the validation rows:", "", head, "|" + "---|" * (len(cols) + 1)]
     for name, rep in ranked:
         s = rep["spec"]
         err = mean([abs(x["c90"] - 0.9) for x in rep["views"]["val"]["net1"].values()])
         lines.append(
-            f"| {name} | {s['dropout']} | {s['width']} | {s['lr']:g} | {rep['log']['epochs']}"
-            f" | {val(rep, 'skill'):.3f} | {err:.3f} |"
+            f"| {name} | {s['dropout']} | {s['width']} | {s['lr']:g} | {rep['seed']}"
+            f" | {rep['log']['epochs']} | {val(rep, 'skill'):.3f} | {err:.3f} |"
         )
     best, rep = ranked[0]
     lcfs = list(rep["spec"]["lcfs"])

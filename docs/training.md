@@ -923,10 +923,17 @@ Ranked by mean CRPS skill over the seven LCFs on the validation rows, the
 six runs span 0.768 to 0.780; dropout 0.05 at width 512 won, and width
 1024 took three times as long for no gain. Every run stopped after 4 to 7
 epochs: each member's validation loss was lowest after 1 to 4 epochs and
-rose after, fastest at dropout 0.1. That points at the learning rate, not
-the network's size, so learning rates 3e-4 and 1e-4 are being searched
-next (`experiments/net1v4-lr.json`), and the winner is not yet confirmed
-over seeds. The numbers below are the grid's winner, not a tuned net1 v4.
+rose after, fastest at dropout 0.1. A lower learning rate did not change
+that: release
+[`exp-net1v4-lr-12`](https://github.com/Radonux/palaestra/releases/tag/exp-net1v4-lr-12)
+tried 3e-4 and 1e-4 at dropout 0 and 0.05 (width 512), and its four runs
+reached 0.762 to 0.771, below every run at 1e-3 but one; their validation
+loss still turned after 2 to 5 epochs, at a worse minimum (1.69 to 1.76
+against 1.62). The loss turns because the network starts to fit the
+training links, as net1 v3's did on too few links, not because steps are
+too large. The winner stands; its confirmation over two more seeds
+(`experiments/net1v4-seeds.json`) is running, so the numbers below are
+the search's winner on one seed.
 
 **Against net1 v3**, 90% coverage / R^2 on the same rows of the broad
 dataset's test links and held-out families. net1 v3 never saw these
