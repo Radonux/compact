@@ -13,7 +13,9 @@ had: "new" (a Cubic flow from 0 s, a BBRv1 flow from 4 s, Cubic flows from
 2 s and 10 s, 0.1% and 3% random loss, 1% loss on the ACK path),
 "cubic-first" (a Cubic flow from 0 s alone), and "deep-long" (the training
 conditions on the same links with a 2.5 times longer one-way delay, at most
-80 ms, and a buffer of 4 to 16 BDP drawn with seed 31).
+80 ms, and a buffer of 4 to 16 BDP drawn with seed 31), and
+"held-competitors" (a BBRv3 flow from 0 s, a Westwood flow from 0 s: the
+competitors net1 v4's training data held out).
 
 Usage: python experiments/heldout.py OUT_DIR --split test --duration-ms 60000
            --seed 13 [--family training] --stock all --policy NAME=PATH ...
@@ -35,6 +37,9 @@ from expliccit_env.train import data
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "examples/campaign-net1-varied.json"
+HELD_COMPETITORS: list[dict[str, Any]] = [
+    {"cross": [{"kind": "tcp", "cc": cc, "start_ms": 0}]} for cc in ("bbr3", "westwood")
+]
 NEW: list[dict[str, Any]] = [
     {"cross": [{"kind": "tcp", "cc": "cubic", "start_ms": 0}]},
     {"cross": [{"kind": "tcp", "cc": "bbr", "start_ms": 4000}]},
@@ -65,7 +70,9 @@ def main() -> None:
     p.add_argument("--duration-ms", type=int, required=True)
     p.add_argument("--seed", type=int, required=True)
     p.add_argument(
-        "--family", default="training", choices=["training", "new", "cubic-first", "deep-long"]
+        "--family",
+        default="training",
+        choices=["training", "new", "cubic-first", "deep-long", "held-competitors"],
     )
     p.add_argument("--stock", default="all", help="comma-separated stock controllers, or all")
     p.add_argument("--policy", action="append", default=[], help="NAME=PATH of an ONNX policy")
@@ -96,6 +103,8 @@ def main() -> None:
     conditions = source["conditions"]
     if family == "deep-long":
         links = deep_long(links)
+    elif family == "held-competitors":
+        conditions = HELD_COMPETITORS
     elif family != "training":
         conditions = NEW if family == "new" else NEW[:1]
     campaign = {

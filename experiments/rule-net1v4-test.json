@@ -1,0 +1,15 @@
+{
+  "title": "The fixed rule on net1 v4, v3 and the true BDP: test links, once",
+  "description": "The single test run of the fixed rule (window = 2^u times net1's believed BDP), with each net1's u as chosen on the validation links (exp-rule-net1v4-val-11): net1 v4 (exp-net1v4-grid-10's chosen run) at u = 0.125, net1 v3 at 0.375 and at its earlier 0.25 (the released rule), the true BDP at 0.375, and the learned net2 on net1 v3 (learned-td3bc-n40-s0), against all 17 kernel controllers on the 27 test links: the training conditions at 20 s and 60 s (campaign seed 13), the new, deep-long and cubic-first families (seed 31), and, test only, BBRv3 or Westwood competing from 0 s for 60 s (seed 31), the competitors neither net1 trained on. Steps keep their labels and actions, not their observation vectors (experiments/slim_steps.py).",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "grid": "release:exp-net1v4-grid-10",
+    "models": "release:model-net1v3"
+  },
+  "prepare": "G=\"$IN/grid/$(cat \"$IN/grid/chosen.txt\")/net1.pt\"; M=\"$IN/models\"; uv run python experiments/rule_export.py \"$OUT/v4\" \"$G\" --u 0.125; uv run python experiments/rule_export.py \"$OUT/v3\" \"$M/net1v3.pt\" --u 0.375; uv run python experiments/rule_export.py \"$OUT/oracle\" \"$M/net1v3.pt\" --u 0.375 --oracle; P=(--policy \"v4-u0.125=$OUT/v4/rule-u0.125.onnx\" --policy \"v3-u0.375=$OUT/v3/rule-u0.375.onnx\" --policy \"v3-u0.25=$M/rule-u0.25.onnx\" --policy \"oracle-u0.375=$OUT/oracle/rule-u0.375-oracle.onnx\" --policy \"learned-s0=$M/learned-td3bc-n40-s0.onnx\"); experiments/rule_eval.sh \"$OUT\" test 13 31 all \"${P[@]}\"; uv run python experiments/heldout.py \"$OUT/spec-held-competitors-60\" --split test --family held-competitors --duration-ms 60000 --seed 31 --stock all \"${P[@]}\"; uv run expliccit campaign plan \"$OUT/spec-held-competitors-60/campaign.json\" \"$OUT/c-held-competitors-60\"",
+  "shards": 20,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps; done; uv run python experiments/slim_steps.py \"$OUT\"",
+  "collect": "uv run python experiments/rule_report.py \"$OUT\" --apart held-competitors-60",
+  "timeout_minutes": 240
+}
