@@ -11,6 +11,9 @@ SET is one of:
   ood-loss          random loss of 3% to 6% (training: at most 2%)
   ood-rtt           one-way delay of 61 to 90 ms (training: 5 to 60 ms)
   ood-buffer        buffers of 8 to 16 BDP (training: 0.25 to 8)
+  net2-train        net2's online rollouts on net1 v4: training links and
+                    conditions, on links of their own (its controllers are
+                    ignored there)
 
 The held-out sets use training conditions or training links except in the
 one family they change. Training links: base capacity 4 to 150 Mbit/s,
@@ -47,6 +50,7 @@ SETS = {  # name: (links, conditions, duration s, campaign seed)
     "ood-loss": (150, 16, 30, 4004),
     "ood-rtt": (150, 64, 30, 4005),
     "ood-buffer": (150, 64, 30, 4006),
+    "net2-train": (600, 64, 30, 4011),
 }
 
 

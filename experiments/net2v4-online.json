@@ -1,0 +1,24 @@
+{
+  "title": "net2 on net1 v4: online TD3+BC from the fixed rule, BC weight by exploration",
+  "description": "Online net2 on the frozen net1 v4 (exp-net1v4-grid-10's chosen run), starting from the fixed rule at u = 0.125 (its validation choice, exp-rule-net1v4-val-11): TD3+BC with 40-step returns, 40 iterations of 32 rollouts of 30 s over examples/net1_broad.py's net2-train set (600 links of their own, 64 broad conditions). The grid: BC weight alpha 1 or 2.5, by exploration 0.5 or 1.0 (log2 of the window) held 20 steps. Each run is evaluated noise-free every 10 iterations, and before it starts, on the validation links' new-conditions family; that is a diagnostic, and the choice between runs is made on all five validation families afterwards.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "grid": "release:exp-net1v4-grid-10",
+    "models": "release:model-net1v3"
+  },
+  "prepare": "G=\"$IN/grid/$(cat \"$IN/grid/chosen.txt\")/net1.pt\"; uv run python experiments/net2_online_setup.py \"$OUT/setup\" --net1 \"$G\" --models \"$IN/models\" --u 0.125",
+  "matrix": {
+    "alpha": [
+      1.0,
+      2.5
+    ],
+    "sigma": [
+      0.5,
+      1.0
+    ]
+  },
+  "run": "S=\"$OUT/spec-a$ALPHA-s$SIGMA.json\"; jq --argjson a \"$ALPHA\" --argjson s \"$SIGMA\" '.net2.alpha = $a | .noise_sigma = $s' \"$OUT/setup/online-base.json\" > \"$S\"; uv run expliccit train online \"$S\" \"$OUT/net2-a$ALPHA-s$SIGMA\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_online_report.py \"$OUT\" \"$OUT\"/net2-*",
+  "timeout_minutes": 360
+}

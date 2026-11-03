@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
+import time
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -33,7 +35,7 @@ from expliccit_env.spec import (
     PathSpec,
     paths_of,
 )
-from expliccit_env.train import data, fit
+from expliccit_env.train import data, fit, score
 from expliccit_env.train.export import to_onnx
 from expliccit_env.train.spec import Net2Spec
 from expliccit_env.uml import UmlBuild
@@ -69,6 +71,16 @@ class OnlineSpec(BaseModel):
     eval_every: PositiveInt = 5
     replay_capacity: PositiveInt = 2_000_000
     seed: Annotated[int, Field(ge=0)] = 0
+    # Delete each iteration's rollout and evaluation episodes, and its
+    # exploring policy, once they are read (in the replay buffer, or
+    # scored), so a long run fits a small disk; checkpoints stay.
+    keep_rollouts: bool = True
+    # Stop before an iteration that would end past this many seconds of wall
+    # time (judged from the slowest iteration so far), and save what exists.
+    time_budget_s: PositiveInt | None = None
+    # Evaluate the starting policy too (history entry with iteration -1),
+    # the baseline every checkpoint is compared with.
+    eval_initial: bool = False
 
     # ponytail: net2 acts on net1's beliefs only; online training of a net2
     # on the true LCFs (the oracle arm) needs truth-reading rollouts and
@@ -160,6 +172,47 @@ def _run(
     return campaign.summary(out)
 
 
+def _export(path: Path, net1: fit.Net1, actor: torch.nn.Module, net2: Net2Spec) -> Path:
+    """The policy graph of net1 and ``actor`` at ``path``; the actor is left
+    in training mode."""
+    graph = fit.policy_graph(
+        net1,
+        actor,
+        net2.action_max,
+        net2.action_decimals,
+        action=net2.action,
+        view=net2.view,
+        input_bins=net2.input_bins,
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(to_onnx(graph))
+    actor.train()
+    return path
+
+
+def _evaluate(
+    it_dir: Path,
+    policy: Path,
+    *,
+    arms: list[tuple[PathSpec, Condition]],
+    spec: OnlineSpec,
+    build: UmlBuild,
+    workers: int,
+    scratch: Path | None,
+) -> dict[str, Any]:
+    """The noise-free policy on every evaluation arm: the campaign summary
+    and the mean log utility per episode (score.py)."""
+    cc = _agent(policy, 0.0)
+    episodes = [_episode(arm, cc, spec.duration_ms, 7 + i) for i, arm in enumerate(arms)]
+    result = next(iter(_run(it_dir / "eval", episodes, build, workers, scratch).values()))
+    per_episode = score.episode_scores([it_dir / "eval"], Net2Spec(reward="log_utility"))
+    means = [float(np.mean(v)) for v in per_episode.values()]
+    result["log_utility"] = float(np.mean(means)) if means else float("nan")
+    if not spec.keep_rollouts:
+        shutil.rmtree(it_dir / "eval" / "shards", ignore_errors=True)
+    return result
+
+
 def run_online(
     spec: OnlineSpec, out: Path, build: UmlBuild, *, workers: int, scratch: Path | None = None
 ) -> dict[str, Any]:
@@ -184,26 +237,23 @@ def run_online(
     history: list[dict[str, Any]] = []
 
     def export(path: Path) -> Path:
-        graph = fit.policy_graph(
-            net1,
-            learner.actor,
-            spec.net2.action_max,
-            spec.net2.action_decimals,
-            action=spec.net2.action,
-            view=spec.net2.view,
-            input_bins=spec.net2.input_bins,
-        )
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(to_onnx(graph))
-        learner.actor.train()
-        return path
+        return _export(path, net1, learner.actor, spec.net2)
 
     def evaluate(it_dir: Path, policy: Path) -> dict[str, Any]:
-        cc = _agent(policy, 0.0)
-        episodes = [_episode(arm, cc, spec.duration_ms, 7 + i) for i, arm in enumerate(eval_arms)]
-        return next(iter(_run(it_dir / "eval", episodes, build, workers, scratch).values()))
+        return _evaluate(
+            it_dir, policy, arms=eval_arms, spec=spec, build=build, workers=workers, scratch=scratch
+        )
 
+    if eval_arms and spec.eval_initial:
+        init_dir = out / "initial"
+        history.append(
+            {"iteration": -1, "eval": evaluate(init_dir, export(init_dir / "policy.onnx"))}
+        )
+    start, slowest = time.monotonic(), 0.0
     for it in range(spec.iterations):
+        began = time.monotonic()
+        if spec.time_budget_s is not None and began - start + slowest > spec.time_budget_s:
+            break
         it_dir = out / f"iter{it:03d}"
         policy = export(it_dir / "policy.onnx")
         cc = _agent(policy, spec.noise_sigma, spec.noise_hold_steps)
@@ -215,6 +265,9 @@ def run_online(
         rollout = next(iter(_run(it_dir / "rollouts", episodes, build, workers, scratch).values()))
         new = _transitions_from([it_dir / "rollouts"], net1, spec.net2)
         replay.add(new)
+        if not spec.keep_rollouts:  # the exploring policy is only needed for its rollouts
+            shutil.rmtree(it_dir / "rollouts" / "shards", ignore_errors=True)
+            policy.unlink()
         logs: dict[str, list[float]] = {}
         for u in range(spec.updates_per_iteration):
             for name, v in learner.update(replay.sample(rng, spec.net2.batch_size), u).items():
@@ -229,6 +282,9 @@ def run_online(
         }
         if eval_arms and ((it + 1) % spec.eval_every == 0 or it + 1 == spec.iterations):
             entry["eval"] = evaluate(it_dir, export(it_dir / "policy-updated.onnx"))
+            torch.save(learner.actor.state_dict(), it_dir / "net2-updated.pt")
+        entry["wall_s"] = time.monotonic() - began
+        slowest = max(slowest, entry["wall_s"])
         history.append(entry)
         (out / "history.json").write_text(json.dumps(history, indent=2, default=float))
     torch.save(learner.actor.state_dict(), out / "net2.pt")
