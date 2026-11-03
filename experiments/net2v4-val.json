@@ -1,0 +1,15 @@
+{
+  "title": "net2 on net1 v4: choosing an online checkpoint on validation links",
+  "description": "Every checkpoint (iterations 10, 20, 30, 40) of the four online runs of exp-net2v4-online-15, next to the fixed rule on net1 v4 at u = 0.125 and BBRv3, on the 21 validation links under the five validation families (experiments/heldout.py, campaign seed 11), as the rule's u was chosen in exp-rule-net1v4-val-11. The checkpoint with the best mean difference from BBRv3 over the five campaigns is chosen (chosen.json); the test links are not touched.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "grid": "release:exp-net1v4-grid-10",
+    "online": "release:exp-net2v4-online-15"
+  },
+  "prepare": "G=\"$IN/grid/$(cat \"$IN/grid/chosen.txt\")/net1.pt\"; uv run python experiments/rule_export.py \"$OUT/v4\" \"$G\" --u 0.125; P=(--policy \"rule-v4=$OUT/v4/rule-u0.125.onnx\"); for f in \"$IN\"/online/net2-*/iter*/policy-updated.onnx; do run=$(basename \"$(dirname \"$(dirname \"$f\")\")\"); it=$(basename \"$(dirname \"$f\")\"); it=${it#iter}; P+=(--policy \"$run-i$((10#$it + 1))=$f\"); done; experiments/rule_eval.sh \"$OUT\" val 11 11 bbr3 \"${P[@]}\"",
+  "shards": 20,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps; done; uv run python experiments/slim_steps.py \"$OUT\"",
+  "collect": "uv run python experiments/rule_report.py \"$OUT\" --best net2",
+  "timeout_minutes": 240
+}

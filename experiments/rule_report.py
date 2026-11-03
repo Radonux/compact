@@ -1,7 +1,8 @@
 """Score the held-out campaigns of experiments/rule_eval.sh and, on
 validation links, choose u for each group of rules.
 
-Usage: python experiments/rule_report.py OUT [--select GROUP ...] [--apart CAMPAIGN ...]
+Usage: python experiments/rule_report.py OUT [--select GROUP ...] [--best PREFIX ...]
+           [--apart CAMPAIGN ...]
 
 Scores every OUT/c-* campaign against BBRv3 (log utility per 10 ms step,
 paired by link) and writes OUT/scores-CAMPAIGN.json and OUT/summary.md: one
@@ -10,7 +11,9 @@ of those differences, which weights each campaign equally; campaigns named
 in --apart are shown but left out of that mean. With --select,
 policies named GROUP-uU are candidates and each group's u is the one with
 the highest mean; a candidate with a failed episode is never chosen. The
-choice goes to OUT/chosen.json ({GROUP: U}).
+choice goes to OUT/chosen.json ({GROUP: U}). With --best, the policy named
+PREFIX-anything with the highest mean (never one with a failed episode) is
+chosen for each prefix ({PREFIX: NAME} in OUT/chosen.json).
 """
 
 import argparse
@@ -29,6 +32,7 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("out", type=Path)
     p.add_argument("--select", nargs="*", default=[])
+    p.add_argument("--best", nargs="*", default=[], help="prefixes of policies to pick one of")
     p.add_argument("--apart", nargs="*", default=[], help="campaigns shown but not averaged")
     a = p.parse_args()
     aliases: dict[str, str] = json.loads((a.out / "aliases.json").read_text())
@@ -75,7 +79,7 @@ def main() -> None:
         lines.append(
             f"| {n}{' *' if n in failed else ''} | " + " | ".join(cells) + f" | {overall(n):+.3f} |"
         )
-    chosen: dict[str, float] = {}
+    chosen: dict[str, float | str] = {}
     for g in a.select:
         cands = {
             float(m[1]): n for n in names if (m := re.fullmatch(rf"{re.escape(g)}-u(-?[0-9.]+)", n))
@@ -83,12 +87,19 @@ def main() -> None:
         ok = {u: n for u, n in cands.items() if n not in failed and overall(n) == overall(n)}
         if ok:
             chosen[g] = max(ok, key=lambda u: overall(ok[u]))
-    if a.select:
+    for g in a.best:
+        ok = [n for n in names if n.startswith(f"{g}-") and n not in failed]
+        ok = [n for n in ok if overall(n) == overall(n)]
+        if ok:
+            chosen[g] = max(ok, key=overall)
+    if a.select or a.best:
         (a.out / "chosen.json").write_text(json.dumps(chosen, indent=1) + "\n")
         lines += [
             "",
-            "Chosen u, by the mean over campaigns: "
-            + ", ".join(f"{g} {u:g}" for g, u in chosen.items())
+            "Chosen, by the mean over campaigns: "
+            + ", ".join(
+                f"{g} {u:g}" if isinstance(u, float) else f"{g} {u}" for g, u in chosen.items()
+            )
             + ".",
         ]
     for c, r in results.items():
