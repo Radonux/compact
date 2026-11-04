@@ -1,0 +1,14 @@
+{
+  "title": "The share rule on net1 v5, validation links: k over three campaign seeds, copies included",
+  "description": "The share rule (u = u0 + k busy max(0, 1 - receive/capacity), experiments/share_rule_export.py) on net1 v5 (exp-net1v4-recheck-79) with u0 = 0.25, the fixed rule's u chosen on net1 v5 (exp-rule-net1v5-val-82: 0.1471 against 0.1467 for u = 0.125 over seeds 11, 21 and 31, the one ahead on the mean over seeds). k in 0.5, 1, 1.5 and 2, next to the fixed rule on net1 v5 (u = 0.25) and BBRv3, on the 21 validation links: the five families (experiments/rule_eval.sh) and 2 and 4 copies of each controller starting together for 30 s (experiments/copies.py, with Cubic and BBRv1 as well), for campaign seeds 11, 21 and 31 (s11/, s21/, s31/). k is the share rule with the highest mean over the six campaigns, copies included since copies of itself are the case the rule risks, on every seed, or, where seeds disagree, the one ahead on the mean over seeds. Validation links only.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v5": "release:exp-net1v4-recheck-79"
+  },
+  "prepare": "N=\"$IN/v5/net1-d0.05-w512-s0/net1.pt\"; uv run python experiments/rule_export.py \"$OUT/v5\" \"$N\" --u 0.25; uv run python experiments/share_rule_export.py \"$OUT/share\" \"$N\" --u0 0.25 --k 0.5 1 1.5 2; P=(--policy \"rule-v5=$OUT/v5/rule-u0.25.onnx\"); for k in 0.5 1 1.5 2; do P+=(--policy \"share-k$k=$OUT/share/share-u0.25-k$k.onnx\"); done; for s in 11 21 31; do D=\"$OUT/s$s\"; mkdir -p \"$D\"; experiments/rule_eval.sh \"$D\" val $s $s bbr3 \"${P[@]}\"; uv run python experiments/copies.py \"$D/copies\" --split val --duration-ms 30000 --seed $s --n 2 4 --stock bbr3,cubic,bbr \"${P[@]}\"; mv \"$D/copies/c-copies-30s\" \"$D/\"; jq -s add \"$D/aliases.json\" \"$D/copies/aliases.json\" > \"$D/a.json\"; mv \"$D/a.json\" \"$D/aliases.json\"; done",
+  "shards": 40,
+  "run": "for c in \"$OUT\"/s*/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps; done; for s in 11 21 31; do uv run python experiments/slim_steps.py \"$OUT/s$s\"; done",
+  "collect": "for s in 11 21 31; do uv run python experiments/rule_report.py \"$OUT/s$s\" --best share && uv run python experiments/copies_report.py \"$OUT/s$s\"; done; { for s in 11 21 31; do echo \"# Campaign seed $s\"; cat \"$OUT/s$s/summary.md\"; echo; done; } > \"$OUT/summary.md\"",
+  "timeout_minutes": 300
+}
