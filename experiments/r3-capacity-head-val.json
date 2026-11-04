@@ -1,0 +1,16 @@
+{
+  "title": "R3: the fixed rule on net1 v3 with a retrained capacity head, on validation links",
+  "description": "Whether retraining only net1 v3's capacity head repairs the fixed rule (window = 2^u times net1's believed BDP) where net1 v3 lost to BBRv3, a Cubic flow from the start. The rule on the two repaired net1s of r3-capacity-head.json (v3head: capacity's bins refitted; v3headkeep: net1 v3's bins kept), next to the rule on net1 v3 (model-net1v3), on net1 v4 (the run chosen in exp-net1v4-grid-10) and on the true BDP (oracle, in net1 v3's bins), each for u in {0, 0.125, 0.25, 0.375, 0.5}, with BBRv3 as the reference, on the validation links: the training conditions at 20 s and 60 s, and the new, deep-long and cubic-first families (experiments/heldout.py), campaign seed 11, as exp-rule-net1v4-val-69. Each group's u is the one with the best mean difference from BBRv3 over the five campaigns (chosen.json); the test links are not touched. The r3 input names the release of r3-capacity-head.json: replace NN with its run number before running this.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "r3": "release:exp-r3-capacity-head-83",
+    "grid": "release:exp-net1v4-grid-10",
+    "models": "release:model-net1v3"
+  },
+  "prepare": "U=\"0 0.125 0.25 0.375 0.5\"; N=(\"v3head=$IN/r3/refit/net1.pt\" \"v3headkeep=$IN/r3/keep/net1.pt\" \"v3=$IN/models/net1v3.pt\" \"v4=$IN/grid/$(cat \"$IN/grid/chosen.txt\")/net1.pt\"); for x in \"${N[@]}\"; do uv run python experiments/rule_export.py \"$OUT/${x%%=*}\" \"${x#*=}\" --u $U; done; uv run python experiments/rule_export.py \"$OUT/oracle\" \"$IN/models/net1v3.pt\" --u $U --oracle; P=(); for u in $U; do for x in \"${N[@]}\"; do P+=(--policy \"${x%%=*}-u$u=$OUT/${x%%=*}/rule-u$u.onnx\"); done; P+=(--policy \"oracle-u$u=$OUT/oracle/rule-u$u-oracle.onnx\"); done; experiments/rule_eval.sh \"$OUT\" val 11 11 bbr3 \"${P[@]}\"",
+  "shards": 20,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps; done",
+  "collect": "uv run python experiments/rule_report.py \"$OUT\" --select v3head v3headkeep v3 v4 oracle",
+  "timeout_minutes": 180
+}
