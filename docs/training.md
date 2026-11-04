@@ -1335,6 +1335,53 @@ differ in seeds; the fixed rule's rows show that spread.)
   confidence. This oracle is an upper bound on what knowing the other
   flows is worth, and it leaves that inference to net2.
 
+### Sage's released policy
+
+expliCCit reports that its split costs about 5% utilization and 9%
+queueing delay against Sage. Sage's released policy, rewritten in torch
+and exported under `sage-v1`
+([`exp-sage-model-24`](https://github.com/Radonux/palaestra/releases/tag/exp-sage-model-24)),
+ran on the validation links
+([`exp-sage-val-25`](https://github.com/Radonux/palaestra/releases/tag/exp-sage-val-25))
+and then once on the 27 test links
+([`exp-sage-test-26`](https://github.com/Radonux/palaestra/releases/tag/exp-sage-test-26);
+`experiments/sage-val.json`, `sage-test.json`). Next to it ran the fixed
+rule (u = 0.125) and the share rule (k = 1) on net1 v4, both fixed before
+either run, and all 17 kernel controllers. No episode failed. On the test
+links with the flow alone, as expliCCit compares (means over links;
+ratios to Sage with 95% bootstrap intervals over links):
+
+| Campaign, condition | Sage: utilization, delay (ms) | Fixed rule | Fixed rule against Sage: utilization, delay |
+|---|---|---|---|
+| training-20, clean | 0.911, 9.9 | 0.948, 5.4 | +4.1% (-1.9% to +11.5%), -46.0% (-56.8% to -31.0%) |
+| training-60, clean | 0.927, 10.6 | 0.958, 5.7 | +3.4% (-1.1% to +8.4%), -46.1% (-61.1% to -26.1%) |
+| deep-long-20, clean | 0.811, 72.4 | 0.936, 32.9 | +15.3% (+6.3% to +28.1%), -54.5% (-72.7% to -31.4%) |
+| new-20, ACK loss 1% | 0.911, 9.8 | 0.946, 5.2 | +3.9% (-1.6% to +10.3%), -47.0% (-58.5% to -31.1%) |
+| training-20, loss 1% | 0.489, 3.0 | 0.944, 5.3 | +93.1% (+59.8% to +145.4%), +75.2% (+43.3% to +141.6%) |
+| new-20, loss 3% | 0.324, 2.4 | 0.928, 4.9 | +185.9% (+119.7% to +304.0%), +102.3% (+66.7% to +166.0%) |
+
+- The comparison goes the other way from expliCCit's: on clean test links
+  the fixed rule has 3 to 15% more utilization than Sage and 46 to 55%
+  less queueing delay, as on validation (+8 to +13% and -38 to -44%). The
+  share rule sits between them on delay (-23 to -32%) with 5 to 17% more
+  utilization.
+- Under random loss Sage's utilization falls to 0.32 to 0.62, while both
+  rules keep 0.93 to 0.96; their higher delay there comes with that
+  throughput.
+- Log utility against BBRv3, over the five families: Sage -0.487, the
+  share rule +0.202, the fixed rule +0.123, BBRv1 +0.068, Cubic -0.679.
+  Against held-out competitors for 60 s: Sage -0.872, the fixed rule
+  +0.101.
+- Copies of Sage share less evenly than copies of the fixed rule (Jain's
+  index 0.942 and 0.911 with 2 and 4 copies, against 0.969 and 0.934) and
+  queue less (16 and 21 ms, against 19 and 29 ms).
+- What this does not show: that Sage loses to a split in Sage's own
+  setting. Here it runs as a drop-in controller outside its home: on Linux
+  7.0, not Sage's patched 4.19 kernel; with pacing refreshed at each step,
+  not each ACK; with no inference delay; on links it was not trained on
+  (its training paths are not known here). And the split here is net1 v4
+  with a fixed rule, not expliCCit's net1 and net2.
+
 ### Tuned comparison
 
 The search below ran on the expliCCit-like data. Its harness (grid

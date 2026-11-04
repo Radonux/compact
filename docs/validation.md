@@ -52,10 +52,9 @@ The passing tests show that:
 A one-off check (M6, repeated at M7) showed that adding BBRv3 left seeded
 Cubic and BBRv1 episodes byte-identical.
 
-The main gaps, detailed under "Not run": the comparison with Sage is UNRUN,
-and Sage's released checkpoint has not been run in UML; reference runs of
-real Mahimahi against the link model have not started; and UML's virtual
-time is never checked against a real-time kernel.
+The main gaps, detailed under "Not run": reference runs of real Mahimahi
+against the link model have not started, and UML's virtual time is never
+checked against a real-time kernel.
 
 ## Environment and how to rerun
 
@@ -322,8 +321,15 @@ and exports it. On 2026-11-04 the torch version matched TensorFlow within
 2.9e-6 at every step, and the exported graph, run with its state fed back,
 gave TensorFlow's rounded action at 1,380 of the 1,382 steps (the other two
 differ by 0.001, where the two float32 computations straddle a rounding
-boundary). It runs as a `hold` agent in UML. Only local smoke runs exist so
-far.
+boundary). It runs as a `hold` agent in UML. The exported policy is
+published as
+[`exp-sage-model-24`](https://github.com/Radonux/palaestra/releases/tag/exp-sage-model-24),
+built in CI from Sage's checkout at `eedd281` with the same check, and its
+validation and test runs (`exp-sage-val-25`, `exp-sage-test-26`) are in
+`docs/training.md`, section 7. Where they depart from Sage's own setting:
+Linux 7.0 in place of Sage's patched 4.19 kernel, pacing refreshed at each
+step in place of each ACK, no inference delay, and links Sage was not
+trained on.
 
 ### Per-flow, per-second bytes and delays (`flow_seconds`)
 
@@ -608,10 +614,9 @@ time in a 1 GiB guest.
 
 | Item | Status |
 |---|---|
-| expliCCit's comparison with Sage (expliCCit reports that the split costs about 5% utilization and 9% queueing delay against Sage) | UNRUN. Sage's released policy is now rewritten in torch and exported under `sage-v1` with its GRU state in `state` (`experiments/sage_weights.py`, `experiments/sage_export.py`, below), and runs in UML locally; no comparison has been published, since its weights would have to go into a public release. |
 | The link model against real Mahimahi | Not started (UNRUN): it needs a root host (any kernel). Mahimahi is vendored. Mahak's `highbdp.patch` does not apply to current Mahimahi (`configure.ac` and `linkshell.cc` changed) and must be ported first. |
 | UML against a real-time kernel | Will not run: the native tier was dropped (`docs/architecture.md`, D19), so virtual time is never compared with real time. |
-| Mahak's failure regions (BBR, Orca, Sage) | Partial: the one-seed probes above (before M6, and M6). Maps over seeds are UNRUN. Orca's trained model is not in this repository. Sage's: see the comparison with Sage above. |
+| Mahak's failure regions (BBR, Orca, Sage) | Partial: the one-seed probes above (before M6, and M6). Maps over seeds are UNRUN. Orca's trained model is not in this repository. Sage's released policy ran on the validation and test links (`docs/training.md`, section 7), not over Mahak's regions. |
 | DeepCC pacing (Sage's patched kernel, `PACE_WITH_SRTT`, coefficient 100) | UNVERIFIED: the kernel patch's source is not public. The guest paces at cwnd * mss / srtt. |
 | Inference latency in the closed loop | UNRUN (parked): inference is free in virtual time. The plan is to measure it outside the environment and add a fixed decision delay. |
 | Automatic reruns of the M6 check that stock congestion control is unchanged | Not in CI: it needs two kernel builds. Rerun it by hand when the kernel patch set changes. |
