@@ -42,6 +42,20 @@ const RCV_ADDR: [u8; 4] = [10, 0, 1, 1];
 const PATH_RCV_ADDR: [u8; 4] = [10, 0, 1, 2];
 const LINK_ID_DOWN: u32 = 1;
 const LINK_ID_UP: u32 = 2;
+/// TCP settings of the setups this environment reproduces, Sage's
+/// set_sysctl.sh and ccBench's system_setup.sh (the same lines in both),
+/// written in the sender's and receiver's namespaces before the plan's own
+/// sysctls (which may override them). Linux sizes the buffer limits from
+/// memory, which in a 1 GiB guest caps the send buffer at 4 MB and so the
+/// data a flow can keep in flight. tcp_low_latency, also in both scripts,
+/// has had no effect since Linux 4.14.
+const TCP_SYSCTLS: [(&str, &str); 4] = [
+    ("/proc/sys/net/ipv4/tcp_rmem", "4096 87380 67108864"),
+    ("/proc/sys/net/ipv4/tcp_wmem", "4096 65536 67108864"),
+    ("/proc/sys/net/ipv4/tcp_no_metrics_save", "1"),
+    ("/proc/sys/net/ipv4/tcp_autocorking", "0"),
+];
+
 /// Raised so the veth receive backlog never drops a burst released by the
 /// qdisc; softnet drops are still checked and reported.
 const NETDEV_MAX_BACKLOG: &str = "100000";
@@ -173,6 +187,21 @@ fn extra_delays(plan: &Plan) -> Result<Vec<(u16, u64)>> {
     Ok(out)
 }
 
+/// tcp_mem (low, pressure, high, in 4 KiB pages) at 1/4, 3/8 and 1/2 of
+/// the guest's memory.
+fn tcp_mem() -> Result<String> {
+    let info = std::fs::read_to_string("/proc/meminfo").ctx("reading /proc/meminfo")?;
+    let Some(kib) = info
+        .lines()
+        .find_map(|l| l.strip_prefix("MemTotal:"))
+        .and_then(|v| v.trim().trim_end_matches("kB").trim().parse::<u64>().ok())
+    else {
+        return fail("no MemTotal in /proc/meminfo");
+    };
+    let pages = kib / 4;
+    Ok(format!("{} {} {}", pages / 4, pages * 3 / 8, pages / 2))
+}
+
 fn ifindex(name: &str) -> Result<u32> {
     let c = CString::new(name).ctx("interface name")?;
     // SAFETY: c is NUL-terminated and alive for the call.
@@ -240,6 +269,16 @@ fn episode(plan_dir: &Path, out: &Path, module_dir: &Path) -> Result<Report> {
     let plan = Plan::load(plan_dir)?;
     load_modules(module_dir, &plan)?;
     std::fs::write("/proc/sys/net/core/netdev_max_backlog", NETDEV_MAX_BACKLOG).ctx("netdev_max_backlog")?;
+    // All sockets of the guest, sender and receiver alike, share one TCP
+    // memory budget, which Linux sets to 4.7 / 6.25 / 9.4% of memory (44,
+    // 59 and 88 MB here); a host many times larger never reaches it. Here
+    // it starts to press at 3/8 of the guest's memory.
+    std::fs::write("/proc/sys/net/ipv4/tcp_mem", tcp_mem()?).ctx("tcp_mem")?;
+    // The same scripts' socket buffer maxima, global and read-only in other
+    // namespaces; they bound SO_SNDBUF and SO_RCVBUF, which nothing here sets.
+    for name in ["rmem_max", "wmem_max"] {
+        std::fs::write(format!("/proc/sys/net/core/{name}"), "134217728").ctx(name)?;
+    }
     // The step loops' true state comes from the downlink's records, so it
     // exists whenever steps run, for the observed flow or a cross agent.
     let n_cross_agents = plan.cross.iter().filter(|c| c.agent().is_some()).count();
@@ -271,8 +310,11 @@ fn episode(plan_dir: &Path, out: &Path, module_dir: &Path) -> Result<Report> {
     nl.veth("r0", rcv.fd(), "p1", path.fd())?;
     drop(nl);
 
-    let sysctls: Vec<(String, String)> =
-        plan.sysctls.iter().map(|s| (s.path.clone(), s.value.clone())).collect();
+    let sysctls: Vec<(String, String)> = TCP_SYSCTLS
+        .iter()
+        .map(|&(p, v)| (p.to_owned(), v.to_owned()))
+        .chain(plan.sysctls.iter().map(|s| (s.path.clone(), s.value.clone())))
+        .collect();
     configure(&snd, &home, &[("s0", SND_ADDR)], Some(PATH_SND_ADDR), &sysctls)?;
     configure(&rcv, &home, &[("r0", RCV_ADDR)], Some(PATH_RCV_ADDR), &sysctls)?;
     let forward = [("/proc/sys/net/ipv4/ip_forward".to_owned(), "1".to_owned())];

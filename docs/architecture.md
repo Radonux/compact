@@ -65,6 +65,17 @@ already set, as in Mahak's `server-mahimahi`. The receiver connects at trace
 time 0, and the sender writes until the episode ends. Both set
 `TCP_NODELAY`.
 
+The sender's and receiver's TCP settings are those of Sage's
+`set_sysctl.sh` and ccBench's `system_setup.sh` (the same lines in both):
+`tcp_rmem` 4096 87380 64 MB, `tcp_wmem` 4096 65536 64 MB,
+`tcp_no_metrics_save` 1 (no flow inherits another's cached ssthresh) and
+`tcp_autocorking` 0, with `rmem_max` and `wmem_max` at 128 MB. Linux sizes
+these limits from memory, and in the 1 GiB guest its own would cap the
+send buffer at 4 MB, too little to fill a deep buffer on a long, fast path
+(`docs/validation.md`). For the same reason the guest's global TCP memory
+(`tcp_mem`) presses at 3/8 of its memory, not Linux's 6.25%. A spec's
+`sysctls` are written after these, so an episode can still set its own.
+
 Cross traffic shares the same path in the same direction, sender to
 receiver. Cross flow `i` sends from port `6000 + i`. The observed flow sends
 from port 5001, and that port is how link records and labels tell the flows

@@ -389,6 +389,14 @@ All results use the expliCCit-like data of section 1 unless stated
 otherwise. Utility uses delay weight 0.5 and loss weight 4 (section 2).
 Intervals in brackets are 95% bootstraps.
 
+Every result here ran before 2026-11-04, when the guest still had Linux's
+own TCP buffer limits for 1 GiB (a 4 MB send buffer). That changes nothing
+on the train, validation and test links of the training, new and
+cubic-first families, but on about half of the deep-long family's links
+(and some 7% of net1 v4's broad data) buffer-filling controllers queued less
+than they would with the original setups' 64 MB (`docs/validation.md`, "TCP
+buffer limits").
+
 ### net1 on held-out paths
 
 Three kinds of net1, each tuned on the validation paths, then trained with

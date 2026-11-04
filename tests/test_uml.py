@@ -127,6 +127,32 @@ def test_same_seed_is_bit_identical(build: UmlBuild, tmp_path: Path) -> None:
     assert any(read("a", f) != read("c", f) for f in files)
 
 
+def test_a_flow_can_fill_a_deep_buffer_on_a_long_fat_path(build: UmlBuild, tmp_path: Path) -> None:
+    # 96 Mbit/s with a 160 ms RTT (a BDP of 1,280 packets) and a buffer of 4
+    # BDP: a full queue is 640 ms. Reno's slow start fills it, which needs
+    # 9.6 MB in flight. Under Linux's own limits in a 1 GiB guest (a 4 MB
+    # send buffer) the queue never passed about 210 ms; the guest now sets
+    # Sage's and ccBench's 64 MB limits (guest/src/main.rs, TCP_SYSCTLS).
+    spec = EpisodeSpec.parse(
+        json.dumps(
+            {
+                "path": {
+                    "trace": {"kind": "periodic_levels", "levels_mbps": [96], "level_ms": 1000},
+                    "delay": {"mahak_compat_mrtt_ms": 80},
+                    "buffer": {"packets": 5120},
+                },
+                "cc": {"kind": "stock", "name": "reno"},
+                "duration_ms": 4000,
+                "seed": 3,
+            }
+        )
+    )
+    out = run_episode(spec, build, tmp_path / "work", timeout_s=600)
+    assert isinstance(out, EpisodeOk), out.row
+    delay_max = out.tables["flow_seconds"]["delay_max_ms"].to_numpy()
+    assert np.nanmax(delay_max) > 600, delay_max
+
+
 def test_loss_and_cross_traffic(build: UmlBuild, tmp_path: Path) -> None:
     # 20 Mbit/s; 5 Mbit/s of CBR UDP over [2 s, 8 s); Cubic cross traffic from
     # 6 s; 1% random loss on data, 0.5% on ACKs.

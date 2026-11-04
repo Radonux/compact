@@ -355,6 +355,44 @@ single-flow and start-time-fairness campaigns, which have no extra RTT, gave
 the same `flow_seconds` tables, cell for cell, before and after the qdisc
 was added.
 
+### TCP buffer limits (2026-11-04)
+
+Linux sizes TCP's buffer limits from memory, so in the 1 GiB guest the send
+buffer could hold at most 4 MB: a flow could not keep more than that in
+flight. On a real host with Sage's or ccBench's setup scripts the limit is
+64 MB. Of ccBench's 150 constant single-flow cells, 31 need more than 4 MB
+in flight to fill their buffer (7 more than 16 MB, none more than 64 MB).
+The guest now sets those scripts' limits (`docs/architecture.md`). Rerun
+with it, the same seeded specs of ccBench cells from `exp-ccbench-27`
+(which ran before the change) gave:
+
+| Cell | Needs in flight | Before: utilization, mean and max queueing delay | After |
+|---|---|---|---|
+| Cubic, 12 Mbit/s, 10 ms RTT, 1 BDP | 0.02 MB | 1.002, 7 and 10 ms | the same |
+| Cubic, 48 Mbit/s, 160 ms RTT, 8 BDP (full: 1,280 ms) | 8.6 MB | 0.965, 347 and 509 ms | 0.964, 711 and 1,280 ms |
+| Cubic, 96 Mbit/s, 160 ms RTT, 4 BDP (full: 640 ms) | 9.6 MB | 0.959, 133 and 206 ms | 0.959, 445 and 640 ms |
+| Reno, 96 Mbit/s, 160 ms RTT, 4 BDP | 9.6 MB | 0.959, 142 and 213 ms | 0.959, 276 and 640 ms |
+| Cubic, 192 Mbit/s, 160 ms RTT, 16 BDP (full: 2,560 ms) | 65 MB | 0.722, 34 and 76 ms | 0.953, 727 and 1,407 ms |
+| BBRv1, the same cell | 65 MB | 0.673, 2 and 38 ms | 0.930, 22 and 315 ms |
+
+At 192 Mbit/s and 160 ms the BDP alone (3.8 MB) is about the old limit, so
+the old runs lost throughput too. `test_a_flow_can_fill_a_deep_buffer_on_a_long_fat_path`
+runs the Reno cell for 4 s: its queue reaches the full 640 ms, and with the
+old 4 MB send limit set back through the spec's `sysctls` it stops at 213
+ms.
+
+What ran before the change: none of the train, validation or test links of
+the training, new and cubic-first families needs more than 3.5 MB, but the
+deep-long family (2.5 times the delay, 4 to 16 BDP) does on 8 of its 21
+validation links and 10 of its 27 test links, so earlier deep-long rows
+(for example in `exp-rule-net1v4-test-14`, `exp-share-test-18` and
+`exp-sage-test-26`) understate how far buffer-filling controllers queue
+there. In net1 v4's broad training data about 7% of links need more than
+4 MB (1.7% have a BDP above 3 MB), and 22% and 34% of the out-of-distribution
+probes ood-rtt and ood-buffer. Labels were exact either way; what changes
+is which states occurred. `exp-ccbench-27` and `exp-ccperf-29` ran before
+the change.
+
 ## Teacher modules, and seeded runs across guest versions (M10)
 
 Building BIC, CDG, HighSpeed, H-TCP, Hybla, Illinois, LP, NV, Scalable,
