@@ -393,6 +393,30 @@ probes ood-rtt and ood-buffer. Labels were exact either way; what changes
 is which states occurred. `exp-ccbench-27` and `exp-ccperf-29` ran before
 the change.
 
+Reruns (scheduled 2026-11-04; each result replaces the old one where it is
+cited):
+
+- The deep-long family of the six runs that report it and are still used:
+  the fixed rule's validation and test (`exp-rule-net1v4-val-11`,
+  `exp-rule-net1v4-test-14`), the share rule's (`exp-share-copies-val-17`,
+  `exp-share-test-18`) and Sage's (`exp-sage-val-25`, `exp-sage-test-26`),
+  each as `experiments/*-deeplong.json`: the same controllers, links and
+  seeds, so the same episodes, and only the guest differs. The validation
+  reruns show whether u = 0.125 and k = 1 would still be chosen.
+- net1 v4's data (`exp-data-net1-broad-30s-5`, `-60s-8`, `-ood-9`), with the
+  same specs, to count the episodes that changed and to measure net1 v4's
+  honesty on what the new guest produces; net1 is retrained only if that
+  honesty slips.
+- ccBench and ccperf (`experiments/ccbench.json`, `ccperf.json`).
+
+Not rerun: the learned net2 on net1 v4 (`exp-net2v4-online-15`,
+`exp-net2v4-val-16`), the mode rule (`exp-mode-val-19`) and the share rule
+on the truth (`exp-share-oracle-val-20`) are negative results that later
+work replaced, decided on conditions the limit did not reach (copies and
+competitors on the plain links); the fairshare runs, copies and held-out
+competitors used only links that need at most 3.1 MB in flight in all; and
+`exp-test-links-duration-2` and net1 v3 are superseded.
+
 ## Teacher modules, and seeded runs across guest versions (M10)
 
 Building BIC, CDG, HighSpeed, H-TCP, Hybla, Illinois, LP, NV, Scalable,
