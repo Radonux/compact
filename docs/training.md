@@ -1064,6 +1064,59 @@ link, with 95% intervals over the 27 links:
   +0.025) and trails it everywhere else, by 0.30 with the held-out
   competitors.
 
+### net2 on net1 v4
+
+The fixed rule leaves share on the table against loss-based flows present
+from the start. Two ways of taking it were tried, each starting from the
+rule and acting on net1 v4's output alone.
+
+**Online TD3+BC does not beat the rule.** Release
+[`exp-net2v4-online-15`](https://github.com/Radonux/palaestra/releases/tag/exp-net2v4-online-15)
+(`experiments/net2v4-online.json`) trained net2 online from the rule at
+u = 0.125 with TD3+BC and 40-step returns, as for net1 v3: 40 iterations
+of 32 rollouts of 30 s over 600 broad training links of their own
+(`examples/net1_broad.py`, set `net2-train`), searching the BC weight
+(alpha 1 or 2.5) by the exploration width (0.5 or 1.0, log2 of the
+window, held 20 steps). In every run the critic's loss grew (to 1.5 to
+3.2, against values of -2.8 to -5) while the spread of the actions grew
+(standard deviation 0.09 to 0.21, and 0.15 to 0.43), and the noise-free
+policy fell below its start on the in-training evaluation. On the five
+validation families (release
+[`exp-net2v4-val-16`](https://github.com/Radonux/palaestra/releases/tag/exp-net2v4-val-16)),
+all 16 checkpoints (iterations 10 to 40) trail the rule: the best, alpha
+1 and exploration 0.5 at iteration 40, by 0.036 on average, and by 0.17
+on deep, long paths. With broad conditions the effect of u on log utility
+is too small against the episodes' noise for the critic to resolve, so
+the actor follows a noisy gradient.
+
+**A share rule beats it on validation.** The rule's window raised when
+net1 believes the link is busy and this flow gets a small share of it:
+
+    u = 0.125 + k * busy * max(0, 1 - receive_rate / capacity)
+
+from net1's means (`experiments/share_rule_export.py`; k = 0 is the
+fixed rule, bit for bit). It has one number to choose, so it is chosen
+in closed loop on validation like u. In the same release, paired with the
+fixed rule by link (95% intervals over the 21 validation links):
+
+| Family | share k = 0.5 | share k = 1 | share k = 2 |
+|---|---|---|---|
+| training conditions, 20 s | -0.003 | -0.019 (-0.052 to +0.016) | -0.077 (-0.148 to -0.007) |
+| training conditions, 60 s | +0.020 | +0.026 (-0.006 to +0.057) | +0.010 |
+| new conditions, 20 s | +0.011 | +0.025 (-0.015 to +0.063) | +0.004 |
+| deep buffers and long RTTs, 20 s | -0.012 | -0.015 (-0.052 to +0.024) | -0.096 (-0.181 to -0.018) |
+| a Cubic flow from 0 s, 60 s | +0.120 | +0.238 (+0.141 to +0.337) | +0.361 |
+| mean of the five, minus BBRv3 | +0.169 | +0.193 | +0.182 |
+
+The fixed rule's mean is +0.142, and k = 3 falls to +0.117. At k = 1 the
+share rule matches the fixed rule wherever no competitor is there from
+the start and gains 0.24 when one is; larger k gains more there and loses
+elsewhere. Its risk is copies of itself: each believes it gets a small
+share, so all may push. That is measured before any test
+(`experiments/share-copies-val.json`, with `experiments/copies.py`:
+2 and 4 copies of each controller on the validation links). UNRUN on the
+test links.
+
 ### Tuned comparison
 
 The search below ran on the expliCCit-like data. Its harness (grid
@@ -1292,14 +1345,13 @@ target from its beliefs. Three seeds of the learned net2, 60 iterations
 of online training and arm A2 (the means) have run; on validation none
 beat the constant. What it leaves open, in the order the plan needs it:
 
-- First, a net2 on net1 v4 that competes: the fixed rule on net1 v4 is
-  within 0.05 of the rule on the true BDP but loses to Scalable and BIC
-  against loss-based flows present from the start (section 7, "The fixed
-  rule on net1 v4, test links, once"). Train it online from the rule,
-  against stock competitors and against copies of itself, which the
-  environment now runs on one bottleneck. net1 v4's data still lacks
-  competitors that arrive before the observed flow, and its bins end at
-  the training ranges of delay and buffer.
+- First, finish the share rule (section 7, "net2 on net1 v4"): copies of
+  it on one link, then one test against the fixed rule and the kernel
+  controllers. Online TD3+BC from the rule lost on validation; a learned
+  net2 needs a lower-variance signal than broad 30 s rollouts give its
+  critic (paired rollouts, or a policy search over a few parameters).
+  net1 v4's data still lacks competitors that arrive before the observed
+  flow, and its bins end at the training ranges of delay and buffer.
 - The human reading (a few percentiles per LCF) as net2's input, against
   the means and the distributions.
 - Arm A1 for the learned net2 (trained and run on the truth), and A4
