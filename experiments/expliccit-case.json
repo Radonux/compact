@@ -1,0 +1,11 @@
+{
+  "title": "expliCCit's case study: its released policy on the 24 and 48 Mbit/s link, with beliefs patched",
+  "description": "expliCCit's released net1 and actor (third_party/expliccit-models), as deployed, on expliCCit's case-study link (24 and 48 Mbit/s alternating every 7 s, one-way delay 40 ms, 1000-packet buffer, 45 s), alone and with the LCFs expliCCit's draft names taken from the guest's live truth instead of its net1: capacity, busy fraction, queue, mean queueing delay, free buffer, those four together, and all seven. The link has no randomness, so next to it each policy runs on the eight links around it (one-way delay 39 to 41 ms by buffer 980 to 1020 packets), and the report gives the spread over the nine (experiments/expliccit_case.py). Also the deployed policy's median beliefs against the truth along its run.",
+  "uml": true,
+  "train": true,
+  "prepare": "uv run python experiments/expliccit_case.py plan \"$OUT\"",
+  "shards": 4,
+  "run": "uv run expliccit campaign run \"$OUT/c-case\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps,flow_seconds",
+  "collect": "uv run python experiments/expliccit_case.py report \"$OUT\"",
+  "timeout_minutes": 120
+}
