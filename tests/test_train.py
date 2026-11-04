@@ -552,6 +552,39 @@ def test_bdp_action_logs_and_sets_the_window_relative_to_the_believed_bdp() -> N
         Net2Spec(view="means", input_bins=4)
 
 
+class _Counter(torch.nn.Module):
+    """A net2 with memory: u is a tenth of its state, which counts steps."""
+
+    state_dim = 1
+
+    def forward(self, x: torch.Tensor, state: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        return 0.1 * state + 0 * x[:, :1], state + 1
+
+
+def test_a_net2_with_memory_takes_its_state_and_returns_the_next() -> None:
+    from onnx.reference import ReferenceEvaluator  # noqa: PLC0415
+
+    _, net1 = _bdp_net1()
+    graph = fit.policy_graph(net1, _Counter(), 1.0, action="bdp", view="means")
+    model = onnx.load_from_string(to_onnx(graph))
+    assert [i.name for i in model.graph.input] == ["obs", "state", "cwnd"]
+    assert [o.name for o in model.graph.output] == ["a", "next_state"]
+    obs, cwnd = np.zeros((1, OBS_DIM), np.float32), np.full((1, 1), 100.0, np.float32)
+    run, state = ReferenceEvaluator(model), np.zeros((1, 1), np.float32)
+    for k in range(3):
+        a, nxt = run.run(None, {"obs": obs, "state": state, "cwnd": cwnd})
+        with torch.no_grad():
+            want, _ = graph.step(
+                torch.from_numpy(obs), torch.from_numpy(state), cwnd=torch.from_numpy(cwnd)
+            )
+        assert np.allclose(a, want.numpy(), atol=1e-5) and nxt.tolist() == [[k + 1.0]]
+        state = nxt
+    # Called without a state, it starts from zeros, as the guest does.
+    with torch.no_grad():
+        first = graph.step(torch.from_numpy(obs), torch.zeros(1, 1), cwnd=torch.from_numpy(cwnd))
+        assert torch.equal(graph(torch.from_numpy(obs), cwnd=torch.from_numpy(cwnd)), first[0])
+
+
 def test_an_oracle_net2_on_a_distribution_net1_sees_the_true_bins() -> None:
     steps, net1 = _bdp_net1()
     states, _ = fit.net2_view(net1, Net2Spec(inputs="true_lcfs"), steps)

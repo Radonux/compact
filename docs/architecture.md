@@ -268,7 +268,10 @@ it. An ONNX graph takes these inputs, matched by name:
 
 The graph returns a, the log2 of the window multiplier. It selects its
 columns and scales them itself, so a new network design needs no guest
-change. A message column can be infinite or NaN where `sage.cc` divides by
+change. The trainer's exporter (`train/export.py`) gives a graph the
+`state` input and the next state as its second output when net2 declares
+`state_dim` and maps (input, state) to (u, next state); a net2 without
+memory exports as before, byte for byte. A message column can be infinite or NaN where `sage.cc` divides by
 zero (for example column 68 before any sending rate is known), and the graph
 must keep such a column from reaching its output.
 

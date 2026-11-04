@@ -364,12 +364,30 @@ class PolicyGraph(nn.Module):
     def uses_truth(self) -> bool:
         return bool(self.from_truth.any())
 
+    @property
+    def state_dim(self) -> int:
+        """S of the contract's "state" input, 0 for a net2 without memory. A
+        net2 with memory declares ``state_dim`` and maps (x, state) to
+        (u, next state)."""
+        return int(getattr(self.net2, "state_dim", 0))
+
     def forward(
         self,
         obs: torch.Tensor,
         truth: torch.Tensor | None = None,
         cwnd: torch.Tensor | None = None,
     ) -> torch.Tensor:
+        state = torch.zeros(obs.shape[0], self.state_dim) if self.state_dim else None
+        return self.step(obs, state, truth, cwnd)[0]
+
+    def step(
+        self,
+        obs: torch.Tensor,
+        state: torch.Tensor | None,
+        truth: torch.Tensor | None = None,
+        cwnd: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
+        """a and, for a net2 with memory, its next state."""
         z = self.net1(self.scaler(obs))
         if truth is not None and self.uses_truth and self.truth_bounds.numel():
             y = truth.index_select(1, self.truth_cols) * self.truth_units
@@ -386,7 +404,12 @@ class PolicyGraph(nn.Module):
             c = torch.relu(self.lcf_scaler.inverse(z))
             c = torch.cat([torch.round(c[:, :6]), c[:, 6:]], dim=1)
             z = (c - self.lcf_scaler.center) / self.lcf_scaler.spread
-        a = self.net2(z if self.view is None else self.view(z)) * self.action_max
+        x = z if self.view is None else self.view(z)
+        if state is None:
+            a = self.net2(x) * self.action_max
+        else:
+            u, state = self.net2(x, state)
+            a = u * self.action_max
         if self.target is not None:
             if cwnd is None:
                 raise ValueError("a window target needs the cwnd input")
@@ -394,6 +417,6 @@ class PolicyGraph(nn.Module):
             a = torch.clamp(a, -_A_LIMIT, _A_LIMIT)
         decimals = 3 if self.as_deployed else self.action_decimals
         if decimals is None:
-            return a
+            return a, state
         scale = float(10**decimals)
-        return torch.round(a * scale) / scale
+        return torch.round(a * scale) / scale, state

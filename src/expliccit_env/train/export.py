@@ -25,14 +25,18 @@ class _ByName(torch.nn.Module):
         super().__init__()
         self.graph, self.names = graph, names
 
-    def forward(self, *xs: torch.Tensor) -> torch.Tensor:
-        return self.graph(**dict(zip(self.names, xs, strict=True)))
+    def forward(self, *xs: torch.Tensor) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor | None]:
+        kw = dict(zip(self.names, xs, strict=True))
+        if "state" not in kw:
+            return self.graph(**kw)
+        return self.graph.step(kw.pop("obs"), kw.pop("state"), **kw)
 
 
 def to_onnx(graph: PolicyGraph) -> bytes:
-    """Input "obs" [1, 78], plus "truth" [1, 7] when the graph takes LCFs from
-    the truth and "cwnd" [1, 1] when it sets a window target; one output
-    "a" [1, 1].
+    """Input "obs" [1, 78], plus "state" [1, S] when net2 has memory, "truth"
+    [1, 7] when the graph takes LCFs from the truth and "cwnd" [1, 1] when it
+    sets a window target; output "a" [1, 1], then the next state [1, S]
+    when net2 has memory.
 
     ponytail: TorchScript exporter (deprecated in torch 2.x, simple ops that
     tract runs); move to dynamo=True with onnxscript when it is removed."""
@@ -42,6 +46,8 @@ def to_onnx(graph: PolicyGraph) -> bytes:
         path = Path(tmp) / "policy.onnx"
         args = (torch.zeros(1, OBS_DIM),)
         names = ["obs"]
+        if graph.state_dim:
+            args, names = (*args, torch.zeros(1, graph.state_dim)), [*names, "state"]
         if graph.uses_truth:
             args, names = (*args, torch.zeros(1, TRUTH_DIM)), [*names, "truth"]
         if graph.target is not None:
@@ -54,7 +60,7 @@ def to_onnx(graph: PolicyGraph) -> bytes:
             args,
             path,
             input_names=names,
-            output_names=["a"],
+            output_names=["a", "next_state"] if graph.state_dim else ["a"],
             opset_version=17,
             dynamo=False,
         )

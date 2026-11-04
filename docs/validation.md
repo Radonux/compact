@@ -390,7 +390,10 @@ policy. Online fine-tuning changes the cloned policy by +0.03 (95% interval
 `tests/test_train.py`: a patched graph replaces exactly the named LCFs (the
 centre and both bounds for an interval net1), an oracle graph ignores the
 message, and NaN in the truth is zeroed as in net2's training targets.
-`tests/test_records_abi.py` pins the step record's new layout.
+A net2 with memory exports with the `state` input and the next state as
+its second output, and the ONNX graph, run three steps with its state fed
+back, matches torch at each. `tests/test_records_abi.py` pins the step
+record's new layout.
 
 Patched runs of expliCCit's released policy on its case-study link are
 reported in `docs/methodology.md`, section 6.
