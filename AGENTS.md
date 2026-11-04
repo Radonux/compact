@@ -57,6 +57,9 @@ and the current status. Work in two phases:
 
 ## Engineering rules
 
+- Licensing is never a blocker: this is an academic project, and it can be
+  dual-licensed to fit upstream code or data. Decide what to reuse on
+  technical grounds only, and record where it came from and its license.
 - Follow the `pl-theorist` and `ponytail` skills: parse untrusted input once at
   its boundary, make invalid states unrepresentable, keep the core pure, and
   write the least code that works. Mark deliberate limits with
