@@ -1,0 +1,21 @@
+{
+  "title": "R3: net1 v3 with only its capacity head retrained on the broad data",
+  "description": "The cheap repair of net1 v3's capacity fault (with a Cubic flow from the start, its median capacity belief was 0.59 of the truth and its 90% statements held 26% of the time): experiments/r3_capacity_head.py retrains only the capacity head of each of net1 v3's three members (model-net1v3), every other weight frozen, on the broad data net1 v4 was trained on, regenerated under the frozen settings (exp-data-net1-broad-30s-73, -60s-74), with net1's own log score and early stopping on the validation rows (at most 30 epochs), each member's head fitted at learning rates 0.001 (net1's), 0.0003 and 0.0001 and the best kept on its validation log score. Two cells: capacity's bins refitted to the broad data (refit, the head started afresh) or net1 v3's bins kept (keep, from its head). Each reports its training time and CPU threads, and net1 v3, the repaired net1 and net1 v4 (exp-net1v4-grid-10) on the validation and test rows, the held-out controllers, the validation rows with a competing TCP flow and the four held-out families (exp-data-net1-broad-ood-75), checking that the other six LCFs are bit-identical to net1 v3's; and exports the fixed rule on it (u in 0, 0.125, 0.25, 0.375, 0.5). The rule is evaluated in closed loop by r3-capacity-head-val.json.",
+  "train": true,
+  "inputs": {
+    "d30": "release:exp-data-net1-broad-30s-73",
+    "d60": "release:exp-data-net1-broad-60s-74",
+    "ood": "release:exp-data-net1-broad-ood-75",
+    "models": "release:model-net1v3",
+    "grid": "release:exp-net1v4-grid-10"
+  },
+  "matrix": {
+    "bins": [
+      "refit",
+      "keep"
+    ]
+  },
+  "run": "uv run python experiments/r3_capacity_head.py \"$OUT/$BINS\" --bins \"$BINS\" --net1 \"$IN/models/net1v3.pt\" --compare \"$IN/grid/$(cat \"$IN/grid/chosen.txt\")/net1.pt\" --data \"$IN/d30/campaign-train30\" \"$IN/d60/campaign-train60\" --ood competitors=\"$IN/ood/campaign-ood-competitors\" --ood loss=\"$IN/ood/campaign-ood-loss\" --ood rtt=\"$IN/ood/campaign-ood-rtt\" --ood buffer=\"$IN/ood/campaign-ood-buffer\" --lr 0.001 0.0003 0.0001 --epochs 30 --u 0 0.125 0.25 0.375 0.5",
+  "collect": "for b in refit keep; do echo \"# Capacity bins: $b\"; echo; cat \"$OUT/$b/summary.md\"; echo; done > \"$OUT/summary.md\"",
+  "timeout_minutes": 300
+}
