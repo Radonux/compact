@@ -1,0 +1,14 @@
+{
+  "title": "The share rule told the number of flows, on the truth, with larger gains, on validation links",
+  "description": "Told the number of flows N on the bottleneck, the share rule on the true LCFs (experiments/share_rule_export.py --flows N --oracle) wins with copies of itself and alone, but loses with a Cubic flow from the start, less as k grows from 0 to 3 (exp-fairshare-val-21). This continues the grid: k in {3, 4, 6, 8} (u is capped at 3, a window of 8 BDP), next to the fixed rule on net1 v4 (u = 0.125) and BBRv3, in the same links and conditions (experiments/fairshare.py, seed 11; episode seeds are drawn in order, so they differ from that run, the 21 validation links): alone for 20 s, with a Cubic flow from 0 s for 60 s, and 2 or 4 copies for 30 s. N is given per episode, so this is an upper bound for a net1 that would estimate it.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "grid": "release:exp-net1v4-grid-10"
+  },
+  "prepare": "G=\"$IN/grid/$(cat \"$IN/grid/chosen.txt\")/net1.pt\"; uv run python experiments/rule_export.py \"$OUT/v4\" \"$G\" --u 0.125; for n in 1 2 4; do uv run python experiments/share_rule_export.py \"$OUT/fair\" \"$G\" --u0 0.125 --k 3 4 6 8 --flows $n --oracle; done; P=(--policy \"rule-v4=$OUT/v4/rule-u0.125.onnx\"); for k in 3 4 6 8; do for n in 1 2 4; do P+=(--policy \"fair-oracle-k$k@$n=$OUT/fair/share-u0.125-k$k-n$n-oracle.onnx\"); done; done; uv run python experiments/fairshare.py \"$OUT\" --split val --seed 11 --stock bbr3 \"${P[@]}\"",
+  "shards": 20,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps; done; uv run python experiments/slim_steps.py \"$OUT\"",
+  "collect": "uv run python experiments/rule_report.py \"$OUT\" && uv run python experiments/copies_report.py \"$OUT\"",
+  "timeout_minutes": 240
+}
