@@ -209,7 +209,7 @@ on demand.
 | BBRv3 (Google's, as `bbr3`) | done, tested |
 | Other Linux 7.0 controllers as teachers (BIC, CDG, HighSpeed, H-TCP, Hybla, Illinois, LP, NV, Scalable, Vegas, Veno, Westwood, YeAH), built as modules | done; Vegas, Veno, YeAH, LP and Westwood each ran an episode |
 | Agent controllers with ONNX policies, closed loop (`sage-v1`) | done, tested |
-| Sage's step and step training data (labels, reward, action per step) | done, tested; the comparison with `sage.cc`'s own code is UNRUN |
+| Sage's step and step training data (labels, reward, action per step) | done, tested; equal to `sage.cc`'s own output at every step compared (run locally, as CI has no Sage checkout) |
 | The true LCFs as a policy input (oracle and patched policies) | done, tested: equal to the labels at every step |
 | Mahak metrics, trace generation and active-learning driver | done, matched to the originals |
 | Trainer: net1, net2, export, expliCCit import; online training in closed loop | runs end to end, tested |

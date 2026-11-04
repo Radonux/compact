@@ -52,8 +52,7 @@ The passing tests show that:
 A one-off check (M6, repeated at M7) showed that adding BBRv3 left seeded
 Cubic and BBRv1 episodes byte-identical.
 
-The main gaps, detailed under "Not run": the port of Sage's step has not
-been compared with `sage.cc` (UNRUN); the comparison with Sage is UNRUN,
+The main gaps, detailed under "Not run": the comparison with Sage is UNRUN,
 and Sage's released checkpoint has not been run in UML; reference runs of
 real Mahimahi against the link model have not started; and UML's virtual
 time is never checked against a real-time kernel.
@@ -289,20 +288,25 @@ in our closed loop at 0.58 to 0.95 utilization. Our first net2 collapsed
 the window. Later results, tuned and over seeds, are in
 `docs/training.md`, section 7.
 
-### The port of Sage's step against `sage.cc` (UNRUN)
+### The port of Sage's step against `sage.cc`
 
-`test_step_matches_sage_cc` (`tests/sage_ref.py`) is written to compile
-Sage's own step code, taken by line range from `sage.cc` at `eedd281` with
-only the clock and the `TCP_INFO` read stubbed. It replays the recorded
-readings of a Cubic episode and a BBRv1-with-loss episode, and compares
-every column printed with `%.7f`. Its first run, at M9, built the harness,
-but the harness died with SIGSEGV before printing anything. The cause has
-not been found: the message fits Sage's 1000-byte buffers (873 bytes at
-most on that episode), and the struct layout matches (224 bytes). Debugging
-means running Sage's compiled code again, which the permission policy of
-the session that ran it then blocked. The test skips unless
-`EXPLICCIT_SAGE_DIR` is set. Until it passes, the port is checked only by
-review and by the tests above. UNRUN.
+`test_step_matches_sage_cc` (`tests/sage_ref.py`) compiles Sage's own step
+code, taken by line range from `sage.cc` at `eedd281` with only the clock
+and the `TCP_INFO` read stubbed. It replays the recorded readings of a
+Cubic episode and a BBRv1-with-loss episode, and compares every column
+printed with `%.7f` (all but the four the port does not take from
+`sage.cc`).
+
+Its first run, at M9, died with SIGSEGV. The cause is in Sage's
+`define.h`: three assignment operators and the window's `add()` end
+without returning a value, undefined behaviour that g++ 13 compiles into
+a trap (an illegal instruction even at -O0, a crash at -O1). No caller
+reads those values, so the harness now compiles a copy of `define.h` with
+the four returns g++ suggests added, and nothing else changed. On
+2026-11-04, with a Sage checkout at `eedd281` and g++ 13.3, both
+comparisons passed: every compared column of every step (1,382 on the
+Cubic episode) equals `sage.cc`'s output as printed. The test skips unless
+`EXPLICCIT_SAGE_DIR` is set, so CI does not run it.
 
 ## Teacher modules, and seeded runs across guest versions (M10)
 
@@ -579,7 +583,6 @@ time in a 1 GiB guest.
 
 | Item | Status |
 |---|---|
-| The port of Sage's step against `sage.cc`'s own code | UNRUN: the harness died with SIGSEGV on its first run (M9, above). Until it passes, the port is checked only by review and by the step tests. |
 | expliCCit's comparison with Sage (expliCCit reports that the split costs about 5% utilization and 9% queueing delay against Sage) | UNRUN. Sage's released checkpoint is available locally, but it has not been exported to ONNX or run in UML. The agent controllers can run it once it is exported under `sage-v1`, as a recurrent graph with its LSTM state in `state`. |
 | The link model against real Mahimahi | Not started (UNRUN): it needs a root host (any kernel). Mahimahi is vendored. Mahak's `highbdp.patch` does not apply to current Mahimahi (`configure.ac` and `linkshell.cc` changed) and must be ported first. |
 | UML against a real-time kernel | Will not run: the native tier was dropped (`docs/architecture.md`, D19), so virtual time is never compared with real time. |
