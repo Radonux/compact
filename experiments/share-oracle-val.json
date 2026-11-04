@@ -1,0 +1,14 @@
+{
+  "title": "The share rule on the true LCFs (arm A1), on validation links",
+  "description": "The cost of estimation for the share rule (u = u0 + k busy max(0, 1 - receive/capacity), experiments/share_rule_export.py): the same rule read from the guest's live truth instead of net1 v4 (--oracle; each belief becomes the true value's bin centre in net1 v4's bins), for u0 in {0.125, 0.375} and k in {0, 0.5, 1, 2} (u0 = 0.375, k = 0 is the true-BDP rule chosen on validation in exp-rule-net1v4-val-11), next to the fixed rule (u = 0.125) and the share rule at k = 0.5, 1 and 2 on net1 v4, and BBRv3, on the five validation families (seed 11) and as 2 and 4 copies for 30 s (experiments/copies.py, seed 11). Each oracle copy reads its own flow's truth. Reported: log utility against BBRv3 per family, and the copies' fairness, utilization and queueing delay.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "grid": "release:exp-net1v4-grid-10"
+  },
+  "prepare": "G=\"$IN/grid/$(cat \"$IN/grid/chosen.txt\")/net1.pt\"; uv run python experiments/rule_export.py \"$OUT/v4\" \"$G\" --u 0.125; uv run python experiments/share_rule_export.py \"$OUT/share\" \"$G\" --u0 0.125 --k 0.5 1 2; for u0 in 0.125 0.375; do uv run python experiments/share_rule_export.py \"$OUT/oracle\" \"$G\" --u0 $u0 --k 0 0.5 1 2 --oracle; done; P=(--policy \"rule-v4=$OUT/v4/rule-u0.125.onnx\"); for k in 0.5 1 2; do P+=(--policy \"share-k$k=$OUT/share/share-u0.125-k$k.onnx\"); done; for u0 in 0.125 0.375; do for k in 0 0.5 1 2; do P+=(--policy \"oracle-u$u0-k$k=$OUT/oracle/share-u$u0-k$k-oracle.onnx\"); done; done; experiments/rule_eval.sh \"$OUT\" val 11 11 bbr3 \"${P[@]}\"; uv run python experiments/copies.py \"$OUT/copies\" --split val --duration-ms 30000 --seed 11 --n 2 4 --stock bbr3 \"${P[@]}\"; mv \"$OUT/copies/c-copies-30s\" \"$OUT/\"; jq -s add \"$OUT/aliases.json\" \"$OUT/copies/aliases.json\" > \"$OUT/a.json\"; mv \"$OUT/a.json\" \"$OUT/aliases.json\"",
+  "shards": 20,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps; done; uv run python experiments/slim_steps.py \"$OUT\"",
+  "collect": "uv run python experiments/rule_report.py \"$OUT\" --apart copies-30s && uv run python experiments/copies_report.py \"$OUT\"",
+  "timeout_minutes": 240
+}
