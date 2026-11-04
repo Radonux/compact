@@ -244,8 +244,9 @@ utilization and 9% queueing delay against Sage; here, with Sage's released
 policy outside its own kernel and links, the fixed rule on net1 v4 has 3 to
 14% more utilization and 46 to 65% less queueing delay on clean test links.
 expliCCit's case study, which traces under-utilization to a capacity
-belief 25% too low, did not reproduce: here the released policy's capacity
-belief is about right.
+belief 25% too low, did not reproduce (`exp-expliccit-case-42`): here the
+released policy's capacity belief is within 14%, and its busy fraction is
+what is wrong.
 
 **Results so far.** net1 states a probability distribution for each
 LCF. On held-out paths it is at least as accurate as a single-value or

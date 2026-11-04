@@ -1633,40 +1633,46 @@ same paths (BBRv1 +0.817 against +0.82, Vegas +0.735 against +0.74).
 
 expliCCit's draft traces its policy's under-utilization on this link to
 capacity underestimated by 25%. It reports that replacing that belief
-with the truth restores utilization. We repeated the experiment on
-2026-10-31 with the patched policies of sections 3 and 4.
+with the truth restores utilization. Release
+[`exp-expliccit-case-42`](https://github.com/Radonux/palaestra/releases/tag/exp-expliccit-case-42)
+(`experiments/expliccit-case.json`) repeats the experiment with its
+released net1 and actor (`third_party/expliccit-models`), as deployed.
 
 The link: capacity alternating 24 and 48 Mbit/s every 7 s, one-way delay
-40 ms, a 1000-packet buffer, 45 s. It is one deterministic path: episode
-seeds 1, 2 and 3 gave identical runs, so each row below is one run. The
-link is also one of the 120 paths of the teacher campaign (section 1), so
-our models may have trained on it.
+40 ms, a 1000-packet buffer, 45 s. It has no randomness, so episode seeds
+give the same run. The policy is fragile on it: in a local check its
+utilization fell from 0.47 to 0.04 when a few TCP settings changed, and a
+patch that gave 0.04 in a local run on 2026-10-31 (mean queueing delay
+from the truth) gives 0.57 here, which the TCP settings alone do not
+explain. One run on this link is one sample of a policy that collapses or
+holds about 0.5. So each policy also ran on the eight links around it
+(one-way delay 39 to 41 ms by buffer 980 to 1020 packets). The link is
+also one of the 120 paths of the teacher campaign (section 1), so our
+models may have trained on it.
 
-expliCCit's released policy, as deployed, runs at 0.49 utilization with a
-mean queueing delay of 6.6 ms. With some of its beliefs replaced by the
-live truth:
+| LCFs from the truth | utilization, expliCCit's link | median over the 9 links | range | mean queueing delay (ms), expliCCit's link |
+|---|---|---|---|---|
+| none | 0.483 | 0.483 | 0.340 to 0.534 | 4.44 |
+| capacity | 0.425 | 0.431 | 0.425 to 0.443 | 1.21 |
+| busy fraction | 0.707 | 0.707 | 0.703 to 0.707 | 4.63 |
+| queue | 0.521 | 0.527 | 0.521 to 0.575 | 4.95 |
+| mean queueing delay | 0.573 | 0.573 | 0.566 to 0.581 | 5.21 |
+| free buffer | 0.062 | 0.019 | 0.018 to 0.064 | 6.92 |
+| busy fraction, queue, mean queueing delay and free buffer | 0.707 | 0.708 | 0.694 to 0.722 | 2.94 |
+| all seven | 0.621 | 0.621 | 0.615 to 0.639 | 1.20 |
 
-| LCFs from the truth | utilization |
-|---|---|
-| none | 0.49 |
-| capacity | 0.43 |
-| busy fraction | 0.72 |
-| queue | 0.59 |
-| mean queueing delay | 0.04 |
-| free buffer | 0.03 |
-| busy fraction, queue, mean queueing delay and free buffer | 0.71 |
-| all seven | 0.62 |
-
-Its beliefs along its own run, against the truth (medians over the run;
-capacity in the first two 7 s segments):
+Its beliefs along its own run on expliCCit's link, against the truth
+(medians over the run; capacity in the first two 7 s segments):
 
 | LCF | released net1 | truth |
 |---|---|---|
-| queue | 18 packets | 0 packets |
-| mean queueing delay | 11.6 ms | 0.76 ms |
-| free buffer | 124 packets | 1000 packets |
-| busy fraction | 1.00 | 0.53 |
-| capacity | 24.7 and 47 Mbit/s | 24 and 48 Mbit/s |
+| queue | 19.4 packets | 0 packets |
+| mean queueing delay | 15.2 ms | 0.71 ms |
+| free buffer | 128 packets | 1000 packets |
+| busy fraction | 1.00 | 0.51 |
+| capacity | 27.3 and 41.6 Mbit/s | 24.1 and 48.1 Mbit/s |
+| one-way delay | 39.9 ms | 40 ms |
+| receive rate | 21.5 Mbit/s | 15.6 Mbit/s |
 
 The released net1's value range for each LCF is: queueing delay 0 to
 5123 ms, queue 0 to 10240 packets, capacity 2.4 to 385 Mbit/s, free
@@ -1675,8 +1681,10 @@ ms, receive rate 0 to 385 Mbit/s. A free buffer of 1000 packets is inside
 its trained range, so the collapse when free buffer comes from the truth
 is a problem of the LCFs' joint range, not of any one LCF's range.
 
-We also ran our own models, trained in UML, on the same link. In the
-table, the queue group is mean queueing delay, queue and free buffer.
+We also ran our own models of the time (M12), trained in UML, on the same
+link, in a local run on 2026-10-31 that is not in a release; those models
+are superseded. In the table, the queue group is mean queueing delay,
+queue and free buffer.
 
 | policy | LCFs from the truth | utilization | mean queueing delay ms | drop fraction |
 |---|---|---|---|---|
@@ -1689,14 +1697,16 @@ table, the queue group is mean queueing delay, queue and free buffer.
 | | busy fraction | 0.144 | 1.0 | 0 |
 | | queue group | 0.968 | 188.4 | 0.255 |
 
-**Reading.** This is one path, with one run per row.
+**Reading.**
 
 - The draft's capacity diagnosis does not reproduce with the released
-  model here. Its capacity belief is about right, and taking capacity
-  from the truth lowers utilization (0.43 against 0.49).
-- Comparing its beliefs with the truth localized a different fault
-  within minutes: busy fraction (1.00 against 0.53) and queue (18
-  packets against 0). Taking busy fraction from the truth gives 0.72.
+  model here. Its capacity belief is 13% high at 24 Mbit/s and 14% low at
+  48 Mbit/s, not 25% low throughout, and taking capacity from the truth lowers
+  utilization (0.43 against 0.48, on all nine links).
+- Comparing its beliefs with the truth localized a different fault:
+  busy fraction (1.00 against 0.51) and queue (19 packets against 0).
+  Taking busy fraction from the truth gives 0.71, on all nine links
+  (0.70 to 0.71), the steadiest repair of any.
 - The released net1 was trained on expliCCit's own data, so this result
   mixes transfer between emulators with the method.
 - The LCFs are coupled, so replacing one belief can describe a path that
