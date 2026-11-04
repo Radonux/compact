@@ -1234,6 +1234,46 @@ and 4 copies; no episode failed. Log utility minus BBRv3, paired by link:
   others yield failed on noise in single-step beliefs, on Cubic's slow
   growth, and on copies falling out of step.
 
+**On the true LCFs (arm A1), the share rule gains alone and fails with
+copies.** Release
+[`exp-share-oracle-val-20`](https://github.com/Radonux/palaestra/releases/tag/exp-share-oracle-val-20)
+(`experiments/share-oracle-val.json`) ran the share rule read from the
+guest's live truth (`share_rule_export.py --oracle`; each belief becomes
+the true value's bin centre in net1 v4's bins) for u0 = 0.125 or 0.375 and
+k = 0, 0.5, 1 or 2, next to the same rule on net1 v4, on the five
+validation families and as copies; no episode failed. Log utility minus
+BBRv3, paired by link (differences between columns are of these means,
+without their own intervals):
+
+| Family | fixed rule, net1 v4 | share k = 1, net1 v4 | fixed rule (u0 = 0.125), truth | share k = 1, truth | share k = 2, truth |
+|---|---|---|---|---|---|
+| training conditions, 20 s | +0.139 | +0.123 | +0.175 | +0.186 | +0.171 |
+| training conditions, 60 s | +0.130 | +0.157 | +0.153 | +0.195 | +0.214 |
+| new conditions, 20 s | +0.246 | +0.277 | +0.270 | +0.348 | +0.389 |
+| deep buffers and long RTTs, 20 s | +0.231 | +0.220 | +0.225 | +0.270 | +0.274 |
+| a Cubic flow from 0 s, 60 s | -0.057 | +0.185 | -0.054 | +0.120 | +0.228 |
+| mean of the five | +0.138 | +0.192 | +0.154 | +0.224 | +0.255 |
+| 2 or 4 copies of itself, 30 s | +0.069 | -0.592 | -0.991 | -1.797 | -2.351 |
+| mean of the six | +0.127 | +0.061 | -0.037 | -0.113 | -0.179 |
+
+- Without copies of itself, the truth is worth 0.03 to the share rule at
+  k = 1 and 0.06 between the best of each (k = 2 on the truth, k = 1 on
+  net1 v4); on the truth u0 = 0.375 is better only at k = 0 (+0.168
+  against +0.154).
+- With copies, every rule on the truth fails, the fixed one included:
+  each copy sets its window from the link's whole BDP, so 2 and 4 copies
+  build queues of 41 and 66 ms (the fixed rule on net1 v4: 23 and 35 ms)
+  and lose 1.06 against the same rule on net1 v4. net1 v4 believes a
+  shared link has less capacity than it has (0.4 to 0.9 of it in local
+  runs, not published), which for this window target works like an estimate of the
+  capacity left to this flow.
+- So with copies weighted as one family of six, the fixed rule on net1 v4
+  is ahead of every rule on the truth. The link's capacity is the wrong
+  quantity for a window target once the link is shared; what the target
+  needs, the capacity this flow can take, is not among the LCFs (arm A0
+  against A1). net1's bias there helps by accident and is not a
+  property to count on.
+
 ### Tuned comparison
 
 The search below ran on the expliCCit-like data. Its harness (grid
