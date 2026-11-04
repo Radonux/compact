@@ -526,7 +526,7 @@ test, Jain's index of their throughputs, and their share against a
 competitor over their fair share; `summary.md` averages them per experiment
 and controller, and `ccperf.csv` keeps every variant. ccperf has no single
 score, and neither does this. Results are in `docs/training.md`, section 7
-("ccperf's experiments").
+("ccperf's experiments" and "ccBench's suites").
 
 That is 59 of ccperf's 121 experiments per controller. The rest need
 emulator features this one lacks: time-varying delay and loss (RTT and

@@ -1486,6 +1486,45 @@ variant):
   0.52) match BBRv1 (0.47, at 239 ms of queueing delay against their 1 ms);
   Cubic and Sage reach 0.02 and 0.04.
 
+### ccBench's suites
+
+Release
+[`exp-ccbench-30`](https://github.com/Radonux/palaestra/releases/tag/exp-ccbench-30)
+(`experiments/ccbench.json`) ran ccBench's solo and friendliness suites and
+three more (random loss, copies, BBRv1 or BBRv3 as the competitor) for the
+same 20 controllers, after the TCP buffer fix: 24,300 episodes. Nothing
+was chosen on these links. Games are ccBench's leagues among these 20
+controllers (`docs/architecture.md`, "Benchmark"); utilization and queueing
+delay are means over runs and windows:
+
+| Suite | Measure | Fixed rule | Share rule | BBRv1 | BBRv3 | Cubic | Sage |
+|---|---|---|---|---|---|---|---|
+| solo (2,760 games) | games won | 79.2% | 68.3% | 35.7% | 18.8% | 2.6% | 21.3% |
+| | utilization, queueing delay (ms) | 0.932, 12.9 | 0.939, 19.2 | 0.936, 35.7 | 0.923, 42.5 | 0.946, 153.9 | 0.742, 21.4 |
+| random loss (600) | games won | 83.3% | 77.5% | 57.7% | 6.3% | 0.5% | 16.0% |
+| | utilization | 0.923 | 0.928 | 0.929 | 0.676 | 0.217 | 0.453 |
+| friendly, a Cubic flow first (500) | games won | 16.2% | 13.8% | 48.8% | 33.6% | 31.0% | 7.6% |
+| | share of capacity | 0.330 | 0.417 | 0.497 | 0.399 | 0.369 | 0.204 |
+| BBRv1 or BBRv3 first (400) | games won | 27.5% | 29.2% | 53.0% | 44.5% | 34.5% | 2.0% |
+| | share of capacity | 0.461 | 0.590 | 0.541 | 0.382 | 0.441 | 0.143 |
+| 2, 4 or 8 copies | Jain's index, queueing delay (ms) | 0.943, 40.2 | 0.926, 58.2 | 0.967, 68.8 | 0.985, 57.8 | 0.934, 126.1 | 0.899, 50.9 |
+
+- Alone and under random loss the fixed rule wins the most games of the
+  20, by its low delay at full enough utilization: ccBench's score is
+  throughput squared over delay.
+- Against a Cubic flow that started 5 s earlier, with buffers of 1 to 16
+  BDP, both rules take less than half (0.33 and 0.42 of the capacity),
+  and BBRv1 comes closest to half. This is the gap the earlier sections
+  found against loss-based competitors present from the start: a window
+  near the BDP takes a small share from a flow that fills the buffer.
+- Against BBRv1 or BBRv3 first, the share rule takes more than half
+  (0.59) and the fixed rule a little less (0.46).
+- [`exp-ccbench-27`](https://github.com/Radonux/palaestra/releases/tag/exp-ccbench-27)
+  ran before the TCP buffer fix. It ranks the rules the same, but with
+  buffers it could not fill, Cubic queued less (120 against 154 ms alone,
+  241 against 323 ms in the friendliness suite) and won 54% of
+  friendliness games against 31% now.
+
 ### Tuned comparison
 
 The search below ran on the expliCCit-like data. Its harness (grid
