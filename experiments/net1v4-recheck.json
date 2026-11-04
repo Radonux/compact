@@ -1,11 +1,11 @@
 {
   "title": "net1 v4 on its data rerun with the original setups' TCP limits, against a net1 retrained on it",
-  "description": "net1 v4's three datasets were rerun with the same specs after the guest took Sage's and ccBench's 64 MB TCP buffer limits (exp-data-net1-broad-30s-38, -60s-39, -ood-40; before: releases 5, 8 and 9, with a 4 MB send buffer that capped buffer-filling flows on about 7% of the links). This trains one net1 with net1 v4's chosen settings (dropout 0.05, width 512, seed 0) on the new data and reports it next to net1 v4 itself (--compare) on the same new rows: whether net1 v4 is still honest on what the new guest produces decides whether it is kept.",
+  "description": "net1 v4's three datasets were rerun with the same specs after the guest took Sage's and ccBench's 64 MB TCP buffer limits (exp-data-net1-broad-30s-49, -60s-50, -ood-51, with the send buffer sized to the path; before: releases 5, 8 and 9, with a 4 MB send buffer that capped buffer-filling flows on about 7% of the links). This trains one net1 with net1 v4's chosen settings (dropout 0.05, width 512, seed 0) on the new data and reports it next to net1 v4 itself (--compare) on the same new rows: whether net1 v4 is still honest on what the new guest produces decides whether it is kept.",
   "train": true,
   "inputs": {
-    "d30": "release:exp-data-net1-broad-30s-38",
-    "d60": "release:exp-data-net1-broad-60s-39",
-    "ood": "release:exp-data-net1-broad-ood-40",
+    "d30": "release:exp-data-net1-broad-30s-49",
+    "d60": "release:exp-data-net1-broad-60s-50",
+    "ood": "release:exp-data-net1-broad-ood-51",
     "grid": "release:exp-net1v4-grid-10"
   },
   "matrix": {"seed": [0]},
