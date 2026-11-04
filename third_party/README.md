@@ -1,14 +1,15 @@
 # Third-party sources
 
-Two upstream trees are vendored here, so builds do not depend on fetching
-them. Each was imported unmodified in one commit, and every change we make
-to it is a later commit, so `git diff <import> -- <tree>` is exactly what
-we changed.
+Two upstream trees and one set of released weights are vendored here, so
+builds and experiments do not depend on fetching them. Each was imported
+unmodified in one commit, and every change we make to it is a later commit,
+so `git diff <import> -- <tree>` is exactly what we changed.
 
 | Tree | Import commit | Our changes | License |
 |---|---|---|---|
 | `linux/` | `e8eadca` | HZ, seeded randomness, Google's BBRv3 | GPL-2.0 (`linux/COPYING`) |
 | `mahimahi/` | `ac3c802` | Mahak's metric script | GPL-3.0 (`mahimahi/COPYING`) |
+| `expliccit-models/` | the commit that added it | none | none stated; published with its authors' consent |
 
 ## linux/
 
@@ -69,3 +70,21 @@ same code that the tests use as the oracle for the kernel.
 Comparing the link model with real Mahimahi is UNRUN: it needs a root host,
 and Mahak's `highbdp.patch` no longer applies to current Mahimahi and must
 be ported first (`docs/validation.md`).
+
+## expliccit-models/
+
+expliCCit's released net1 and actor: the four files of its
+`sage_rl/offline/models` that `expliccit train import-expliccit` reads,
+copied unchanged on 2026-11-04 from the copy of expliCCit's code we were
+given (dated 2025-05-22). The `.pth` files hold only tensors (they load with
+`torch.load(..., weights_only=True)`), and the JSON files the min-max
+scalers' parameters; the pickled scikit-learn scalers and the unused
+checkpoints were left out. expliCCit's code itself stays out of this
+repository until expliCCit is published (`AGENTS.md`).
+
+| File | sha256 |
+|---|---|
+| `best_model.pth` (net1) | `c8cf456f791f112aef9ece8d27f7b777ff8b057be00c043e0af1c7dbc7573a9d` |
+| `actor.pth` (net2) | `e6f1032aad21a479be68acd723519ed8f1fbfe728f862a00db3a455f7a55c66b` |
+| `x_scaler_params.json` | `456859d70c5a01424f2f84a018f8d5006c7cfaa6dd1f01f6c260e428429c1c5e` |
+| `y_scaler_params.json` | `e0eb72cb760729b7986a2da6ae9115c6f4651188e79602714e41a3d367d612bd` |
