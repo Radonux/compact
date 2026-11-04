@@ -442,10 +442,50 @@ from 0.95 to 0.34) and Hybla's slow start, which grows the window by 2^ρ - 1
 packets per ACK (ρ the RTT over 25 ms) and overshoots the path on long
 RTTs. With either
 setting a flood is unlike the original setups', whose senders could not
-push 64 MB per round trip into Mahimahi; the cap is the nearer of the two,
-and its multiple is a choice (`docs/architecture.md`). The broad data is
-rerun with it (`-49`, `-50`, `-51`), and so is everything that ran
-between the TCP limit fix and the cap with a policy or Hybla in it (below).
+push 64 MB per round trip into Mahimahi, so a limit stays; but 16 times the
+path and a 1 MB floor were a guess, well above what host tuning gives a
+small path.
+
+The limit now follows the host-tuning rule instead (`docs/architecture.md`).
+That rule sizes a socket buffer to the bandwidth-delay product, bandwidth
+times RTT (ESnet fasterdata, "Background Information", edited 2024-01-07:
+"2 * bandwidth * delay" with one-way delay, or "bandwidth * RTT" from ping;
+its Linux page, edited 2025-03-06, sets 32 to 64 MB for 10 Gbit/s hosts).
+Here the bandwidth is the peak capacity over 1 s and the RTT that of a full
+queue, so a loss-based flow can still fill the buffer, and the bytes are
+counted as Linux counts them: `tcp_sndbuf_expand` gives a window of W
+segments 2 W (BBR 3 W) times `per_mss`, and the limit is 3 x `per_mss` per
+packet the path holds, at least 10 packets and at most 64 MB. `per_mss` is
+2304 bytes in this build, read by compiling against its headers: `sk_buff`
+256 and `skb_shared_info` 320 bytes after alignment, `MAX_TCP_HEADER` 256,
+MSS 1460, so roundup_pow_of_two(2036) + 256. Checks on 2026-11-04, local:
+
+- The UML tests pass: Reno still fills a 640 ms buffer at 96 Mbit/s and
+  160 ms, and the growing agent on 50 Mbit/s, 10 ms and 26 packets for 4 s
+  (a 470 KB limit) puts 3.1 arrivals on the link per departure, against 5.3
+  with 1 MB and 54.4 with 64 MB; its utilization is 0.50, 0.62 and 0.93.
+- 375 episodes sampled from the 30 s data (seed 7; not the 25 whose rule
+  policy is built in CI), rerun with the limit and paired with release 49,
+  which ran them with the 16 times cap:
+
+  | Episodes | Changed | Utilization changed by more than 0.01, 0.05 | Mean utilization change | Mean delay changed by more than 10% |
+  |---|---|---|---|---|
+  | stock controllers, no Hybla, not BBR on a shallow buffer | 58 of 160 | 7, 0 | -0.0002 | 4 |
+  | BBR on a buffer shallower than the BDP | 109 of 120 | 21, 2 | +0.0008 | 9 |
+  | Hybla among the flows | 41 of 60 | 6, 3 | +0.0045 | 5 |
+  | a threshold policy | 22 of 35 | 18, 13 | -0.065 | 16 |
+
+  Four of the changed BBR episodes rerun at 64 MB reproduce release 49
+  exactly, so the limit's size, not the rerun, moves them. The limit cuts
+  the buffer Linux would give a window beyond the path: BBR's window of
+  twice the BDP on a shallow buffer, and the slow-start overshoot of loss-based
+  controllers, which reaches about twice the path before the loss is
+  seen. Data in flight is rarely stopped by it there; a smaller buffer
+  changes when the sender writes, and the episode takes another course.
+  The changes to ordinary flows are small and average out; floods are
+  cut hard. A host tuned to each path would behave this way, which is what
+  the limit models; one sized for twice the path would leave ordinary flows
+  nearly untouched, at about twice the flood (UNRUN).
 
 The setup scripts' other lines (the initial buffer sizes 87380 and 65536
 bytes, no cached metrics, no autocorking) change every episode a little,
@@ -481,16 +521,15 @@ competitors on the plain links); the fairshare runs, copies and held-out
 competitors used only links that need at most 3.1 MB in flight in all; and
 `exp-test-links-duration-2` and net1 v3 are superseded.
 
-Reruns for the send-buffer cap (scheduled 2026-11-04): every run above
-that came after the TCP limit fix but before the cap and has a policy or
-Hybla among its flows, namely ccBench and ccperf (`exp-ccbench-30`,
-`exp-ccperf-31`), the case study (`exp-expliccit-case-42`) and the six
-whole validation and test runs (#43 to #48). The validation runs go first
-and the test runs after them, once the validation choices are settled on
-the capped runs, so each test link set runs once more, not twice. The
-`-deeplong` reruns and runs #43 to #48 remain the record of the 64 MB
-setting without the cap. The runs listed above as not rerun stay so, for
-the reasons given there.
+Reruns for the send-buffer limit (scheduled 2026-11-04): the broad data
+(30 s, 60 s and out-of-distribution), the fixed rule's u over three
+validation seeds, the share rule's and Sage's validation, the case study,
+ccperf and ccBench, every one with the limit; the test runs follow once the
+validation choices are settled on these, so each test link set runs once
+more, not twice. Runs with the 16 times cap are superseded (`-49` and `-51`
+published; #50 and #52 to #58 were cancelled). The `-deeplong` reruns and
+runs #43 to #48 remain the record of 64 MB without a limit. The runs listed
+above as not rerun stay so, for the reasons given there.
 
 ## Teacher modules, and seeded runs across guest versions (M10)
 

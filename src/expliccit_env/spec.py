@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import itertools
 import json
+import math
 from pathlib import Path
 from typing import Annotated, Final, Literal, Self, get_args
 
@@ -40,11 +41,15 @@ from expliccit_env.guest_plan import (
 )
 
 SPEC_VERSION: Final = 1
-# Sender buffer limits (EpisodeSpec._send_buffer): Sage's and ccBench's 64 MB,
-# and SEND_BUFFER_PATHS times what the path holds, at least 1 MB.
-SEND_BUFFER_MAX: Final = 64 * 2**20
-SEND_BUFFER_MIN: Final = 2**20
-SEND_BUFFER_PATHS: Final = 16
+# Sender buffer limit (EpisodeSpec._send_buffer). Linux grows a socket's send
+# buffer to k * cwnd * per_mss (tcp_sndbuf_expand): k is 2, or 3 for BBR, and
+# per_mss the memory one segment may take, roundup_pow_of_two(MSS 1460 +
+# MAX_TCP_HEADER 256 + skb_shared_info 320) + sk_buff 256 = 2304 bytes in this
+# build. ponytail: per_mss read from the UML build's headers (docs/validation.md);
+# recompute it if the kernel config or MTU changes.
+SEND_BUFFER_PER_SEGMENT: Final = 3 * 2304
+SEND_BUFFER_MAX: Final = 64 * 2**20  # Sage's and ccBench's setup scripts
+TCP_INIT_CWND: Final = 10
 U64: Final = 2**64
 
 
@@ -313,28 +318,22 @@ class EpisodeSpec(_Frozen):
         return hashlib.sha256(self.canonical_json().encode()).hexdigest()[:20]
 
     def _send_buffer(self) -> str:
-        """tcp_wmem for the senders: the setups' 64 MB at most, but no more than
-        SEND_BUFFER_PATHS times what the path holds in flight (its peak
-        capacity over 1 s times the longest flow's base RTT, plus the
-        buffer), and at least 1 MB. A flow never needs that much: about 2.5
-        bytes per byte in flight, twice its window. It bounds only a window
-        far beyond the path, which a real sender's NIC and CPU would stop
-        and which costs nothing in virtual time, so it would flood the link
-        with packets it drops (docs/validation.md, "TCP buffer limits")."""
+        """tcp_wmem for the senders: what Linux's own autotuning asks for a
+        window that holds the whole path (its peak capacity over 1 s times the
+        longest flow's base RTT, plus the buffer), the bandwidth-delay rule at
+        the RTT of a full queue, and at most the setups' 64 MB. A window the
+        path can hold is never cut; one far beyond it, which a real sender's
+        NIC and CPU would stop and which costs nothing in virtual time, is
+        (docs/validation.md, "TCP buffer limits")."""
         counts = mm.dense_counts(self.path.trace.timestamps()).astype(np.int64)
         cycle = np.tile(counts[1:], -(-2000 // max(counts.size - 1, 1)))
-        peak = int(np.convolve(cycle, np.ones(1000, np.int64), "valid").max()) * mm.PACKET_SIZE
+        peak = int(np.convolve(cycle, np.ones(1000, np.int64), "valid").max())  # packets/s
         extra = max((c.extra_rtt_ms for c in self.cross if isinstance(c, TcpCross)), default=0)
         rtt_s = (2 * self.path.delay.one_way_ns + extra * 1_000_000) / 1e9
         buf = self.path.buffer
-        queue = (
-            min(b for b in (buf.packets * mm.PACKET_SIZE, buf.bytes) if b)
-            if buf.packets or buf.bytes
-            else 0
-        )
-        cap = min(
-            SEND_BUFFER_MAX, max(SEND_BUFFER_MIN, SEND_BUFFER_PATHS * int(peak * rtt_s + queue))
-        )
+        queue = min(n for n in (buf.packets, -(-buf.bytes // mm.PACKET_SIZE)) if n)
+        segments = max(TCP_INIT_CWND, math.ceil(peak * rtt_s) + queue)
+        cap = min(SEND_BUFFER_MAX, SEND_BUFFER_PER_SEGMENT * segments)
         return f"4096 65536 {cap}"
 
     def guest_plan(self) -> GuestPlan:
