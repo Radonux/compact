@@ -1,10 +1,10 @@
 """Utilization and queueing delay against Sage, as expliCCit compares its
 split with Sage: on the conditions where the observed flow is alone on the
-link (clean, random loss, ACK loss), per campaign and controller, the mean
-over links of the link's utilization and of its mean queueing delay (what
-mm-th-delay prints), and the ratio of each mean to Sage's on the same
-links, minus 1, with 95% bootstrap intervals over links. Appends a table
-to OUT/summary.md.
+link (clean, random loss, ACK loss), per campaign, condition and
+controller, the mean over links of the link's utilization and of its mean
+queueing delay (what mm-th-delay prints), and the ratio of each mean to
+Sage's on the same links, minus 1, with 95% bootstrap intervals over
+links. Appends a table to OUT/summary.md.
 
 Usage: python experiments/sage_report.py OUT [--reference sage]
 """
@@ -18,6 +18,7 @@ import numpy as np
 import pyarrow.parquet as pq
 
 from expliccit_env.train.data import link_key
+from expliccit_env.train.score import condition
 
 Vec = np.ndarray[tuple[int], np.dtype[np.float64]]
 
@@ -41,17 +42,17 @@ def main() -> None:
         "",
         f"## Utilization and queueing delay against {a.reference}, the flow alone",
         "",
-        "Means over links of the conditions without cross traffic (clean, random loss, ACK"
-        f" loss); the ratio to {a.reference}'s mean on the same links, minus 1.",
+        "Means over links, per condition without cross traffic; the ratio to"
+        f" {a.reference}'s mean on the same links, minus 1.",
         "",
-        f"| campaign | controller | links | utilization | queueing delay (ms) |"
+        f"| campaign | condition | controller | links | utilization | queueing delay (ms) |"
         f" utilization vs {a.reference} | delay vs {a.reference} |",
-        "|---|---|---|---|---|---|---|",
+        "|---|---|---|---|---|---|---|---|",
     ]
     for camp in sorted(a.out.glob("c-*")):
-        # controller -> link -> (utilization, delay) per episode
-        per: dict[str, dict[str, list[tuple[float, float]]]] = defaultdict(
-            lambda: defaultdict(list)
+        # condition -> controller -> link -> (utilization, delay) per episode
+        per: dict[str, dict[str, dict[str, list[tuple[float, float]]]]] = defaultdict(
+            lambda: defaultdict(lambda: defaultdict(list))
         )
         for f in sorted(camp.glob("shards/*/episodes.parquet")):
             cols = ["controller", "spec_json", "status", "utilization", "mean_delay_ms"]
@@ -59,25 +60,27 @@ def main() -> None:
                 if r["status"] != "ok" or json.loads(r["spec_json"]).get("cross"):
                     continue
                 name = aliases.get(r["controller"], r["controller"])
-                per[name][link_key(r["spec_json"])].append((r["utilization"], r["mean_delay_ms"]))
-        if a.reference not in per:
-            continue
-        ref = per[a.reference]
-        for name in sorted(per, key=lambda n: (n != a.reference, n)):
-            links = sorted(set(per[name]) & set(ref))
-            if not links:
+                cell = per[condition(r["spec_json"])][name][link_key(r["spec_json"])]
+                cell.append((r["utilization"], r["mean_delay_ms"]))
+        for cond in sorted(per):
+            ref = per[cond].get(a.reference)
+            if ref is None:
                 continue
-            mine = np.array([np.mean(per[name][k], axis=0) for k in links])
-            theirs = np.array([np.mean(ref[k], axis=0) for k in links])
-            vs = (
-                ("", "")
-                if name == a.reference
-                else (ratio(mine[:, 0], theirs[:, 0]), ratio(mine[:, 1], theirs[:, 1]))
-            )
-            lines.append(
-                f"| {camp.name[2:]} | {name} | {len(links)} | {mine[:, 0].mean():.3f} |"
-                f" {mine[:, 1].mean():.1f} | {vs[0]} | {vs[1]} |"
-            )
+            for name in sorted(per[cond], key=lambda n: (n != a.reference, n)):
+                links = sorted(set(per[cond][name]) & set(ref))
+                if not links:
+                    continue
+                mine = np.array([np.mean(per[cond][name][k], axis=0) for k in links])
+                theirs = np.array([np.mean(ref[k], axis=0) for k in links])
+                vs = (
+                    ("", "")
+                    if name == a.reference
+                    else (ratio(mine[:, 0], theirs[:, 0]), ratio(mine[:, 1], theirs[:, 1]))
+                )
+                lines.append(
+                    f"| {camp.name[2:]} | {cond} | {name} | {len(links)} |"
+                    f" {mine[:, 0].mean():.3f} | {mine[:, 1].mean():.1f} | {vs[0]} | {vs[1]} |"
+                )
     with (a.out / "summary.md").open("a") as fh:
         fh.write("\n".join(lines) + "\n")
     print("\n".join(lines))
