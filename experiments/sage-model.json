@@ -1,0 +1,9 @@
+{
+  "title": "Sage's released policy, converted to sage-v1 and checked against TensorFlow",
+  "description": "Sage (Yen, Abbasloo et al., SIGCOMM 2023; github.com/Soheil-ab/sage at eedd281, MIT-licensed, its notice in sage/LICENSE-sage.txt) converted to run in palaestra: its released models/ckpt-1 is read with Sage's own stack (TensorFlow 2.4.1, sonnet 2.0.0, acme 0.2.0) by experiments/sage_weights.py, rewritten in torch and exported under sage-v1 with its GRU state as the contract's state by experiments/sage_export.py, and checked against TensorFlow on the messages of one recorded Cubic episode (experiments/sage_record.py; sage/check.txt). sage/sage.onnx is the policy; run it as a hold agent. sage/weights.npz holds the weights by module path, and actions.npy and obs.npy the check's reference. Later experiments take this release as an input.",
+  "uml": true,
+  "train": true,
+  "shards": 1,
+  "run": "T=$(mktemp -d); git clone --quiet https://github.com/Soheil-ab/sage.git \"$T/sage\"; git -C \"$T/sage\" checkout --quiet eedd28110278f7b9cac4fb05f2570dd7d43b0529; uv venv --quiet --python 3.8 \"$T/tf\"; uv pip install --quiet --python \"$T/tf/bin/python\" tensorflow-cpu==2.4.1 tensorflow-probability==0.12.1 dm-sonnet==2.0.0 dm-tree==0.1.5 numpy==1.19.5 dm-env==1.3 absl-py ruamel.yaml protobuf==3.20.3 pillow gym 'matplotlib<3.4'; \"$T/tf/bin/python\" -m ensurepip > /dev/null; \"$T/tf/bin/python\" -m pip install --quiet --no-deps dm-acme==0.2.0; mkdir -p \"$OUT/sage\"; uv run python experiments/sage_record.py \"$OUT/sage/obs.npy\" --build \"$UML\"; \"$T/tf/bin/python\" experiments/sage_weights.py \"$T/sage\" \"$OUT/sage/obs.npy\" \"$OUT/sage\"; uv run python experiments/sage_export.py \"$OUT/sage/weights.npz\" \"$OUT/sage/sage.onnx\" --check \"$OUT/sage\" | tee \"$OUT/sage/check.txt\"; cp \"$T/sage/copyright\" \"$OUT/sage/LICENSE-sage.txt\"; (cd \"$OUT/sage\" && sha256sum -- * > ../SHA256SUMS && mv ../SHA256SUMS .)",
+  "timeout_minutes": 60
+}
