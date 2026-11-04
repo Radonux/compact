@@ -1,0 +1,14 @@
+{
+  "title": "A net2 with memory on net1 v4: a cooperative mode and a mode switch, on validation links",
+  "description": "The share rule loses to its own copies because copies of it, like copies of the fixed rule, fill the buffer as a Cubic flow does (exp-share-copies-val-17). The mode rule (experiments/mode_rule_export.py) has a cooperative window that follows its own share, so its copies keep the buffer far from full, and competes as the share rule (k = 1) for a period after net1 believes the buffer fuller than 0.7 or the queue longer than one base RTT, rejoining the competition while the mean believed fill stays above 0.35 right after. Run: the cooperative mode alone (no switch), the switch with periods of 10 and 20 units, the fixed rule (u = 0.125) and the share rule (k = 1) on net1 v4, and BBRv3, on the five validation families (seed 11) and as 2 and 4 copies for 30 s (experiments/copies.py, seed 11). Local smoke runs on four validation links, not published, chose this design; its other numbers are not tuned. Reported: log utility against BBRv3 per family, and Jain's index, utilization and queueing delay of the copies.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "grid": "release:exp-net1v4-grid-10"
+  },
+  "prepare": "G=\"$IN/grid/$(cat \"$IN/grid/chosen.txt\")/net1.pt\"; uv run python experiments/rule_export.py \"$OUT/v4\" \"$G\" --u 0.125; uv run python experiments/share_rule_export.py \"$OUT/share\" \"$G\" --u0 0.125 --k 1; uv run python experiments/mode_rule_export.py \"$OUT/mode\" \"$G\" --phi 0.7 --period 10 20; uv run python experiments/mode_rule_export.py \"$OUT/coop\" \"$G\" --phi 2 --period 20 --theta 99 --phi-low 2; P=(--policy \"rule-v4=$OUT/v4/rule-u0.125.onnx\" --policy \"share-k1=$OUT/share/share-u0.125-k1.onnx\" --policy \"coop=$OUT/coop/mode-f2-p20.onnx\" --policy \"mode-p10=$OUT/mode/mode-f0.7-p10.onnx\" --policy \"mode-p20=$OUT/mode/mode-f0.7-p20.onnx\"); experiments/rule_eval.sh \"$OUT\" val 11 11 bbr3 \"${P[@]}\"; uv run python experiments/copies.py \"$OUT/copies\" --split val --duration-ms 30000 --seed 11 --n 2 4 --stock bbr3 \"${P[@]}\"; mv \"$OUT/copies/c-copies-30s\" \"$OUT/\"; jq -s add \"$OUT/aliases.json\" \"$OUT/copies/aliases.json\" > \"$OUT/a.json\"; mv \"$OUT/a.json\" \"$OUT/aliases.json\"",
+  "shards": 20,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps; done; uv run python experiments/slim_steps.py \"$OUT\"",
+  "collect": "uv run python experiments/rule_report.py \"$OUT\" --apart copies-30s && uv run python experiments/copies_report.py \"$OUT\"",
+  "timeout_minutes": 240
+}
