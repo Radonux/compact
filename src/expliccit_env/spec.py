@@ -45,9 +45,13 @@ SPEC_VERSION: Final = 1
 # buffer to k * cwnd * per_mss (tcp_sndbuf_expand): k is 2, or 3 for BBR, and
 # per_mss the memory one segment may take, roundup_pow_of_two(MSS 1460 +
 # MAX_TCP_HEADER 256 + skb_shared_info 320) + sk_buff 256 = 2304 bytes in this
-# build. ponytail: per_mss read from the UML build's headers (docs/validation.md);
-# recompute it if the kernel config or MTU changes.
+# build. The limit grants that for a window of SEND_BUFFER_WINDOWS times what
+# the path holds: stock controllers reached at most 2.15 times (slow start's
+# overshoot, BBR's two BDPs), so 4 leaves them twice that (docs/validation.md).
+# ponytail: per_mss read from the UML build's headers; recompute it if the
+# kernel config or MTU changes.
 SEND_BUFFER_PER_SEGMENT: Final = 3 * 2304
+SEND_BUFFER_WINDOWS: Final = 4
 SEND_BUFFER_MAX: Final = 64 * 2**20  # Sage's and ccBench's setup scripts
 TCP_INIT_CWND: Final = 10
 U64: Final = 2**64
@@ -319,12 +323,13 @@ class EpisodeSpec(_Frozen):
 
     def _send_buffer(self) -> str:
         """tcp_wmem for the senders: what Linux's own autotuning asks for a
-        window that holds the whole path (its peak capacity over 1 s times the
-        longest flow's base RTT, plus the buffer), the bandwidth-delay rule at
-        the RTT of a full queue, and at most the setups' 64 MB. A window the
-        path can hold is never cut; one far beyond it, which a real sender's
-        NIC and CPU would stop and which costs nothing in virtual time, is
-        (docs/validation.md, "TCP buffer limits")."""
+        window of SEND_BUFFER_WINDOWS times what the path holds (its peak
+        capacity over 1 s times the longest flow's base RTT, plus the buffer:
+        the bandwidth-delay product at the RTT of a full queue), at most the
+        setups' 64 MB. Stock controllers never reach it; a window far beyond
+        the path, which a real sender's NIC and CPU would stop and which costs
+        nothing in virtual time, does (docs/validation.md, "TCP buffer
+        limits")."""
         counts = mm.dense_counts(self.path.trace.timestamps()).astype(np.int64)
         cycle = np.tile(counts[1:], -(-2000 // max(counts.size - 1, 1)))
         peak = int(np.convolve(cycle, np.ones(1000, np.int64), "valid").max())  # packets/s
@@ -332,7 +337,7 @@ class EpisodeSpec(_Frozen):
         rtt_s = (2 * self.path.delay.one_way_ns + extra * 1_000_000) / 1e9
         buf = self.path.buffer
         queue = min(n for n in (buf.packets, -(-buf.bytes // mm.PACKET_SIZE)) if n)
-        segments = max(TCP_INIT_CWND, math.ceil(peak * rtt_s) + queue)
+        segments = max(TCP_INIT_CWND, SEND_BUFFER_WINDOWS * (math.ceil(peak * rtt_s) + queue))
         cap = min(SEND_BUFFER_MAX, SEND_BUFFER_PER_SEGMENT * segments)
         return f"4096 65536 {cap}"
 

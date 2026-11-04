@@ -74,29 +74,27 @@ these limits from memory, and in the 1 GiB guest its own would cap the
 send buffer at 4 MB, too little to fill a deep buffer on a long, fast path
 (`docs/validation.md`). For the same reason the guest's global TCP memory
 (`tcp_mem`) presses at 3/8 of its memory, not Linux's 6.25%. One limit is
-sized to the path instead, as a host tuned for that path would set it: each
-episode's send buffer (`tcp_wmem`'s maximum) holds a window of what the path
-holds, at most the scripts' 64 MB (`EpisodeSpec._send_buffer`). The rule of
-thumb for host tuning is a buffer of the bandwidth-delay product, bandwidth
-times RTT (ESnet's fasterdata); here the bandwidth is the peak capacity over
-1 s and the RTT that of a full queue, the longest flow's base RTT plus the
-buffer, so a loss-based flow can still fill the buffer as it could on the
-original hosts. Linux counts that buffer in memory, not payload: its own
-autotuning (`tcp_sndbuf_expand`) gives a window of W segments 2 W (3 W for
-BBR) times 2304 bytes in this build, so the limit is three times 2304 bytes
-for each packet the path holds, about 4.6 times its bytes, and at least the
-initial window's 10 segments (69 KB). By the kernel's own arithmetic it never
-cuts the buffer of a window no larger than what the path holds. It does cut
-larger ones: policies that flood the link, Hybla's slow start on long paths,
-the slow-start overshoot of loss-based controllers (about twice the path),
-and BBR on a buffer shallower than the BDP, whose window of twice the BDP is
-more than the path holds. Ordinary flows move a little and floods a lot
-(`docs/validation.md` has the effects).
-Sending costs no virtual time here, so without the limit such a window puts
-up to 64 MB on the link every round trip, tens of Gbit/s that a real
-sender's NIC, CPU and Mahimahi's own processing would not pass. A spec's
-`sysctls` are written after all of these, so an episode can still set its
-own.
+sized to the path instead: each episode's send buffer (`tcp_wmem`'s
+maximum), at most the scripts' 64 MB (`EpisodeSpec._send_buffer`). The rule
+of thumb for host tuning is a buffer of the bandwidth-delay product,
+bandwidth times RTT (ESnet's fasterdata); here the bandwidth is the peak
+capacity over 1 s and the RTT that of a full queue, the longest flow's base
+RTT plus the buffer, which gives the packets the path holds. Linux counts
+the buffer in memory, not payload: its own autotuning (`tcp_sndbuf_expand`)
+gives a window of W segments 2 W (3 W for BBR) times 2304 bytes in this
+build. Stock controllers' windows reach about twice what the path holds
+(slow start's overshoot, BBR's two BDPs on a shallow buffer), so the limit
+grants what autotuning asks for a window of four times the path at BBR's
+factor: 12 times 2304 bytes per packet the path holds, about 18 times its
+bytes, and at least the initial window's 10 segments. No stock controller
+reached it in a 340-episode sample (`docs/validation.md`). What does is a
+window far beyond the path: a policy that floods the link, and at times
+Hybla's slow start on long paths, which grows the window by up to 2^ρ - 1
+packets per ACK. Sending costs no virtual time here, so without the limit
+such a window puts up to 64 MB on the link every round trip, tens of Gbit/s
+that a real sender's NIC, CPU and Mahimahi's own processing would not pass.
+A spec's `sysctls` are written after all of these, so an episode can still
+set its own.
 
 Cross traffic shares the same path in the same direction, sender to
 receiver. Cross flow `i` sends from port `6000 + i`. The observed flow sends

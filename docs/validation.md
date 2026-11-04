@@ -446,46 +446,54 @@ push 64 MB per round trip into Mahimahi, so a limit stays; but 16 times the
 path and a 1 MB floor were a guess, well above what host tuning gives a
 small path.
 
-The limit now follows the host-tuning rule instead (`docs/architecture.md`).
+The limit now starts from the host-tuning rule (`docs/architecture.md`).
 That rule sizes a socket buffer to the bandwidth-delay product, bandwidth
 times RTT (ESnet fasterdata, "Background Information", edited 2024-01-07:
 "2 * bandwidth * delay" with one-way delay, or "bandwidth * RTT" from ping;
 its Linux page, edited 2025-03-06, sets 32 to 64 MB for 10 Gbit/s hosts).
 Here the bandwidth is the peak capacity over 1 s and the RTT that of a full
-queue, so a loss-based flow can still fill the buffer, and the bytes are
-counted as Linux counts them: `tcp_sndbuf_expand` gives a window of W
-segments 2 W (BBR 3 W) times `per_mss`, and the limit is 3 x `per_mss` per
-packet the path holds, at least 10 packets and at most 64 MB. `per_mss` is
-2304 bytes in this build, read by compiling against its headers: `sk_buff`
-256 and `skb_shared_info` 320 bytes after alignment, `MAX_TCP_HEADER` 256,
-MSS 1460, so roundup_pow_of_two(2036) + 256. Checks on 2026-11-04, local:
+queue, which gives N, the packets the path holds. Linux counts the buffer
+in memory: `tcp_sndbuf_expand` gives a window of W segments 2 W (BBR 3 W)
+times `per_mss`, 2304 bytes in this build, read by compiling against its
+headers (`sk_buff` 256 and `skb_shared_info` 320 bytes after alignment,
+`MAX_TCP_HEADER` 256, MSS 1460, so roundup_pow_of_two(2036) + 256).
 
+A first version granted a window of N (`428b121`) and touched ordinary
+flows. On 375 episodes sampled from the 30 s data (seed 7) and paired with
+release 49 it changed 58 of 160 stock episodes (none by more than 0.05 in
+utilization, mean -0.0002), 109 of 120 with BBR on a buffer shallower than
+the BDP (2 by more than 0.05), 41 of 60 with Hybla and 22 of 35 with a
+threshold policy (13 by more than 0.05, mean -0.065); four of the BBR ones
+rerun at 64 MB reproduce release 49 exactly. A buffer below what autotuning
+asks for changes when the sender writes, and the episode takes another
+course even where no data in flight is stopped.
+
+A limit should leave well-behaved controllers alone, so their windows were
+measured: 340 of those episodes at 64 MB (2026-11-04, local), the largest
+window of each episode's observed flow against N (the records keep its
+window only).
+
+| Controller | Flows | Largest window over N | Largest request in `per_mss` per packet of N |
+|---|---|---|---|
+| BBRv1 | 36 | 2.15 | 6.44 |
+| BBRv3 | 37 | 1.88 | 5.63 |
+| loss-based and delay-based (14 controllers) | 231 | 2.14 | 4.28 |
+| Hybla | 36 | 6.24 | 12.47 |
+
+Slow start overshoots to about twice the path before the loss is seen, and
+BBR keeps two BDPs in flight on a shallow buffer. The limit therefore
+grants what autotuning asks for a window of 4 N at BBR's factor, 12
+`per_mss` per packet of N (about 18 times the path's bytes), twice the
+largest window measured, and at least 10 segments and at most 64 MB. Checks
+on 2026-11-04, local:
+
+- The same 340 episodes with the limit, paired with themselves at 64 MB:
+  all 160 stock and all 120 BBR ones are identical, and 57 of the 60 with
+  Hybla; the other three moved by at most 0.0003 in utilization.
 - The UML tests pass: Reno still fills a 640 ms buffer at 96 Mbit/s and
   160 ms, and the growing agent on 50 Mbit/s, 10 ms and 26 packets for 4 s
-  (a 470 KB limit) puts 3.1 arrivals on the link per departure, against 5.3
-  with 1 MB and 54.4 with 64 MB; its utilization is 0.50, 0.62 and 0.93.
-- 375 episodes sampled from the 30 s data (seed 7; not the 25 whose rule
-  policy is built in CI), rerun with the limit and paired with release 49,
-  which ran them with the 16 times cap:
-
-  | Episodes | Changed | Utilization changed by more than 0.01, 0.05 | Mean utilization change | Mean delay changed by more than 10% |
-  |---|---|---|---|---|
-  | stock controllers, no Hybla, not BBR on a shallow buffer | 58 of 160 | 7, 0 | -0.0002 | 4 |
-  | BBR on a buffer shallower than the BDP | 109 of 120 | 21, 2 | +0.0008 | 9 |
-  | Hybla among the flows | 41 of 60 | 6, 3 | +0.0045 | 5 |
-  | a threshold policy | 22 of 35 | 18, 13 | -0.065 | 16 |
-
-  Four of the changed BBR episodes rerun at 64 MB reproduce release 49
-  exactly, so the limit's size, not the rerun, moves them. The limit cuts
-  the buffer Linux would give a window beyond the path: BBR's window of
-  twice the BDP on a shallow buffer, and the slow-start overshoot of loss-based
-  controllers, which reaches about twice the path before the loss is
-  seen. Data in flight is rarely stopped by it there; a smaller buffer
-  changes when the sender writes, and the episode takes another course.
-  The changes to ordinary flows are small and average out; floods are
-  cut hard. A host tuned to each path would behave this way, which is what
-  the limit models; one sized for twice the path would leave ordinary flows
-  nearly untouched, at about twice the flood (UNRUN).
+  (a 1.9 MB limit) puts 9.0 arrivals on the link per departure, against
+  54.4 with 64 MB; its utilization is 0.71 against 0.93.
 
 The setup scripts' other lines (the initial buffer sizes 87380 and 65536
 bytes, no cached metrics, no autocorking) change every episode a little,
@@ -527,7 +535,8 @@ validation seeds, the share rule's and Sage's validation, the case study,
 ccperf and ccBench, every one with the limit; the test runs follow once the
 validation choices are settled on these, so each test link set runs once
 more, not twice. Runs with the 16 times cap are superseded (`-49` and `-51`
-published; #50 and #52 to #58 were cancelled). The `-deeplong` reruns and
+published; #50 and #52 to #58 were cancelled), and so are #59 to #68,
+cancelled, which had the first version of the limit. The `-deeplong` reruns and
 runs #43 to #48 remain the record of 64 MB without a limit. The runs listed
 above as not rerun stay so, for the reasons given there.
 

@@ -260,9 +260,9 @@ def test_paths_sweep_takes_any_trace_and_conditions_override_loss() -> None:
 
 def test_send_buffer_follows_the_path() -> None:
     # Linux's autotuning request (3 * 2304 bytes a segment) for a window of
-    # what the path holds (peak 1 s capacity times the longest RTT, plus the
-    # buffer), at least the initial 10 segments and at most the setups' 64 MB;
-    # a spec's own tcp_wmem wins.
+    # 4 times what the path holds (peak 1 s capacity times the longest RTT,
+    # plus the buffer), at least the initial 10 segments and at most the
+    # setups' 64 MB; a spec's own tcp_wmem wins.
     def wmem(bw: float, one_way_ms: int, packets: int, **extra: object) -> int:
         spec = EpisodeSpec.parse(
             json.dumps(
@@ -280,8 +280,8 @@ def test_send_buffer_follows_the_path() -> None:
         return int(dict(spec.guest_plan().sysctls)["net.ipv4.tcp_wmem"].split()[2])
 
     hold = 49_000 / 12 * 0.010 + 26  # packets the 49 Mbit/s path holds
-    assert abs(wmem(49, 5, 26) - 6912 * hold) <= 6912 * 2
-    assert wmem(1, 1, 2) == 6912 * 10
+    assert abs(wmem(49, 5, 26) - 6912 * 4 * hold) <= 6912 * 4 * 2
+    assert wmem(1, 1, 1) == 6912 * 10
     assert wmem(192, 80, 40960) == 64 * 2**20
     override = {"sysctls": {"net.ipv4.tcp_wmem": "4096 16384 4194304"}}
     assert wmem(192, 80, 40960, **override) == 4194304

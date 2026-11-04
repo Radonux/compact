@@ -160,8 +160,8 @@ def test_a_window_far_beyond_the_path_is_bounded(build: UmlBuild, tmp_path: Path
     # and 26 packets never sees delay rise, so its window passes anything the
     # path holds. Sending costs no virtual time, so only the send buffer
     # stops it: at the setups' 64 MB the link sees 54 arrivals per departure,
-    # most of them dropped; sized to the path (EpisodeSpec._send_buffer, 470
-    # KB here) it sees about 3.
+    # most of them dropped; sized to the path (EpisodeSpec._send_buffer, 1.9
+    # MB here) it sees about 9.
     raw = onnx_policies.constant(0.05)
     sha = hashlib.sha256(raw).hexdigest()
     pol = tmp_path / "grow.onnx"
@@ -183,7 +183,7 @@ def test_a_window_far_beyond_the_path_is_bounded(build: UmlBuild, tmp_path: Path
         assert isinstance(out, EpisodeOk), out.row
         rec = load_records(tmp_path / name / spec.episode_id() / "raw")
         ratio[name] = rec.link(rec.link_arrival, 1).size / rec.link(rec.link_depart, 1).size
-    assert ratio["path"] < 6 and ratio["64mb"] > 30, ratio
+    assert ratio["path"] < 15 and ratio["64mb"] > 30, ratio
 
 
 def test_loss_and_cross_traffic(build: UmlBuild, tmp_path: Path) -> None:
