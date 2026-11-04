@@ -401,6 +401,19 @@ move by at most 0.02 on the test links and 0.06 on the validation links
 (their five-family means by at most 0.004 and 0.013), loss-based
 controllers fall by 0.2 to 0.9, and every validation choice stands.
 
+The setup scripts' other lines (the initial buffer sizes 87380 and 65536
+bytes, no cached metrics, no autocorking) change every episode a little,
+not only those the cap reached. Paired by episode, the out-of-distribution
+data rerun (`exp-data-net1-broad-ood-40` against `-9`, the same 3,600 ids)
+shows, on links that need less than 3 MB in flight, utilization higher by
+0.007 to 0.012 and queueing delay by about 3% (intervals over episodes
+excluding zero in three of the four sets), and on links that need more,
+delay higher by 4% to 16%. That is small against the differences between
+controllers, but it makes a mean of old families and rerun deep-long rows
+a mix of two guests, so the six validation and test runs are also rerun
+whole (runs #43 to #48), and their deep-long rows must equal the
+`-deeplong` reruns'.
+
 - The deep-long family of the six runs that report it and are still used:
   the fixed rule's validation and test (`exp-rule-net1v4-val-11`,
   `exp-rule-net1v4-test-14`), the share rule's (`exp-share-copies-val-17`,
