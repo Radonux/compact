@@ -481,8 +481,9 @@ links. ccperf (Vielhaus, gitlab.com/ccperf/ccperf at `18d1620`, MIT) asks
 more kinds of question: about responsiveness, buffers, fairness among
 copies and against other controllers. `experiments/ccperf.py` plans the
 experiments of ccperf's benchmark that this emulator can express, with the
-semantics of ccperf's ns-3 backend (ccperf-ns3 at `7c1709f`, GPL-2, read
-only). `experiments/ccperf_report.py` scores them, and
+semantics of ccperf's ns-3 backend (ccperf-ns3 at `7c1709f`; it is ns-3
+simulation code, which does not carry over to a UML kernel, so only what it
+sets up is taken). `experiments/ccperf_report.py` scores them, and
 `experiments/ccperf.json` runs both for every controller, 5 times each:
 
 | Experiment | Runs per controller and repeat | What varies |
@@ -493,7 +494,7 @@ only). `experiments/ccperf_report.py` scores them, and
 | `loss_resilience` | 7 | 0.1% to 5% random loss |
 | `deep_buffers`, `shallow_buffers` | 5, 6 | buffers of 1 packet to 16 BDP; 5 flows with 10 packets |
 | `rate_step`, `rate_pulse`, `rate_random_walk` | 4, 2, 2 | capacity steps up or down at 10 s, 5 s pulses, a bounded random walk every 0.1 or 1 s |
-| `replay_rate_trace` | 3 | Poisson capacity of 0.57 to 3.04 Mbit/s on ccperf's dynamic paths |
+| `replay_rate_trace` | 3 | ccperf's three Poisson rate traces (0.57 to 3.04 Mbit/s as named, from Pantheon; in `experiments/traces/ccperf`) on its dynamic paths |
 | `reno_fairness`, `cubic_fairness`, `vegas_fairness` | 3 each | 2, 4 or 10 flows, half of them the competitor |
 
 Per run the report gives utilization, the queueing delay of the flows under
@@ -511,9 +512,8 @@ compression, a policer, Poisson UDP, and an observed flow that stops early
 buffer of one BDP at the higher rate lets a loss-based controller fill it
 before the step, so Cubic used 0.999 of a step from 16 to 512 Mbit/s in a
 local check. The planner's docstring names each divergence; the main ones
-are greedy flows where ccperf sends a fixed size, our own Poisson traces in
-place of Pantheon's files, and random loss before the bottleneck where
-ccperf drops after it.
+are greedy flows where ccperf sends a fixed size, and random loss before the
+bottleneck where ccperf drops after it.
 
 ## Known limits
 

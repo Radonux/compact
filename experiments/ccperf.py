@@ -1,8 +1,10 @@
 """Plan the experiments of ccperf's benchmark that this emulator can express,
 scored by experiments/ccperf_report.py. ccperf is Vielhaus's benchmark
 (gitlab.com/ccperf/ccperf at 18d1620, benchmark.py and paths.py, MIT), with
-the semantics of its ns-3 backend (gitlab.com/ccperf/ccperf-ns3 at 7c1709f,
-read only). Every run lasts ccperf's 30 s, on one drop-tail bottleneck.
+the semantics of its ns-3 backend (gitlab.com/ccperf/ccperf-ns3 at 7c1709f:
+ns-3 simulation code, which does not carry over to a UML kernel, so only
+what it sets up is taken). Every run lasts ccperf's 30 s, on one drop-tail
+bottleneck.
 
 ccperf's paths (capacity, base RTT, loss, buffer); the default one is scaled
 by the number of flows K, as ccperf scales it:
@@ -27,8 +29,8 @@ The experiments, on the default path unless named otherwise:
     rate_random_walk       capacity a bounded correlated random walk (from
                            8.5 Mbit/s, steps of 0.9 times the last plus
                            N(0, 0.5^2), clipped to 1 to 16) every 0.1 or 1 s
-    replay_rate_trace      Poisson capacity of 0.57, 2.64 or 3.04 Mbit/s on
-                           ccperf's three dynamic paths
+    replay_rate_trace      ccperf's three Poisson rate traces (0.57, 2.64 and
+                           3.04 Mbit/s as named) on its three dynamic paths
     reno_fairness,         2, 4 or 10 flows, half (rounded down) the
     cubic_fairness,        controller and the rest the competitor
     vegas_fairness
@@ -50,14 +52,12 @@ and the link (Mahimahi's 1500-byte delivery opportunities):
 
 - Flows are greedy for the whole run. ccperf sends a fixed size, sized to end
   near 15 s on the default path, and measures each flow until it ends.
-- The Poisson traces are our own draws at the nominal rates, 60 s long.
-  Pantheon's files, which ccperf replays, begin with 1 to 5 s of no delivery.
 - Random loss drops data packets before the bottleneck queue. ccperf's ns-3
   error model drops packets after they cross the bottleneck.
 - Synchronous fairness with 2 and 10 flows on the default path: ccperf's
   benchmark.py builds these runs but never adds them. They are added here.
-- Each experiment runs --repeats times with fresh seeds, start times, walks
-  and traces. ccperf runs each once, with seed 42.
+- Each experiment runs --repeats times with fresh seeds, start times and
+  walks. ccperf runs each once, with seed 42.
 
 Usage: python experiments/ccperf.py OUT --seed 1 --repeats 5 --stock all
            --policy NAME=PATH ...
@@ -91,7 +91,14 @@ STATIC = {  # capacity (Mbit/s), base RTT (ms), buffer (packets), loss
     "aws_california_to_mexico": (114.68, 90, 450, 0.0),
     "winds_satellite": (42.0, 800, 2800, 0.0074),
 }
-REPLAY = {0.57: (56, 14, 0.0477), 2.64: (176, 130, 0.0), 3.04: (260, 426, 0.0)}
+# ccperf's rate traces (resources/traces at 18d1620, from Pantheon's
+# observatory), copied unchanged: trace -> base RTT (ms), buffer, loss
+TRACES = Path(__file__).resolve().parent / "traces" / "ccperf"
+REPLAY = {
+    "0.57mbps-poisson.trace": (56, 14, 0.0477),
+    "2.64mbps-poisson.trace": (176, 130, 0.0),
+    "3.04mbps-poisson.trace": (260, 426, 0.0),
+}
 
 # (experiment, variant, path, start of each flow in ms, flows under test, competitor)
 type Run = tuple[str, str, dict[str, Any], list[int], int, str | None]
@@ -133,15 +140,10 @@ def random_walk(rng: np.random.Generator, interval_ms: int) -> list[float]:
     return out
 
 
-def poisson_trace(rng: np.random.Generator, mbps: float, file: Path) -> dict[str, Any]:
-    """A Mahimahi trace of 60 s whose opportunities form a Poisson process."""
-    counts = rng.poisson(mbps / 12.0, 60_000)  # 1500-byte packets per ms
-    ms = np.repeat(np.arange(1, counts.size + 1), counts)
-    raw = "".join(f"{t}\n" for t in ms).encode()
-    file.parent.mkdir(parents=True, exist_ok=True)
-    file.write_bytes(raw)
-    sha = hashlib.sha256(raw).hexdigest()
-    return {"kind": "mahimahi_file", "path": str(file.resolve()), "sha256": sha}
+def trace_file(name: str) -> dict[str, Any]:
+    file = TRACES / name
+    sha = hashlib.sha256(file.read_bytes()).hexdigest()
+    return {"kind": "mahimahi_file", "path": str(file), "sha256": sha}
 
 
 def one(exp: str, variant: str, p: dict[str, Any]) -> Run:
@@ -171,7 +173,7 @@ def shared(rng: np.random.Generator) -> list[Run]:
     return out
 
 
-def alone(rng: np.random.Generator, traces: Path) -> list[Run]:
+def alone(rng: np.random.Generator) -> list[Run]:
     """ccperf's experiments with one flow."""
     out = [one("single_flow", n, static(n)) for n in STATIC]
     for loss in (0.001, 0.005, 0.01, 0.02, 0.03, 0.04, 0.05):
@@ -189,10 +191,9 @@ def alone(rng: np.random.Generator, traces: Path) -> list[Run]:
     for interval in (100, 1000):
         p = path(random_walk(rng, interval), RTT, PACKETS, level_ms=interval)
         out.append(one("rate_random_walk", f"every {interval} ms", p))
-    for mbps, (rtt, q, loss) in REPLAY.items():
-        trace = poisson_trace(rng, mbps, traces / f"{mbps}-{rng.integers(2**32):08x}.trace")
-        p = path([1.0], rtt, q, loss) | {"trace": trace}
-        out.append(one("replay_rate_trace", f"{mbps} Mbit/s Poisson", p))
+    for name, (rtt, q, loss) in REPLAY.items():
+        p = path([1.0], rtt, q, loss) | {"trace": trace_file(name)}
+        out.append(one("replay_rate_trace", name.removesuffix(".trace"), p))
     return out
 
 
@@ -209,7 +210,7 @@ def main() -> None:
     eps: dict[str, list[EpisodeSpec]] = defaultdict(list)
     variants: dict[str, dict[str, tuple[str, int]]] = defaultdict(dict)
     for _ in range(a.repeats):
-        for exp, variant, pth, starts, n_test, rival in alone(rng, a.out / "traces") + shared(rng):
+        for exp, variant, pth, starts, n_test, rival in alone(rng) + shared(rng):
             for c in ccs:
                 own = c["name"] if c["kind"] == "stock" else c
                 cross = [
