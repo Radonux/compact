@@ -264,14 +264,14 @@ For an interval net1, the centre and both bounds become the truth.
 
 ## 4. expliCCit's released models
 
-expliCCit's code is not in this repository and must not be. With a local
-copy, its released net1 and actor (`sage_rl/offline/models`) load into our
-modules unchanged. The loader reads `best_model.pth`, `actor.pth`, and the
+expliCCit's code stays out of this repository until expliCCit is
+published (`AGENTS.md`); its released net1 and actor (`sage_rl/offline/models`)
+are in `third_party/expliccit-models` and load into our modules unchanged. The loader reads `best_model.pth`, `actor.pth`, and the
 scalers' parameters from `x_scaler_params.json` and
 `y_scaler_params.json`. The pickled scikit-learn scalers are never
 loaded.
 
-    uv run expliccit train import-expliccit <expliCCit>/sage_rl/offline/models out/expliccit \
+    uv run expliccit train import-expliccit third_party/expliccit-models out/expliccit \
         --as-deployed --data out/teachers
 
 `--as-deployed` repeats what its deployed controller does between and
@@ -280,7 +280,7 @@ rounded to three decimals. `--data` reports its net1's error on our data.
 `--truth` takes the named LCFs from the live truth instead of its net1,
 for example:
 
-    uv run expliccit train import-expliccit <expliCCit>/sage_rl/offline/models out/expliccit-busy \
+    uv run expliccit train import-expliccit third_party/expliccit-models out/expliccit-busy \
         --as-deployed --truth busy_fraction
 
 ## 5. Beliefs instead of points

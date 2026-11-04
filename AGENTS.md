@@ -60,6 +60,10 @@ and the current status. Work in two phases:
 - Licensing is never a blocker: this is an academic project, and it can be
   dual-licensed to fit upstream code or data. Decide what to reuse on
   technical grounds only, and record where it came from and its license.
+- expliCCit's original code stays out of this repository and every public
+  place until expliCCit is published: it is its co-authors' unpublished
+  work. Our own rewrites of it may be public, since the experiment is done
+  in public, and so may its released weights (`third_party/expliccit-models`).
 - Follow the `pl-theorist` and `ponytail` skills: parse untrusted input once at
   its boundary, make invalid states unrepresentable, keep the core pure, and
   write the least code that works. Mark deliberate limits with

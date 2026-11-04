@@ -9,7 +9,7 @@ so `git diff <import> -- <tree>` is exactly what we changed.
 |---|---|---|---|
 | `linux/` | `e8eadca` | HZ, seeded randomness, Google's BBRv3 | GPL-2.0 (`linux/COPYING`) |
 | `mahimahi/` | `ac3c802` | Mahak's metric script | GPL-3.0 (`mahimahi/COPYING`) |
-| `expliccit-models/` | the commit that added it | none | none stated; published with its authors' consent |
+| `expliccit-models/` | `9c1537e` | none | none stated; published with its authors' consent |
 
 ## linux/
 

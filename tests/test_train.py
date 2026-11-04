@@ -635,3 +635,15 @@ def test_an_ensemble_averages_its_members_and_round_trips(tmp_path: Path) -> Non
     assert np.array_equal(old.beliefs(obs), single.beliefs(obs))
     with pytest.raises(ValueError, match="needs bins"):
         Net1Spec(members=2)
+
+
+def test_expliccits_released_models_load_and_act() -> None:
+    # The vendored weights (third_party/expliccit-models) load without
+    # pickles and give finite beliefs and an action in [-1, 1].
+    models = Path(__file__).resolve().parents[1] / "third_party" / "expliccit-models"
+    net1, actor = fit.load_expliccit(models)
+    obs = np.zeros((4, OBS_DIM), np.float32)
+    z = net1.beliefs(obs)
+    assert z.shape == (4, len(EXPLICCIT_LCFS)) and np.isfinite(z).all()
+    a = actor(torch.from_numpy(z)).detach().numpy()
+    assert a.shape == (4, 1) and np.all(np.abs(a) <= 1)
