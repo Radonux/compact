@@ -329,9 +329,11 @@ design above, on links neither network has seen, in log utility:
   `exp-fairshare-val-21` to `exp-fairshare-used-val-23`), a share rule on
   the truth that aims at 1/N of the BDP and pushes only below 1/N of the
   capacity in use matches the fixed rule alone and leads it with copies
-  (by 0.29) and with a Cubic flow from the start (by 0.09): N, or the fair
-  share, is the missing LCF for these conditions. Whether a sender can
-  estimate N is open.
+  (by 0.29) and with a Cubic flow from the start (by 0.09). N is not
+  added to the LCFs: it describes the other endpoints rather than the
+  path, changes with their arrivals, and one sender's measurements fit
+  several values of it. The result bounds what knowing the other flows is
+  worth, and leaves that inference to net2.
 - net2 setting the window to a fixed multiple of net1's believed BDP
   beats every kernel controller on average: by 0.079 (95% interval 0.032
   to 0.123) over BBRv3, the best of them. The average is over three

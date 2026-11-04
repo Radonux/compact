@@ -1322,11 +1322,18 @@ differ in seeds; the fixed rule's rows show that spread.)
   (utilization 0.63 to 0.82): net1 already believes less capacity on a
   shared link, so dividing by N counts the sharing twice.
 - What this shows: with the truth and N, one rule does well in all three
-  conditions, so the LCF set lacks N (or the fair share it implies), not
-  a mode switch. What it does not show: k = 4 was chosen on these links;
-  N is constant here and handed to the rule; conditions where N changes
-  (the training families' flows from 8 s, UDP) are not run; and nothing
-  says a sender can estimate N, which is the next question.
+  conditions, so what the window target lacks is information about the
+  other flows, not a mode switch. What it does not show: k = 4 was chosen
+  on these links; N is constant here and handed to the rule; conditions
+  where N changes (the training families' flows from 8 s, UDP) are not
+  run.
+- N is not added to the LCFs. It describes the other endpoints and their
+  arrivals rather than the path, changes as flows come and go (like the
+  free buffer, which net1 v4 already covers worst), and the measurements
+  of one sender fit different N (one Cubic flow or two, a copy or a
+  constant-rate flow), so an honest net1 would state it with little
+  confidence. This oracle is an upper bound on what knowing the other
+  flows is worth, and it leaves that inference to net2.
 
 ### Tuned comparison
 
@@ -1561,10 +1568,10 @@ beat the constant. What it leaves open, in the order the plan needs it:
   and loses against its own copies, on validation and test alike, and a
   hand-made switch between a cooperative mode and the share rule kept
   neither gain (`exp-mode-val-19`). Told the number of flows N, a rule on
-  the truth keeps both (`exp-fairshare-used-val-23`), so the next
-  question is net1's: whether N, or the fair share, can be estimated from
-  one sender's measurements, and how well, before a net1 v5 adds it to the
-  LCFs. A learned net2 with memory remains the other route. Online TD3+BC
+  the truth keeps both (`exp-fairshare-used-val-23`). N is not added to
+  the LCFs (it describes the other endpoints, not the path, and changes
+  with their arrivals), so this is net2's to infer over time: a learned
+  net2 with memory, which sees how the others respond to its own actions. Online TD3+BC
   from the rule lost on validation; a learned net2 needs a lower-variance
   signal than broad 30 s rollouts give its critic (paired rollouts, or a
   policy search over a few parameters).
