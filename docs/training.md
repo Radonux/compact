@@ -1390,6 +1390,53 @@ ratios to Sage with 95% bootstrap intervals over links):
   (its training paths are not known here). And the split here is net1 v4
   with a fixed rule, not expliCCit's net1 and net2.
 
+### ccperf's experiments
+
+Release
+[`exp-ccperf-31`](https://github.com/Radonux/palaestra/releases/tag/exp-ccperf-31)
+(`experiments/ccperf.json`; the benchmark is described in
+`docs/architecture.md`) ran the 59 of ccperf's 121 experiments this
+emulator expresses, plus 2, for every kernel controller, Sage's released
+policy, and the fixed rule (u = 0.125) and share rule (k = 1) on net1 v4,
+five times each with fresh seeds, after the TCP buffer fix: 6,100 runs, none
+failed. Nothing was chosen on these links. Means over each experiment's
+variants and repeats (`summary.md` has every controller, `ccperf.csv` every
+variant):
+
+| Experiment | Measure | Fixed rule | Share rule | BBRv1 | BBRv3 | Cubic | Sage |
+|---|---|---|---|---|---|---|---|
+| single flow, 5 paths | utilization | 0.851 | 0.868 | 0.863 | 0.861 | 0.621 | 0.455 |
+| | queueing delay (ms) | 3.0 | 3.5 | 52.2 | 43.5 | 9.9 | 2.0 |
+| deep buffers, 1 to 16 BDP | utilization | 0.914 | 0.939 | 0.986 | 0.984 | 0.999 | 0.998 |
+| | queueing delay (ms) | 1.7 | 1.8 | 19.3 | 8.7 | 74.6 | 4.8 |
+| random loss, 0.1 to 5% | utilization | 0.829 | 0.907 | 0.978 | 0.684 | 0.415 | 0.528 |
+| shallow buffers | utilization | 0.863 | 0.880 | 0.797 | 0.726 | 0.636 | 0.764 |
+| rate steps, pulses, random walks | utilization | 0.938, 0.943, 0.908 | 0.953, 0.965, 0.950 | 0.979, 0.968, 0.978 | 0.970, 0.957, 0.975 | 0.962, 0.940, 0.998 | 0.979, 0.933, 0.894 |
+| Poisson rate traces | utilization | 0.874 | 0.900 | 0.943 | 0.914 | 0.875 | 0.953 |
+| | queueing delay (ms) | 302 | 344 | 244 | 211 | 523 | 553 |
+| synchronous, start-time, RTT fairness | Jain's index | 0.904, 0.870, 0.869 | 0.943, 0.873, 0.902 | 0.855, 0.873, 0.855 | 0.969, 0.965, 0.838 | 0.938, 0.953, 0.668 | 0.800, 0.791, 0.817 |
+| against Reno, Cubic, Vegas | share over fair share | 0.970, 0.993, 1.494 | 1.372, 1.412, 1.605 | 1.245, 0.976, 1.739 | 0.823, 0.746, 1.694 | 1.056, 1.076, 1.679 | 0.252, 0.298, 1.177 |
+
+- On paths of fixed capacity the rules keep queueing delay at 1.5 to 3.5
+  ms, a tenth of BBRv1's or less, and they hold up under random loss (0.83
+  and 0.91) where Cubic and Sage do not. On the Poisson traces, whose
+  capacity jumps, they queue 300 to 340 ms: more than BBRv1 and BBRv3 (211
+  to 244 ms), less than Cubic and Sage (523 to 553 ms).
+- They leave capacity unused on small paths: on ccperf's default path (16
+  Mbit/s, 15 ms base RTT, a BDP of 20 packets) the fixed rule reaches 0.85
+  and the share rule 0.89, against 0.99 to 1.00 for BBRv1, Cubic and Sage,
+  and 0.93 and 0.95 with deeper buffers. The path lies inside net1 v4's
+  training ranges (4 to 150 Mbit/s, 5 to 60 ms one way), so this is not a
+  range limit; that net1 v4 underestimates its BDP is the likely cause,
+  not yet checked.
+- Against Cubic and Reno the fixed rule takes its fair share (0.97 to 0.99,
+  0.86 to 1.22 by number of flows); the share rule takes 1.4 times it, and
+  Sage a quarter to a third. Among the rules' own copies with different
+  RTTs, Jain's index is 0.87 to 0.90, against Cubic's 0.67.
+- On the 800 ms WINDS satellite path with 0.74% loss the rules (0.46 and
+  0.52) match BBRv1 (0.47, at 239 ms of queueing delay against their 1 ms);
+  Cubic and Sage reach 0.02 and 0.04.
+
 ### Tuned comparison
 
 The search below ran on the expliCCit-like data. Its harness (grid
