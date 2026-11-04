@@ -1112,10 +1112,43 @@ The fixed rule's mean is +0.142, and k = 3 falls to +0.117. At k = 1 the
 share rule matches the fixed rule wherever no competitor is there from
 the start and gains 0.24 when one is; larger k gains more there and loses
 elsewhere. Its risk is copies of itself: each believes it gets a small
-share, so all may push. That is measured before any test
-(`experiments/share-copies-val.json`, with `experiments/copies.py`:
-2 and 4 copies of each controller on the validation links). UNRUN on the
-test links.
+share, so all may push.
+
+**Copies of the share rule hurt each other.** Release
+[`exp-share-copies-val-17`](https://github.com/Radonux/palaestra/releases/tag/exp-share-copies-val-17)
+(`experiments/share-copies-val.json`, `experiments/copies.py`) started 2
+or 4 copies of one controller together on each validation link for 30 s;
+no episode failed. Log utility of the copies minus BBRv3's copies, paired
+by link, and the copies' fairness and queueing delay:
+
+| Controller | log utility minus BBRv3 copies | queueing delay, 2 copies (ms) | queueing delay, 4 copies (ms) | Jain's index, 4 copies |
+|---|---|---|---|---|
+| fixed rule on net1 v4 | +0.078 (-0.104 to +0.266) | 22.7 | 35.6 | 0.921 |
+| share, k = 0.5 | -0.267 (-0.536 to -0.006) | 25.4 | 45.2 | 0.917 |
+| share, k = 1 | -0.564 (-0.889 to -0.241) | 31.1 | 48.1 | 0.908 |
+| share, k = 1.5 | -1.035 (-1.354 to -0.712) | 42.4 | 55.0 | 0.934 |
+| share, k = 2 | -1.473 (-1.767 to -1.129) | 46.6 | 59.4 | 0.947 |
+| Cubic | -0.014 (-0.196 to +0.149) | 60.0 | 64.1 | 0.958 |
+| BBRv1 | -0.317 (-0.449 to -0.203) | 46.2 | 51.5 | 0.919 |
+
+- Copies of the fixed rule share fairly, keep the link busier than any
+  kernel controller's copies (utilization 0.986 to 0.989) and the queue
+  shortest.
+- Copies of the share rule stay as fair and as busy, but each believes
+  its share is small and pushes, so the queue grows with k and their own
+  log utility falls: by 0.35 at k = 0.5 and 0.64 at k = 1 against the
+  fixed rule's copies. The share signal cannot tell a copy of itself
+  from a Cubic flow.
+- k = 1.5 on the five families: +0.198 against BBRv3 on average, about
+  level with k = 1 (+0.193).
+
+No k met the bar set before this run (copies' queueing delay no worse
+than the fixed rule's), so the share rule's gain against loss-based
+competitors comes with a cost against copies, and which to prefer is a
+choice of weights, not a validation result. The single test therefore
+runs three candidates fixed in advance (the fixed rule, and the share
+rule at k = 0.5 and 1) with copies on the test links
+(`experiments/share-test.json`). UNRUN.
 
 ### Tuned comparison
 

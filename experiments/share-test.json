@@ -1,0 +1,15 @@
+{
+  "title": "The share rule and the fixed rule on net1 v4: test links, once, with copies",
+  "description": "The single test of net2 on net1 v4. Validation (exp-net2v4-val-16, exp-share-copies-val-17) left a trade-off rather than a winner: the share rule (u = 0.125 + k busy max(0, 1 - receive/capacity)) gains against a Cubic flow from the start and loses against copies of itself, at every k. So three candidates fixed in advance run here, none chosen on test: the fixed rule on net1 v4 (u = 0.125), the share rule at k = 0.5 and at k = 1, with the true-BDP rule (u = 0.375) and all 17 kernel controllers, on the 27 test links: the five validation families (seeds 13 and 31), BBRv3 or Westwood from 0 s (test only), and 2 and 4 copies of each candidate, BBRv3, Cubic and BBRv1 for 30 s (experiments/copies.py, seed 31). Steps keep labels and actions only.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "grid": "release:exp-net1v4-grid-10",
+    "models": "release:model-net1v3"
+  },
+  "prepare": "G=\"$IN/grid/$(cat \"$IN/grid/chosen.txt\")/net1.pt\"; M=\"$IN/models\"; uv run python experiments/rule_export.py \"$OUT/v4\" \"$G\" --u 0.125; uv run python experiments/rule_export.py \"$OUT/oracle\" \"$M/net1v3.pt\" --u 0.375 --oracle; uv run python experiments/share_rule_export.py \"$OUT/share\" \"$G\" --u0 0.125 --k 0.5 1; C=(--policy \"rule-v4=$OUT/v4/rule-u0.125.onnx\" --policy \"share-k0.5=$OUT/share/share-u0.125-k0.5.onnx\" --policy \"share-k1=$OUT/share/share-u0.125-k1.onnx\"); P=(\"${C[@]}\" --policy \"oracle-u0.375=$OUT/oracle/rule-u0.375-oracle.onnx\"); experiments/rule_eval.sh \"$OUT\" test 13 31 all \"${P[@]}\"; uv run python experiments/heldout.py \"$OUT/spec-held-competitors-60\" --split test --family held-competitors --duration-ms 60000 --seed 31 --stock all \"${P[@]}\"; uv run expliccit campaign plan \"$OUT/spec-held-competitors-60/campaign.json\" \"$OUT/c-held-competitors-60\"; uv run python experiments/copies.py \"$OUT/copies\" --split test --duration-ms 30000 --seed 31 --n 2 4 --stock bbr3,cubic,bbr \"${C[@]}\"; mv \"$OUT/copies/c-copies-30s\" \"$OUT/\"; jq -s add \"$OUT/aliases.json\" \"$OUT/copies/aliases.json\" > \"$OUT/a.json\"; mv \"$OUT/a.json\" \"$OUT/aliases.json\"",
+  "shards": 20,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps; done; uv run python experiments/slim_steps.py \"$OUT\"",
+  "collect": "uv run python experiments/rule_report.py \"$OUT\" --apart held-competitors-60 copies-30s && uv run python experiments/copies_report.py \"$OUT\"",
+  "timeout_minutes": 300
+}
