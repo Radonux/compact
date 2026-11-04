@@ -334,6 +334,14 @@ with `flow`, its index in the spec's `cross` list; its labels are that
 flow's own (receive rate, drops and the share every other flow took), and
 the path's.
 
+Every episode also has a `flow_seconds` table: for each flow (0 the
+observed one, `i` the `i`-th cross flow) and each whole second, the bytes
+and packets that left the bottleneck and their queueing delays (departure
+minus arrival ms, Mahimahi's resolution) as a sum, a 95th percentile and a
+maximum. Means over any window of whole seconds are exact from the sums;
+the percentiles hold for single seconds only. It is small, so campaigns
+keep it whatever else they drop.
+
 ## Agent controllers (`tcp_agent`)
 
 After each step, the step loop writes the policy's window and pacing rate
@@ -430,6 +438,43 @@ last step fail with a warning: the branch then stays, and a full clone
 fetches its files, until the ruleset excludes `stash/**`.) An experiment reads a release with
 `"inputs": {"NAME": "release:TAG"}`, and anyone can download a file from
 `https://github.com/Radonux/palaestra/releases/download/TAG/FILE`.
+
+## Benchmark
+
+`experiments/ccbench.py` plans ccBench's two suites (github.com/Soheil-ab/ccBench
+at `49b5ada`; Abbasloo, "Internet Congestion Control Benchmarking", arXiv
+2307.10054) and three it lacks, and `experiments/ccbench_report.py` scores
+them from `flow_seconds` (`experiments/ccbench.json` runs both for every
+controller):
+
+| Suite | Runs per controller | What varies |
+|---|---|---|
+| `solo` (ccBench1) | 690 | 12 to 192 Mbit/s, one-way delay 5 to 80 ms, buffer 0.5 to 16 BDP; constant, or 2x or 4x up (under 100 Mbit/s) or down from 7 s to 14 s; 30 s |
+| `friendly` (ccBench2) | 125 | a Cubic flow from 0 s, the controller from 5 s; buffer 1 to 16 BDP; 125 s |
+| `loss` | 150 | `solo`'s constant links with buffers of 1 and 4 BDP, and 0.1%, 1% or 3% random loss |
+| `copies` | 150 | 2, 4 or 8 flows of the controller starting together, the same links; 60 s |
+| `competitors` | 100 | `friendly` with BBRv1 or BBRv3 in place of Cubic, the same links |
+
+The report keeps ccBench's leagues: in each run and window, the controllers
+within 10% of the best round(throughput)^2 / round(delay) win (`solo`,
+`loss`), or those whose throughput is closest to half the capacity
+(`friendly`, `competitors`); a controller's rank is its share of games won,
+among the controllers of that run only. Next to the ranks it gives absolute
+means (utilization, queueing delay, share against the competitor, Jain's
+index of copies). Where it departs from ccBench:
+
+- There is no Pantheon tunnel: throughput and delay are measured at the
+  bottleneck, exactly, from the records. ccBench takes each packet's delay
+  from Pantheon's tunnel log and adds the one-way delay again; the report
+  uses queueing delay plus twice the one-way delay, assuming the tunnel's
+  delay includes the emulated one-way delay (UNVERIFIED).
+- ccBench's runs start 10 s into its traces, after its setup time; here the
+  flow starts at 0 s and the step traces are shifted to match (the change
+  from 7 s to 14 s of the flow).
+- Only kernel controllers and policies under `sage-v1` run; ccBench's
+  user-space schemes (Copa, Vivace, PCC, Indigo and others) do not.
+- Step traces are 7 s levels that repeat after 35 s; runs last 30 s, so
+  each sees one raised or lowered period, as in ccBench.
 
 ## Known limits
 

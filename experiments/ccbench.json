@@ -1,0 +1,15 @@
+{
+  "title": "A congestion-control benchmark: ccBench's two suites and three more, every controller",
+  "description": "ccBench's single-flow suite (690 runs: 12 to 192 Mbit/s, one-way delay 5 to 80 ms, buffers of 0.5 to 16 BDP, constant links and 2x or 4x steps up or down from 7 s to 14 s; 30 s) and its friendliness suite (125 runs with a Cubic flow from 0 s and the controller from 5 s; 125 s), as github.com/Soheil-ab/ccBench at 49b5ada defines them, and three suites it lacks: random loss of 0.1%, 1% and 3%, 2, 4 or 8 copies of the controller, and BBRv1 or BBRv3 as the competitor (experiments/ccbench.py). Every kernel controller, Sage's released policy (exp-sage-model-24), and the fixed rule (u = 0.125) and share rule (k = 1) on net1 v4. Scored by experiments/ccbench_report.py from each episode's flow_seconds table: ccBench's leagues (share of games won within 10% of the best throughput^2/delay score, or of the closest throughput to the fair share) and absolute means (utilization, queueing delay, share against the competitor, Jain's index of copies). The links are not the train, validation or test links, and nothing is chosen on them.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "grid": "release:exp-net1v4-grid-10",
+    "sage": "release:exp-sage-model-24"
+  },
+  "prepare": "G=\"$IN/grid/$(cat \"$IN/grid/chosen.txt\")/net1.pt\"; SAGE=\"$IN/sage/sage/sage.onnx\"; echo \"fc0d6f1da45e4948ee3d96784642793954ed5e52adc1eddd0c9883d5d8fe2f9e  $SAGE\" | sha256sum -c; uv run python experiments/rule_export.py \"$OUT/v4\" \"$G\" --u 0.125; uv run python experiments/share_rule_export.py \"$OUT/share\" \"$G\" --u0 0.125 --k 1; uv run python experiments/ccbench.py \"$OUT\" --suite solo friendly loss copies competitors --seed 7 --stock all --policy \"sage=$SAGE\" --policy \"rule-v4=$OUT/v4/rule-u0.125.onnx\" --policy \"share-k1=$OUT/share/share-u0.125-k1.onnx\"",
+  "shards": 100,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables flow_seconds; done",
+  "collect": "uv run python experiments/ccbench_report.py \"$OUT\"",
+  "timeout_minutes": 360
+}
