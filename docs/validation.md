@@ -325,6 +325,14 @@ differ by 0.001, where the two float32 computations straddle a rounding
 boundary). It runs as a `hold` agent in UML. Only local smoke runs exist so
 far.
 
+### Per-flow, per-second bytes and delays (`flow_seconds`)
+
+`test_loss_and_cross_traffic` checks the table on an episode with a
+constant-rate UDP flow and a Cubic flow: each flow's bytes over its seconds
+equal its `flow_bytes`, the UDP flow's packets fall in the seconds it was
+on, and the delays over every flow and second give exactly the episode's
+Mahimahi mean delay.
+
 ## Teacher modules, and seeded runs across guest versions (M10)
 
 Building BIC, CDG, HighSpeed, H-TCP, Hybla, Illinois, LP, NV, Scalable,

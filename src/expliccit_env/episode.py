@@ -351,6 +351,7 @@ def run_episode(
                 "link_events": link_events,
                 "link_opp": _columns(rec.link_opp, eid),
                 "agent_action": _columns(rec.agent_action, eid),
+                "flow_seconds": _with_id(_flow_seconds(spec, rec), eid),
                 **(
                     {}
                     if steps is None
@@ -388,6 +389,45 @@ def _flow_bytes(spec: EpisodeSpec, rec: Records) -> list[int]:
         minlength=max(ports) + 1,
     )
     return [int(sums[p]) for p in ports]
+
+
+def _flow_seconds(spec: EpisodeSpec, rec: Records) -> pa.Table:
+    """Per flow (0 the observed flow, i the i-th cross flow) and per whole
+    second of the episode, what left the bottleneck: bytes, packets, and the
+    packets' queueing delays (departure minus arrival ms, Mahimahi's
+    resolution) as a sum, a 95th percentile and a maximum. Window means are
+    exact from the sums; percentiles are per second only."""
+    dep = rec.link(rec.link_depart, labels.DOWNLINK)
+    dep = dep[dep["ms"] < spec.duration_ms]
+    ports = [labels.MAIN_SPORT, *(labels.CROSS_PORT_BASE + i for i in range(len(spec.cross)))]
+    seconds = -(-spec.duration_ms // 1000)
+    cols: dict[str, list[int]] = {k: [] for k in ("flow", "second", "bytes", "packets")}
+    stats: dict[str, list[float]] = {"delay_sum_ms": [], "delay_p95_ms": [], "delay_max_ms": []}
+    for flow, port in enumerate(ports):
+        d = dep[dep["sport"] == port]
+        sec = (d["ms"] // 1000).astype(np.int64)
+        delay = (d["ms"].astype(np.int64) - d["arrival_ms"].astype(np.int64)).astype(np.float64)
+        order = np.argsort(sec, kind="stable")
+        sec, delay, size = sec[order], delay[order], d["bytes"][order].astype(np.int64)
+        edges = np.searchsorted(sec, np.arange(seconds + 1))
+        for s in range(seconds):
+            q = delay[edges[s] : edges[s + 1]]
+            cols["flow"].append(flow)
+            cols["second"].append(s)
+            cols["bytes"].append(int(size[edges[s] : edges[s + 1]].sum()))
+            cols["packets"].append(int(q.size))
+            stats["delay_sum_ms"].append(float(q.sum()))
+            stats["delay_p95_ms"].append(float(np.percentile(q, 95)) if q.size else np.nan)
+            stats["delay_max_ms"].append(float(q.max()) if q.size else np.nan)
+    return pa.Table.from_pydict(
+        {
+            "flow": pa.array(cols["flow"], pa.int16()),
+            "second": pa.array(cols["second"], pa.int32()),
+            "bytes": pa.array(cols["bytes"], pa.int64()),
+            "packets": pa.array(cols["packets"], pa.int64()),
+            **{k: pa.array(v, pa.float64()) for k, v in stats.items()},
+        }
+    )
 
 
 def _cross_steps(

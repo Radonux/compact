@@ -177,6 +177,21 @@ def test_loss_and_cross_traffic(build: UmlBuild, tmp_path: Path) -> None:
     assert udp_sent == 2500 * 1472  # one 1500-byte packet per 2.4 ms for 6 s
     assert tcp_sent > 0
 
+    # Per flow and second: the bytes add up to each flow's total, and the
+    # delays to Mahimahi's mean delay over every departure.
+    fs = out.tables["flow_seconds"].to_pydict()
+    assert fs["second"][:10] == list(range(10)) and set(fs["flow"]) == {0, 1, 2}
+    per_flow = [
+        sum(b for f, b in zip(fs["flow"], fs["bytes"], strict=True) if f == k) for k in range(3)
+    ]
+    assert per_flow == out.row["flow_bytes"]
+    udp_seconds = [
+        s for f, s, n in zip(fs["flow"], fs["second"], fs["packets"], strict=True) if f == 1 and n
+    ]
+    assert udp_seconds[0] == 2 and udp_seconds[-1] in (7, 8)
+    mean = sum(fs["delay_sum_ms"]) / sum(fs["packets"])
+    assert abs(mean - out.row["mean_delay_ms"]) < 1e-9  # type: ignore[operator]
+
     lab = out.tables["labels"]
     t_ms = (np.asarray(lab["t_ns"]).astype(np.int64) - out.row["base_ns"]) // 1_000_000  # type: ignore[operator]
     share = np.asarray(lab["cross_traffic_share"])

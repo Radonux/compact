@@ -35,9 +35,10 @@ import pyarrow.parquet as pq
 
 from expliccit_env.episode import EpisodeOk, EpisodeOutcome
 
-DATASET_VERSION: Final = 6
+DATASET_VERSION: Final = 7
 # "steps" exists only for episodes that record them (spec.steps or a policy),
-# "cross_steps" only for episodes with an agent cross flow.
+# "cross_steps" only for episodes with an agent cross flow; "flow_seconds"
+# (each flow's bytes and queueing delay per second) for every episode.
 TABLES: Final = (
     "obs",
     "labels",
@@ -46,6 +47,7 @@ TABLES: Final = (
     "agent_action",
     "steps",
     "cross_steps",
+    "flow_seconds",
 )
 
 
