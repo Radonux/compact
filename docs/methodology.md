@@ -270,7 +270,7 @@ for the learned net2, one for each 60-iteration run (section 6).
 | expliCCit's result | Here |
 |---|---|
 | net1 estimates every LCF with R^2 above 0.9 | 5 of 7 (0.95 to 0.99); busy fraction 0.45 and free buffer 0.09 |
-| The split costs about 5% utilization and 9% queueing delay against Sage | UNRUN: Sage's released checkpoint is available locally, but not yet exported to ONNX and run here |
+| The split costs about 5% utilization and 9% queueing delay against Sage | UNRUN: Sage's released policy is exported under `sage-v1` and matches TensorFlow at every step (`docs/validation.md`); no comparison is published yet |
 | On a 24/48 Mbit/s link (one-way delay 40 ms, 1000-packet buffer), under-utilization is traced to capacity underestimated by 25%, and replacing that belief with the truth restores utilization | Not reproduced. The released policy runs at 0.49 utilization, and its capacity belief is about right; replacing it with the truth gives 0.43. The wrong beliefs are busy fraction (1.0 against 0.53 true), queue (18 packets against 0), free buffer and queueing delay; replacing busy fraction alone gives 0.72 |
 | Sage's state, as computed here, equals `sage.cc`'s | yes: every compared column of every step, on a Cubic and a BBRv1-with-loss episode (`tests/test_sage.py`, run locally with a Sage checkout; CI skips it) |
 

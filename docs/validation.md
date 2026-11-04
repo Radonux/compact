@@ -308,6 +308,23 @@ comparisons passed: every compared column of every step (1,382 on the
 Cubic episode) equals `sage.cc`'s output as printed. The test skips unless
 `EXPLICCIT_SAGE_DIR` is set, so CI does not run it.
 
+### Sage's released policy under `sage-v1`
+
+Sage's policy (its released `models/ckpt-1`, MIT-licensed) is a GRU of
+1,024 units between two layer-normed encoders, a residual MLP and a
+five-component Gaussian mixture, whose mean, clipped to [-2, 2] and
+rounded to 3 decimals, is the log2 of the window multiplier.
+`experiments/sage_weights.py` builds it with Sage's own stack (TensorFlow
+2.4.1, sonnet 2.0.0, acme 0.2.0) exactly as its evaluation actor does,
+restores the checkpoint, and records its actions on the 1,382 steps of a
+recorded Cubic episode; `experiments/sage_export.py` rewrites it in torch
+and exports it. On 2026-11-04 the torch version matched TensorFlow within
+2.9e-6 at every step, and the exported graph, run with its state fed back,
+gave TensorFlow's rounded action at 1,380 of the 1,382 steps (the other two
+differ by 0.001, where the two float32 computations straddle a rounding
+boundary). It runs as a `hold` agent in UML. Only local smoke runs exist so
+far.
+
 ## Teacher modules, and seeded runs across guest versions (M10)
 
 Building BIC, CDG, HighSpeed, H-TCP, Hybla, Illinois, LP, NV, Scalable,
@@ -583,7 +600,7 @@ time in a 1 GiB guest.
 
 | Item | Status |
 |---|---|
-| expliCCit's comparison with Sage (expliCCit reports that the split costs about 5% utilization and 9% queueing delay against Sage) | UNRUN. Sage's released checkpoint is available locally, but it has not been exported to ONNX or run in UML. The agent controllers can run it once it is exported under `sage-v1`, as a recurrent graph with its LSTM state in `state`. |
+| expliCCit's comparison with Sage (expliCCit reports that the split costs about 5% utilization and 9% queueing delay against Sage) | UNRUN. Sage's released policy is now rewritten in torch and exported under `sage-v1` with its GRU state in `state` (`experiments/sage_weights.py`, `experiments/sage_export.py`, below), and runs in UML locally; no comparison has been published, since its weights would have to go into a public release. |
 | The link model against real Mahimahi | Not started (UNRUN): it needs a root host (any kernel). Mahimahi is vendored. Mahak's `highbdp.patch` does not apply to current Mahimahi (`configure.ac` and `linkshell.cc` changed) and must be ported first. |
 | UML against a real-time kernel | Will not run: the native tier was dropped (`docs/architecture.md`, D19), so virtual time is never compared with real time. |
 | Mahak's failure regions (BBR, Orca, Sage) | Partial: the one-seed probes above (before M6, and M6). Maps over seeds are UNRUN. Orca's trained model is not in this repository. Sage's: see the comparison with Sage above. |
