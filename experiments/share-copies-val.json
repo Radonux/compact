@@ -1,0 +1,14 @@
+{
+  "title": "The share rule on net1 v4: copies of itself, and k = 1.5, on validation links",
+  "description": "Before any test of the share rule (u = 0.125 + k busy max(0, 1 - receive/capacity), experiments/share_rule_export.py), the case it risks: 2 and 4 copies of one controller starting together on each of the 21 validation links for 30 s (experiments/copies.py), for the share rule at k = 0.5, 1, 1.5 and 2, the fixed rule on net1 v4 (u = 0.125), BBRv3, Cubic and BBRv1. Each copy believes it gets a small share, so the share rule may build a standing queue. Reported: each controller's log utility against BBRv3 copies, and Jain's index, utilization and queueing delay of the copies. The five validation families are also run for k = 1.5 next to the fixed rule (k = 0.5, 1, 2 ran in exp-net2v4-val-16).",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "grid": "release:exp-net1v4-grid-10"
+  },
+  "prepare": "G=\"$IN/grid/$(cat \"$IN/grid/chosen.txt\")/net1.pt\"; uv run python experiments/rule_export.py \"$OUT/v4\" \"$G\" --u 0.125; uv run python experiments/share_rule_export.py \"$OUT/share\" \"$G\" --u0 0.125 --k 0.5 1 1.5 2; P=(--policy \"rule-v4=$OUT/v4/rule-u0.125.onnx\"); for k in 0.5 1 1.5 2; do P+=(--policy \"share-k$k=$OUT/share/share-u0.125-k$k.onnx\"); done; experiments/rule_eval.sh \"$OUT\" val 11 11 bbr3 --policy \"rule-v4=$OUT/v4/rule-u0.125.onnx\" --policy \"share-k1.5=$OUT/share/share-u0.125-k1.5.onnx\"; uv run python experiments/copies.py \"$OUT/copies\" --split val --duration-ms 30000 --seed 11 --n 2 4 --stock bbr3,cubic,bbr \"${P[@]}\"; mv \"$OUT/copies/c-copies-30s\" \"$OUT/\"; jq -s add \"$OUT/aliases.json\" \"$OUT/copies/aliases.json\" > \"$OUT/a.json\"; mv \"$OUT/a.json\" \"$OUT/aliases.json\"",
+  "shards": 20,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps; done; uv run python experiments/slim_steps.py \"$OUT\"",
+  "collect": "uv run python experiments/rule_report.py \"$OUT\" --apart copies-30s && uv run python experiments/copies_report.py \"$OUT\"",
+  "timeout_minutes": 240
+}

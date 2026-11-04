@@ -335,6 +335,7 @@ def run_episode(
             ],
             "cross_steps": g.cross_steps,
             "cross_actions": g.cross_actions,
+            "flow_bytes": _flow_bytes(spec, rec),
             "agent_actions": g.agent_actions,
             "n_steps": g.steps,
             "n_obs": rec.tcp_obs.size,
@@ -373,6 +374,20 @@ def run_episode(
     finally:
         if not keep_raw:
             shutil.rmtree(d, ignore_errors=True)
+
+
+def _flow_bytes(spec: EpisodeSpec, rec: Records) -> list[int]:
+    """Bytes each flow got through the bottleneck within the episode: the
+    observed flow, then every cross flow in spec order (by sender port)."""
+    dep = rec.link(rec.link_depart, labels.DOWNLINK)
+    dep = dep[dep["ms"] < spec.duration_ms]
+    ports = [labels.MAIN_SPORT, *(labels.CROSS_PORT_BASE + i for i in range(len(spec.cross)))]
+    sums = np.bincount(
+        dep["sport"].astype(np.int64),
+        weights=dep["bytes"].astype(np.float64),
+        minlength=max(ports) + 1,
+    )
+    return [int(sums[p]) for p in ports]
 
 
 def _cross_steps(

@@ -48,9 +48,14 @@ def condition(spec_json: str) -> str:
     cross: list[dict[str, Any]] = spec.get("cross") or []
     loss: dict[str, float] = spec["path"].get("loss") or {}
     parts: list[str] = []
+    observed: dict[str, Any] = spec.get("cc") or {}
     for c in cross:
         if c["kind"] != "tcp":
             what = f"UDP {c['rate_mbps']:g} Mbit/s"
+        elif c["cc"] == observed or c["cc"] == observed.get("name"):
+            # A copy of the observed flow's own controller: one label for
+            # every controller, so copies pair across controllers.
+            what = "itself"
         elif isinstance(c["cc"], str):
             what = c["cc"]
         else:  # an agent: named as in the episodes table

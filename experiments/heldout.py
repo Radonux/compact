@@ -50,6 +50,38 @@ NEW: list[dict[str, Any]] = [
 ]
 
 
+def split_links(split: str) -> dict[str, dict[str, Any]]:
+    """The links (trace, delay, buffer) of one split of SOURCE, by link key,
+    in campaign order. The split hashes each planned episode's canonical
+    spec, defaults included."""
+    paths: dict[str, dict[str, Any]] = {}
+    for e in CampaignSpec.parse(SOURCE.read_text()).episodes():
+        sj = e.canonical_json()
+        if data._split_of(data.link_key(sj), 1, 0.15, 0.15) == split:  # pyright: ignore[reportPrivateUsage]
+            path = json.loads(sj)["path"]
+            paths.setdefault(data.link_key(sj), {k: path[k] for k in ("trace", "delay", "buffer")})
+    return paths
+
+
+def controllers(stock: str, policies: list[str]) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    """The stock controllers (comma-separated, or all) and the policies
+    (NAME=PATH, run as "hold" agents), and agent:SHA12 -> NAME."""
+    names = list(STOCK_NAMES) if stock == "all" else stock.split(",")
+    ccs: list[dict[str, Any]] = [{"kind": "stock", "name": n} for n in names]
+    aliases: dict[str, str] = {}
+    for name, path in (x.split("=", 1) for x in policies):
+        sha = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+        ccs.append(
+            {
+                "kind": "agent",
+                "mode": "hold",
+                "policy": {"path": str(Path(path).resolve()), "sha256": sha},
+            }
+        )
+        aliases[f"agent:{sha[:12]}"] = name
+    return ccs, aliases
+
+
 def deep_long(paths: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Each link with a 2.5 times longer one-way delay (at most 80 ms) and a
     buffer of 4 to 16 BDP (log-uniform, seed 31, clipped to 20 to 8000)."""
@@ -78,26 +110,8 @@ def main() -> None:
     p.add_argument("--policy", action="append", default=[], help="NAME=PATH of an ONNX policy")
     a = p.parse_args()
     source = json.loads(SOURCE.read_text())
-    # The split hashes each planned episode's canonical spec, defaults included.
-    paths: dict[str, dict[str, Any]] = {}
-    for e in CampaignSpec.parse(SOURCE.read_text()).episodes():
-        sj = e.canonical_json()
-        if data._split_of(data.link_key(sj), 1, 0.15, 0.15) == a.split:  # pyright: ignore[reportPrivateUsage]
-            path = json.loads(sj)["path"]
-            paths.setdefault(data.link_key(sj), {k: path[k] for k in ("trace", "delay", "buffer")})
-    stock = list(STOCK_NAMES) if a.stock == "all" else a.stock.split(",")
-    ccs: list[dict[str, object]] = [{"kind": "stock", "name": n} for n in stock]
-    aliases = {}
-    for name, path in (x.split("=", 1) for x in a.policy):
-        sha = hashlib.sha256(Path(path).read_bytes()).hexdigest()
-        ccs.append(
-            {
-                "kind": "agent",
-                "mode": "hold",
-                "policy": {"path": str(Path(path).resolve()), "sha256": sha},
-            }
-        )
-        aliases[f"agent:{sha[:12]}"] = name
+    paths = split_links(a.split)
+    ccs, aliases = controllers(a.stock, a.policy)
     family = a.family
     links = list(paths.values())
     conditions = source["conditions"]

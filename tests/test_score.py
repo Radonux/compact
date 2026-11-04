@@ -96,6 +96,13 @@ def test_condition_labels_name_cross_traffic_and_loss() -> None:
     policy = {"path": "p.onnx", "sha256": "ab" * 32}
     agent = {"kind": "tcp", "cc": {"kind": "agent", "policy": policy}, "start_ms": 0}
     assert score.condition(spec_json(0, cross=[agent])) == "agent:abababababab from 0 s"
+    # Copies of the observed flow's own controller get one label, whatever it is.
+    mine = json.loads(spec_json(0, cross=[agent, agent]))
+    mine["cc"] = agent["cc"]
+    stock = json.loads(spec_json(0, cross=[{"kind": "tcp", "cc": "cubic", "start_ms": 0}]))
+    stock["cc"] = {"kind": "stock", "name": "cubic"}
+    assert score.condition(json.dumps(mine)) == "itself from 0 s, itself from 0 s"
+    assert score.condition(json.dumps(stock)) == "itself from 0 s"
 
 
 def test_an_incomplete_shard_is_an_error_not_a_smaller_sample(tmp_path: Path) -> None:
