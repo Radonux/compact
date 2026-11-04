@@ -22,7 +22,13 @@ rule pushes only while this flow gets less than 1/N of the capacity,
     u = u0 - log2(N) + k * busy * max(0, 1 - N * receive_rate / capacity)
 
 written to OUT/share-u{u0}-k{k}-n{N}[-oracle].onnx. Without it the graph is
-the one above, byte for byte.
+the one above, byte for byte. --used (with --flows) compares this flow's
+share with 1/N of the capacity in use instead of the whole capacity,
+
+    u = u0 - log2(N) + k * max(0, 1 - N * receive_rate / (busy * capacity))
+
+so a flow alone, or one of N copies at its fair share, never pushes;
+written to OUT/share-u{u0}-k{k}-n{N}-used[-oracle].onnx.
 """
 
 import argparse
@@ -45,7 +51,9 @@ class ShareRule(nn.Module):
     center: torch.Tensor
     spread: torch.Tensor
 
-    def __init__(self, net1: fit.Net1, u0: float, k: float, flows: int | None = None) -> None:
+    def __init__(
+        self, net1: fit.Net1, u0: float, k: float, flows: int | None = None, used: bool = False
+    ) -> None:
         super().__init__()
         s = net1.lcf_scaler
         self.register_buffer("cols", s.cols.clone())
@@ -55,7 +63,7 @@ class ShareRule(nn.Module):
         self.busy = lcfs.index("busy_fraction")
         self.recv = lcfs.index("receive_rate_bps")
         self.cap = lcfs.index("capacity_bps")
-        self.u0, self.k, self.flows = u0, k, flows
+        self.u0, self.k, self.flows, self.used = u0, k, flows, used
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         phys = x.clone()
@@ -64,6 +72,10 @@ class ShareRule(nn.Module):
         share = phys[:, self.recv] / torch.clamp(phys[:, self.cap], min=0.1)
         if self.flows is None:
             u = self.u0 + self.k * busy * torch.clamp(1.0 - share, 0.0, 1.0)
+        elif self.used:
+            u0 = self.u0 - math.log2(self.flows)
+            fair = self.flows * share / torch.clamp(busy, min=0.05)
+            u = u0 + self.k * torch.clamp(1.0 - fair, 0.0, 1.0)
         else:
             u0 = self.u0 - math.log2(self.flows)
             u = u0 + self.k * busy * torch.clamp(1.0 - self.flows * share, 0.0, 1.0)
@@ -78,14 +90,18 @@ def main() -> None:
     p.add_argument("--k", type=float, nargs="+", required=True)
     p.add_argument("--oracle", action="store_true")
     p.add_argument("--flows", type=int, help="flows on the bottleneck, known to the rule")
+    p.add_argument("--used", action="store_true", help="with --flows: share of the capacity in use")
     a = p.parse_args()
+    if a.used and not a.flows:
+        p.error("--used needs --flows")
     net1, _ = fit.load_net1(a.net1)
     truth = frozenset(net1.lcfs) if a.oracle else frozenset[str]()
     a.out.mkdir(parents=True, exist_ok=True)
     for k in a.k:
-        rule = ShareRule(net1, a.u0, k, a.flows).eval()
+        rule = ShareRule(net1, a.u0, k, a.flows, a.used).eval()
         graph = fit.policy_graph(net1, rule, ACTION_MAX, action="bdp", view="means", truth=truth)
         name = f"share-u{a.u0:g}-k{k:g}" + (f"-n{a.flows}" if a.flows else "")
+        name += "-used" if a.used else ""
         name += "-oracle" if a.oracle else ""
         (a.out / f"{name}.onnx").write_bytes(to_onnx(graph))
         print(name)
