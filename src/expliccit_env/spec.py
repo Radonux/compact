@@ -19,7 +19,15 @@ from pathlib import Path
 from typing import Annotated, Final, Literal, Self, get_args
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PositiveInt,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+    model_validator,
+)
 
 from expliccit_env import mahimahi as mm
 from expliccit_env.guest_plan import (
@@ -201,12 +209,25 @@ class TcpCross(_Frozen):
     """Bulk TCP through the same bottleneck, active over [start_ms, stop_ms)
     of trace time (stop: episode end), with its own congestion control: a
     stock one by name, or an agent driven by its own policy (any number of
-    flows, each with its own policy, state and exploration noise)."""
+    flows, each with its own policy, state and exploration noise).
+
+    ``extra_rtt_ms`` lengthens this flow's base RTT beyond the path's: its
+    ACKs wait that long on the receiver's side before entering the path
+    (sch_flowdelay), as on an access link of its own. Left out of the
+    canonical form when 0, so specs without it keep their ids."""
 
     kind: Literal["tcp"] = "tcp"
     cc: StockName | AgentCC
     start_ms: Annotated[int, Field(ge=0)] = 0
     stop_ms: PositiveInt | None = None
+    extra_rtt_ms: Annotated[int, Field(ge=0, le=10_000)] = 0
+
+    @model_serializer(mode="wrap")
+    def _omit_zero_extra(self, handler: SerializerFunctionWrapHandler) -> dict[str, object]:
+        out: dict[str, object] = handler(self)
+        if not self.extra_rtt_ms:
+            out.pop("extra_rtt_ms", None)
+        return out
 
     @property
     def cc_name(self) -> str:
@@ -309,9 +330,10 @@ class EpisodeSpec(_Frozen):
             match c:
                 case TcpCross(cc=AgentCC() as a):
                     seed = noise_seed ^ ((i + 1) * 0x9E37_79B9_7F4A_7C15 % U64)
-                    return TcpCrossPlan(c.cc_name, c.start_ms, stop, agent_plan(a, seed))
+                    plan = agent_plan(a, seed)
+                    return TcpCrossPlan(c.cc_name, c.start_ms, stop, plan, c.extra_rtt_ms * 10**6)
                 case TcpCross():
-                    return TcpCrossPlan(c.cc_name, c.start_ms, stop)
+                    return TcpCrossPlan(c.cc_name, c.start_ms, stop, None, c.extra_rtt_ms * 10**6)
                 case UdpCross():
                     return UdpCrossPlan(round(c.rate_mbps * 1e6), c.start_ms, stop)
 

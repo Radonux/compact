@@ -229,6 +229,7 @@ twenty-second episodes per core-hour on Mahak's ICNP'25 space, with about
 | Inference latency | not modelled: a policy's inference costs no virtual time; to be measured outside and added as a delay |
 | Labels recomputed from stored shards | not yet: `link_events` and `link_opp` hold what a new label needs, but nothing reads them back, so a new label means rerunning the episodes |
 | Several learned flows on one bottleneck (any mix of policies, stock controllers and UDP; up to 64 cross flows) | done, tested |
+| TCP cross flows with base RTTs of their own (`extra_rtt_ms`, added on their ACK path) | done, tested |
 | The full true state of the path beyond the seven LCFs, as a policy input (arm A0) | not yet |
 | AQM or ECN, delay jitter, bursty loss, multiple bottlenecks | not supported |
 

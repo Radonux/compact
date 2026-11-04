@@ -57,6 +57,8 @@ const TCA_MMLINK_LIMIT_PKTS: u16 = 5;
 const TCA_MMLINK_LIMIT_BYTES: u16 = 6;
 const TCA_MMLINK_LINK_ID: u16 = 8;
 const TCA_MMLINK_LOSS: u16 = 9;
+// kernel/modules/sch_flowdelay.h
+const TCA_FLOWDELAY_MAP: u16 = 1;
 
 /// Stage order of one mmlink qdisc (enum mmlink_order).
 #[derive(Clone, Copy)]
@@ -252,6 +254,23 @@ impl Socket {
         m.attr(TCA_MMLINK_TRACE, q.trace)?;
         m.end(opts)?;
         self.call(m).ctx(format!("adding mmlink qdisc {}", q.link_id))
+    }
+
+    /// A flowdelay qdisc: packets to each (port, delay_ns) TCP destination
+    /// port wait delay_ns (struct tc_flowdelay_entry, 16 bytes each).
+    pub fn add_flowdelay(&mut self, ifindex: u32, flows: &[(u16, u64)]) -> Result<()> {
+        let mut map = Vec::with_capacity(flows.len() * 16);
+        for &(port, delay_ns) in flows {
+            map.extend_from_slice(&delay_ns.to_ne_bytes());
+            map.extend_from_slice(&port.to_ne_bytes());
+            map.extend_from_slice(&[0u8; 6]);
+        }
+        let mut m = Msg::new(RTM_NEWQDISC, NLM_F_CREATE | NLM_F_EXCL, &tcmsg(ifindex));
+        m.attr(TCA_KIND, b"flowdelay\0")?;
+        let opts = m.nest(TCA_OPTIONS);
+        m.attr(TCA_FLOWDELAY_MAP, &map)?;
+        m.end(opts)?;
+        self.call(m).ctx("adding flowdelay qdisc")
     }
 
     pub fn del_root_qdisc(&mut self, ifindex: u32) -> Result<()> {

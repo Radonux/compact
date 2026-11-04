@@ -21,6 +21,8 @@ The experiments, on the default path unless named otherwise:
     synchronous_fairness   5 flows on each path; 2 and 10 on the default
     start_time_fairness    2, 5 or 10 flows, the first at 0 s, the others
                            uniform in [0, 5) s
+    rtt_fairness           2 flows of base RTT 15 ms and 2 to 64 times that,
+                           or 5 or 10 flows of base RTTs uniform in 5 to 102 ms
     loss_resilience        loss of 0.1, 0.5, 1, 2, 3, 4 or 5%
     deep_buffers           buffer of 1, 2, 4, 8 or 16 BDP (20 packets each)
     shallow_buffers        buffer of 1, 2, 5, 10 or 20 packets; 5 flows, 10
@@ -35,10 +37,10 @@ The experiments, on the default path unless named otherwise:
     cubic_fairness,        controller and the rest the competitor
     vegas_fairness
 
-ccperf's benchmark has 121 experiments per controller; these are 51 of them
-plus 2. Not expressible yet, each for a missing emulator feature: RTT
-fairness (8, per-flow RTT), the RTT and loss steps and pulses (10) and the
-random walks of delay and loss (4, time-varying delay and loss), scalability
+ccperf's benchmark has 121 experiments per controller; these are 59 of them
+plus 2. Not expressible yet, each for a missing emulator feature: the RTT
+and loss steps and pulses (10) and the random walks of delay and loss (4,
+time-varying delay and loss), scalability
 (13, CoDel, and a delay change for 8 of them), AQM (5) and ECN (12), ACK
 compression (5), policing (5), UDP background (4, Poisson UDP and
 rate-limited TCP), and TCP on-off (4, the observed flow cannot stop before
@@ -54,6 +56,8 @@ and the link (Mahimahi's 1500-byte delivery opportunities):
   near 15 s on the default path, and measures each flow until it ends.
 - Random loss drops data packets before the bottleneck queue. ccperf's ns-3
   error model drops packets after they cross the bottleneck.
+- A flow's longer RTT is added on its ACK path, on the receiver's side
+  (sch_flowdelay). ccperf's dumbbell gives each flow access links of its own.
 - Synchronous fairness with 2 and 10 flows on the default path: ccperf's
   benchmark.py builds these runs but never adds them. They are added here.
 - Each experiment runs --repeats times with fresh seeds, start times and
@@ -72,7 +76,7 @@ import sys
 from collections import defaultdict
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
 
@@ -100,8 +104,15 @@ REPLAY = {
     "3.04mbps-poisson.trace": (260, 426, 0.0),
 }
 
-# (experiment, variant, path, start of each flow in ms, flows under test, competitor)
-type Run = tuple[str, str, dict[str, Any], list[int], int, str | None]
+
+class Run(NamedTuple):
+    exp: str
+    variant: str
+    path: dict[str, Any]
+    starts: list[int]  # each flow's start, ms
+    n_test: int  # the first n_test flows run the controller, the rest the rival
+    rival: str | None = None
+    extra: list[int] | None = None  # each flow's base RTT beyond the path's, ms
 
 
 def path(
@@ -147,28 +158,42 @@ def trace_file(name: str) -> dict[str, Any]:
 
 
 def one(exp: str, variant: str, p: dict[str, Any]) -> Run:
-    return (exp, variant, p, [0], 1, None)
+    return Run(exp, variant, p, [0], 1)
 
 
 def shared(rng: np.random.Generator) -> list[Run]:
     """ccperf's experiments with several flows."""
-    out: list[Run] = [
-        ("synchronous_fairness", f"default, {k} flows", static("default", k), [0] * k, k, None)
-        for k in (2, 10)
-    ]
-    out += [
-        ("synchronous_fairness", f"{n}, 5 flows", static(n, 5), [0] * 5, 5, None) for n in STATIC
-    ]
+    sync = "synchronous_fairness"
+    out = [Run(sync, f"default, {k} flows", static("default", k), [0] * k, k) for k in (2, 10)]
+    out += [Run(sync, f"{n}, 5 flows", static(n, 5), [0] * 5, 5) for n in STATIC]
     for k in (2, 5, 10):
         starts = [0] + [10 * round(s * 100) for s in rng.uniform(0, SECONDS / 6, k - 1)]
-        out.append(("start_time_fairness", f"{k} flows", static("default", k), starts, k, None))
-    out.append(
-        ("shallow_buffers", "5 flows, 10 packets", static("default", 5, 10), [0] * 5, 5, None)
-    )
+        out.append(Run("start_time_fairness", f"{k} flows", static("default", k), starts, k))
+    # RTT fairness: the path's base RTT is the shortest flow's, and the
+    # observed flow is that one; the others wait the difference.
+    for f in (2, 4, 8, 16, 32, 64):
+        extra = [0, RTT * (f - 1)]
+        out.append(
+            Run(
+                "rtt_fairness",
+                f"{RTT} and {RTT * f} ms",
+                static("default", 2),
+                [0, 0],
+                2,
+                None,
+                extra,
+            )
+        )
+    for k in (5, 10):
+        rtts = sorted(round(r) for r in rng.uniform(5, 102, k))
+        extra = [r - rtts[0] for r in rtts]
+        p = path([BW * k], rtts[0], PACKETS * k)
+        out.append(Run("rtt_fairness", f"{k} flows, 5 to 102 ms", p, [0] * k, k, None, extra))
+    out.append(Run("shallow_buffers", "5 flows, 10 packets", static("default", 5, 10), [0] * 5, 5))
     for rival in ("reno", "cubic", "vegas"):
         for k in (2, 4, 10):
             out.append(
-                (f"{rival}_fairness", f"{k} flows", static("default", k), [0] * k, k // 2, rival)
+                Run(f"{rival}_fairness", f"{k} flows", static("default", k), [0] * k, k // 2, rival)
             )
     return out
 
@@ -210,24 +235,26 @@ def main() -> None:
     eps: dict[str, list[EpisodeSpec]] = defaultdict(list)
     variants: dict[str, dict[str, tuple[str, int]]] = defaultdict(dict)
     for _ in range(a.repeats):
-        for exp, variant, pth, starts, n_test, rival in alone(rng) + shared(rng):
+        for r in alone(rng) + shared(rng):
+            extra = r.extra or [0] * len(r.starts)
             for c in ccs:
                 own = c["name"] if c["kind"] == "stock" else c
                 cross = [
-                    {"kind": "tcp", "cc": own if i < n_test else rival, "start_ms": s}
-                    for i, s in enumerate(starts)
+                    {"kind": "tcp", "cc": own if i < r.n_test else r.rival, "start_ms": s}
+                    | ({"extra_rtt_ms": e} if e else {})
+                    for i, (s, e) in enumerate(zip(r.starts, extra, strict=True))
                 ][1:]
                 spec = EpisodeSpec.model_validate(
                     {
-                        "path": pth,
+                        "path": r.path,
                         "cc": c,
                         "cross": cross,
                         "duration_ms": SECONDS * 1000,
                         "seed": int(rng.integers(0, 2**63)),
                     }
                 )
-                eps[exp].append(spec)
-                variants[exp][spec.episode_id()] = (variant, n_test)
+                eps[r.exp].append(spec)
+                variants[r.exp][spec.episode_id()] = (r.variant, r.n_test)
     for exp, specs in eps.items():
         campaign.write_episodes(a.out / f"p-{exp}", specs, {"name": f"p-{exp}"})
         (a.out / f"p-{exp}" / "variants.json").write_text(json.dumps(variants[exp]) + "\n")

@@ -15,7 +15,7 @@ from typing import Final
 import numpy as np
 import numpy.typing as npt
 
-PLAN_VERSION: Final = 6
+PLAN_VERSION: Final = 7
 AGENT_CCS: Final = ("agent", "agent_reno")
 U32: Final = 2**32
 MAX_TRACE_BYTES: Final = 65_000
@@ -73,10 +73,14 @@ class TcpCrossPlan:
     stop_ms: int
     # The flow's own policy when cc is an agent controller.
     agent: AgentPlan | None = None
+    # Its ACKs wait this much longer than the path's (sch_flowdelay).
+    extra_delay_ns: int = 0
 
     def __post_init__(self) -> None:
         if (self.cc in AGENT_CCS) != (self.agent is not None):
             raise ValueError("a cross flow with cc agent/agent_reno and an agent plan go together")
+        if not 0 <= self.extra_delay_ns <= 10**10:
+            raise ValueError("extra_delay_ns must be in [0, 10 s]")
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,12 +158,13 @@ def _agent_json(a: AgentPlan, directory: Path) -> dict[str, object]:
 
 def _cross_json(c: CrossPlan, directory: Path) -> dict[str, object]:
     match c:
-        case TcpCrossPlan(cc, start, stop, agent):
+        case TcpCrossPlan(cc, start, stop, agent, extra):
             return {
                 "kind": "tcp",
                 "cc": cc,
                 "start_ms": start,
                 "stop_ms": stop,
+                "extra_delay_ns": extra,
                 "agent": None if agent is None else _agent_json(agent, directory),
             }
         case UdpCrossPlan(rate, start, stop):

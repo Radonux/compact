@@ -37,6 +37,9 @@ pub struct LinkTruth {
     trace: Vec<u8>,
     buffer_pkts: u32,
     one_way_ns: u64,
+    /// (sender port, extra base RTT) of flows with an RTT of their own: their
+    /// one-way delay is the path's plus half the extra, as the host labels it.
+    extra_rtt_ns: Vec<(u16, u64)>,
     /// Arrival instants of accepted packets not yet departed (FIFO).
     queued: VecDeque<u64>,
     /// (ms, queueing delay ns, bytes, sender port) of each departure.
@@ -51,12 +54,19 @@ pub struct LinkTruth {
 }
 
 impl LinkTruth {
-    pub fn new(end_ms: u64, trace: Vec<u8>, buffer_pkts: u32, one_way_ns: u64) -> LinkTruth {
+    pub fn new(
+        end_ms: u64,
+        trace: Vec<u8>,
+        buffer_pkts: u32,
+        one_way_ns: u64,
+        extra_rtt_ns: Vec<(u16, u64)>,
+    ) -> LinkTruth {
         LinkTruth {
             end_ms,
             trace,
             buffer_pkts,
             one_way_ns,
+            extra_rtt_ns,
             queued: VecDeque::new(),
             departures: VecDeque::new(),
             opportunities: VecDeque::new(),
@@ -144,7 +154,7 @@ impl LinkTruth {
             capacity,
             if self.buffer_pkts > 0 { f64::from(self.buffer_pkts) - f64::from(queue) } else { f64::NAN },
             if capacity > 0.0 { used as f64 * 8.0 / (capacity * WINDOW_S) } else { f64::NAN },
-            self.one_way_ns as f64,
+            (self.one_way_ns + self.extra_rtt_ns.iter().find(|e| e.0 == sport).map_or(0, |e| e.1 / 2)) as f64,
             received as f64 * 8.0 / WINDOW_S,
         ]
     }

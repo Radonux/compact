@@ -339,6 +339,22 @@ equal its `flow_bytes`, the UDP flow's packets fall in the seconds it was
 on, and the delays over every flow and second give exactly the episode's
 Mahimahi mean delay.
 
+### Cross flows with RTTs of their own (`sch_flowdelay`)
+
+`test_a_cross_flow_has_its_own_rtt` runs three agents that hold 10 packets
+each on a 30 Mbit/s link with a 20 ms base RTT (a BDP of 50 packets, so
+nothing queues), one of them with `extra_rtt_ms` 30. The minimum RTT each
+flow's step message reports is 20 to 22 ms for the two others and 50 to 52
+ms for that one; its base RTT label is exactly 50 ms, and its one-way delay
+label and live truth exactly 25 ms, while the others keep 20 ms. In a local
+check on 2026-11-04 with two Reno cross flows for 8 s on the same link, the
+flow with 30 ms more RTT carried 3.4 times fewer bytes than the other (6.4
+against 21.8 MB) and with 150 ms more, 33 times fewer; without extra RTT the
+two carried 18.8 and 10.0 MB. Seeded episodes of ccperf's Cubic-fairness,
+single-flow and start-time-fairness campaigns, which have no extra RTT, gave
+the same `flow_seconds` tables, cell for cell, before and after the qdisc
+was added.
+
 ## Teacher modules, and seeded runs across guest versions (M10)
 
 Building BIC, CDG, HighSpeed, H-TCP, Hybla, Illinois, LP, NV, Scalable,

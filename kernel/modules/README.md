@@ -1,13 +1,14 @@
 # expliccit-env kernel modules
 
-Four out-of-tree modules give the UML guest its bottleneck, its sender
-observations, its policy-driven congestion controls, and one record stream
-to the host.
+Five out-of-tree modules give the UML guest its bottleneck, flows with RTTs
+of their own, its sender observations, its policy-driven congestion
+controls, and one record stream to the host.
 
 | Module | Role |
 |---|---|
 | `expl_rec` | The global record ring, read through `/dev/expl_rec`. The other three modules write into it, so load it first. |
 | `sch_mmlink` | qdisc `mmlink`: one direction of a trace-driven link plus a delay line, with Mahimahi semantics and optional i.i.d. random loss on entry (`mm-loss`). The path namespace runs two, one per direction. |
+| `sch_flowdelay` | qdisc `flowdelay`: a fixed extra delay per TCP destination port, one FIFO per port, on the receiver's device, so that a cross flow's ACKs make its base RTT longer than the path's. Loaded only when an episode has such a flow. |
 | `expl_tcpobs` | Sender state at every arriving segment, from the `tcp:tcp_probe` tracepoint, for sockets with `SO_MARK == mark`. It reads only the generic TCP socket, so it works for any congestion control. |
 | `tcp_agent` | Congestion controls `agent` (Sage-style: holds the window and pacing rate the policy set) and `agent_reno` (Orca-style: each action sets the window once, then Reno grows it), driven by policies through `/dev/expl_agent`. Each write names its socket by the writer's file descriptor, and each socket keeps its own action, so any number of agent sockets share a kernel. |
 
@@ -26,13 +27,14 @@ sparse is too old for Linux 7.0.
 
 ## ABIs
 
-`expliccit_rec.h` (record layouts) and `sch_mmlink.h` (netlink attributes)
-are ABIs shared with the guest runner and the host decoder. Change them only
+`expliccit_rec.h` (record layouts), `sch_mmlink.h` and `sch_flowdelay.h`
+(netlink attributes) are ABIs shared with the guest runner and the host decoder. Change them only
 together with `guest/` and `src/expliccit_env/records.py`, and bump
 `EXPL_REC_ABI` for any record layout change.
 `tests/test_records_abi.py::test_dtypes_match_c_structs` checks that the
 numpy dtypes in `records.py` match the C structs, offset for offset (it
-needs a C compiler). `guest/src/netlink.rs` mirrors `sch_mmlink.h`.
+needs a C compiler). `guest/src/netlink.rs` mirrors `sch_mmlink.h` and
+`sch_flowdelay.h`.
 `expl_rec.h` is the in-kernel interface the other modules use to emit
 records.
 

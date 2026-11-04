@@ -80,6 +80,18 @@ absolute deadlines, so no flow spins in virtual time. Each TCP cross flow
 reports the controller its socket ran, and an episode whose flows ran other
 controllers than planned is invalid.
 
+A TCP cross flow may have a longer base RTT than the path's
+(`extra_rtt_ms`). Its ACKs then wait that long on the receiver's side before
+they enter the path: `sch_flowdelay`, a qdisc on the receiver's device that
+holds one FIFO per such flow, keyed by the ACKs' destination port (the
+flow's sender port), and releases packets in order of their release times.
+It is loaded and installed only when a flow has an RTT of its own, so other
+episodes run as before; seeded episodes of three ccperf campaigns gave the
+same `flow_seconds` tables, cell for cell, before and after it was added.
+The observed flow always has the path's RTT, so its labels are unchanged; a
+cross agent's labels and live truth give its own base RTT, and its one-way
+delay as half of that, since a sender sees only round trips.
+
 ## The link model (`sch_mmlink`)
 
 `sch_mmlink` is a port of `third_party/mahimahi/src/frontend/link_queue.cc`:
@@ -331,8 +343,8 @@ The training table (`steps.py`, `steps.parquet`) gives each step:
 
 The `cross_steps` table holds the same columns for every agent cross flow,
 with `flow`, its index in the spec's `cross` list; its labels are that
-flow's own (receive rate, drops and the share every other flow took), and
-the path's.
+flow's own (receive rate, drops, the share every other flow took, and its
+base RTT), and the path's.
 
 Every episode also has a `flow_seconds` table: for each flow (0 the
 observed one, `i` the `i`-th cross flow) and each whole second, the bytes
@@ -491,6 +503,7 @@ sets up is taken). `experiments/ccperf_report.py` scores them, and
 | `single_flow` | 5 | ccperf's five static paths, 16 to 115 Mbit/s and 15 to 800 ms base RTT |
 | `synchronous_fairness` | 7 | 5 flows on each static path; 2 and 10 flows on the default path |
 | `start_time_fairness` | 3 | 2, 5 or 10 flows, all but the first starting in [0, 5) s |
+| `rtt_fairness` | 8 | 2 flows of base RTT 15 ms and 30 to 960 ms; 5 or 10 flows of base RTTs uniform in 5 to 102 ms |
 | `loss_resilience` | 7 | 0.1% to 5% random loss |
 | `deep_buffers`, `shallow_buffers` | 5, 6 | buffers of 1 packet to 16 BDP; 5 flows with 10 packets |
 | `rate_step`, `rate_pulse`, `rate_random_walk` | 4, 2, 2 | capacity steps up or down at 10 s, 5 s pulses, a bounded random walk every 0.1 or 1 s |
@@ -503,17 +516,18 @@ competitor over their fair share; `summary.md` averages them per experiment
 and controller, and `ccperf.csv` keeps every variant. ccperf has no single
 score, and neither does this.
 
-That is 51 of ccperf's 121 experiments per controller. The rest need
-emulator features this one lacks: per-flow RTT (RTT fairness),
-time-varying delay and loss (RTT and loss steps, pulses and walks), AQM
+That is 59 of ccperf's 121 experiments per controller. The rest need
+emulator features this one lacks: time-varying delay and loss (RTT and
+loss steps, pulses and walks), AQM
 (ccperf's AQM runs, and its scalability runs, which use CoDel), ECN, ACK
 compression, a policer, Poisson UDP, and an observed flow that stops early
 (TCP on-off). Scalability with drop-tail does not test scalability: the
 buffer of one BDP at the higher rate lets a loss-based controller fill it
 before the step, so Cubic used 0.999 of a step from 16 to 512 Mbit/s in a
 local check. The planner's docstring names each divergence; the main ones
-are greedy flows where ccperf sends a fixed size, and random loss before the
-bottleneck where ccperf drops after it.
+are greedy flows where ccperf sends a fixed size, random loss before the
+bottleneck where ccperf drops after it, and a flow's longer RTT added on its
+ACK path where ccperf's dumbbell gives each flow access links of its own.
 
 ## Known limits
 

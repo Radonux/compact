@@ -127,6 +127,10 @@ fn load_modules(dir: &Path, plan: &Plan) -> Result<()> {
         ("expl_tcpobs.ko", format!("mark={}", plan.obs_mark)),
         ("tcp_agent.ko", String::new()),
     ];
+    // Loaded only when a flow has its own RTT, as the controllers below.
+    if !extra_delays(plan)?.is_empty() {
+        mods.push(("sch_flowdelay.ko", String::new()));
+    }
     // A congestion control built as a module (BBRv3 and the extra teachers)
     // is loaded only when an episode uses it, so every other episode runs
     // without its code in the kernel (docs/validation.md). Veno and YeAH
@@ -153,6 +157,20 @@ fn load_modules(dir: &Path, plan: &Plan) -> Result<()> {
         sys::finit_module(&dir.join(name), &params).ctx(format!("loading {name}"))?;
     }
     Ok(())
+}
+
+/// (sender port, extra delay) of each TCP cross flow with its own RTT. The
+/// receiver's egress delays those flows' ACKs (kernel/modules/sch_flowdelay.c).
+fn extra_delays(plan: &Plan) -> Result<Vec<(u16, u64)>> {
+    let mut out = Vec::new();
+    for (i, flow) in plan.cross.iter().enumerate() {
+        if let CrossFlow::Tcp { extra_delay_ns, .. } = flow {
+            if *extra_delay_ns > 0 {
+                out.push((cross::port(i)?, *extra_delay_ns));
+            }
+        }
+    }
+    Ok(out)
 }
 
 fn ifindex(name: &str) -> Result<u32> {
@@ -228,9 +246,11 @@ fn episode(plan_dir: &Path, out: &Path, module_dir: &Path) -> Result<Report> {
     let cross_agents = n_cross_agents > 0;
     // Several step loops: each lets its instant settle before the truth.
     let settle = n_cross_agents + usize::from(plan.steps) > 1;
+    let delays = extra_delays(&plan)?;
     let link_truth = (plan.steps || cross_agents).then(|| {
         let d = &plan.downlink;
-        truth::LinkTruth::new(u64::from(plan.duration_ms.get()), d.trace.clone(), d.limit_pkts, d.delay_ns)
+        let end_ms = u64::from(plan.duration_ms.get());
+        truth::LinkTruth::new(end_ms, d.trace.clone(), d.limit_pkts, d.delay_ns, delays.clone())
     });
     let (recorder, truth) = recorder::Recorder::start(out, link_truth)?;
 
@@ -257,6 +277,10 @@ fn episode(plan_dir: &Path, out: &Path, module_dir: &Path) -> Result<Report> {
     configure(&rcv, &home, &[("r0", RCV_ADDR)], Some(PATH_RCV_ADDR), &sysctls)?;
     let forward = [("/proc/sys/net/ipv4/ip_forward".to_owned(), "1".to_owned())];
     configure(&path, &home, &[("p0", PATH_SND_ADDR), ("p1", PATH_RCV_ADDR)], None, &forward)?;
+
+    if !delays.is_empty() {
+        rcv.within(&home, || Socket::open()?.add_flowdelay(ifindex("r0")?, &delays))?;
+    }
 
     // Trace ms 0 starts on a whole millisecond after the setup margin.
     let now = sys::monotonic_ns();

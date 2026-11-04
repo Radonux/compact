@@ -146,3 +146,32 @@ def test_many_agents_share_the_bottleneck(build: UmlBuild, tmp_path: Path) -> No
     jain = r.sum() ** 2 / (r.size * (r**2).sum())
     assert jain > 0.95, r
     assert 0.8 * 20e6 < r.sum() < 1.01 * 20e6, r.sum()
+
+
+def test_a_cross_flow_has_its_own_rtt(build: UmlBuild, tmp_path: Path) -> None:
+    # Three flows that hold 10 packets each on a 30 Mbit/s link with a 20 ms
+    # RTT (a BDP of 50 packets), so nothing queues: each flow's min RTT is
+    # its base RTT, and cross flow 0's is 30 ms longer than the others'.
+    pol = agent(tmp_path, onnx_policies.constant(0.0))
+    spec = EpisodeSpec(
+        path=link(30, 300),
+        cc=pol,
+        cross=[TcpCross(cc=pol, extra_rtt_ms=30), TcpCross(cc=pol)],
+        duration_ms=3000,
+        seed=13,
+    )
+    out, _, raw = run(build, tmp_path, spec)
+    min_rtt = {"main": out.tables["steps"]["obs"].to_numpy(zero_copy_only=False)}
+    for i in range(2):
+        min_rtt[i] = flow_steps(out, i)["obs"].to_numpy(zero_copy_only=False)
+    seen = {k: min(o[-1] for o in v) for k, v in min_rtt.items()}  # min_rtt_ms, column 77
+    assert 20 <= seen["main"] <= 22 and 20 <= seen[1] <= 22, seen
+    assert 50 <= seen[0] <= 52, seen
+    # Its labels and live truth carry its own base RTT, and its one-way
+    # delay is half of that; the others keep the path's.
+    longer = flow_steps(out, 0)
+    assert set(longer["label_base_rtt_ns"].to_numpy().tolist()) == {50_000_000}
+    assert set(longer["label_one_way_delay_ns"].to_numpy().tolist()) == {25_000_000}
+    assert set(flow_steps(out, 1)["label_base_rtt_ns"].to_numpy().tolist()) == {20_000_000}
+    live = load_steps(raw / "steps-cross0.bin")["truth"]
+    assert set(live[:, TRUTH_COLUMNS.index("one_way_delay_ns")].tolist()) == {25e6}

@@ -8,7 +8,9 @@ use serde::Deserialize;
 use std::num::{NonZeroU32, NonZeroU64};
 use std::path::{Path, PathBuf};
 
-pub const PLAN_VERSION: u32 = 6;
+pub const PLAN_VERSION: u32 = 7;
+/// Extra base RTT a cross flow may add (sch_flowdelay's FLOWDELAY_MAX_DELAY_NS).
+pub const MAX_EXTRA_DELAY_NS: u64 = 10_000_000_000;
 /// Cross-traffic flows per episode (ports 6000 to 6063), all sender to
 /// receiver. ponytail: 64 flows; raise it with the guest's memory (each
 /// flow is two sockets and up to four threads), or add reverse flows.
@@ -39,7 +41,7 @@ struct RawPlan {
 #[serde(tag = "kind", deny_unknown_fields)]
 enum RawCross {
     #[serde(rename = "tcp")]
-    Tcp { cc: String, start_ms: u32, stop_ms: u32, agent: Option<RawAgent> },
+    Tcp { cc: String, start_ms: u32, stop_ms: u32, extra_delay_ns: u64, agent: Option<RawAgent> },
     #[serde(rename = "udp_cbr")]
     UdpCbr { rate_bps: u64, start_ms: u32, stop_ms: u32 },
 }
@@ -79,8 +81,9 @@ pub struct Link {
 /// [start_ms, stop_ms) of trace time, with stop_ms <= the episode length.
 pub enum CrossFlow {
     /// Bulk TCP with its own congestion control, a stock one or an agent
-    /// one driven by its own policy.
-    Tcp { cc: String, start_ms: u32, stop_ms: u32, agent: Option<Agent> },
+    /// one driven by its own policy. Its ACKs wait `extra_delay_ns` more
+    /// than the path's, so its base RTT is that much longer.
+    Tcp { cc: String, start_ms: u32, stop_ms: u32, extra_delay_ns: u64, agent: Option<Agent> },
     /// Constant bit rate UDP, counted at the IP layer (1500-byte packets).
     Udp { rate_bps: NonZeroU64, start_ms: u32, stop_ms: u32 },
 }
@@ -221,11 +224,14 @@ impl CrossFlow {
             }
         };
         match raw {
-            RawCross::Tcp { cc, start_ms, stop_ms, agent } => {
+            RawCross::Tcp { cc, start_ms, stop_ms, extra_delay_ns, agent } => {
                 cc_name(&cc)?;
                 window(start_ms, stop_ms)?;
+                if extra_delay_ns > MAX_EXTRA_DELAY_NS {
+                    return fail(format!("cross flow extra delay {extra_delay_ns} ns above 10 s"));
+                }
                 let agent = Agent::parse(&cc, agent, dir).ctx("cross flow")?;
-                Ok(CrossFlow::Tcp { cc, start_ms, stop_ms, agent })
+                Ok(CrossFlow::Tcp { cc, start_ms, stop_ms, extra_delay_ns, agent })
             }
             RawCross::UdpCbr { rate_bps, start_ms, stop_ms } => {
                 window(start_ms, stop_ms)?;

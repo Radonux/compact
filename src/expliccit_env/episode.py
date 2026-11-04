@@ -10,7 +10,7 @@ import importlib.metadata
 import json
 import shutil
 import socket
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Final, Literal, cast
 
@@ -438,11 +438,16 @@ def _cross_steps(
     spec: EpisodeSpec,
 ) -> pa.Table:
     """Every agent cross flow's steps, as the steps table has the observed
-    flow's, with the flow's index in spec.cross; labels are the flow's own."""
+    flow's, with the flow's index in spec.cross; labels are the flow's own.
+    A flow with extra_rtt_ms has that much longer a base RTT, and its
+    one-way delay label is half of it, as the sender can only see RTTs."""
     tables: list[pa.Table] = []
     for i, s in sorted(steps.items()):
+        c = spec.cross[i]
+        extra_ns = c.extra_rtt_ms * 1_000_000 if isinstance(c, TcpCross) else 0
+        own = replace(k, one_way_ns=k.one_way_ns + extra_ns // 2)
         t = step_table(
-            s, rec, trace, k, duration_ms=spec.duration_ms, sport=labels.CROSS_PORT_BASE + i
+            s, rec, trace, own, duration_ms=spec.duration_ms, sport=labels.CROSS_PORT_BASE + i
         )
         tables.append(t.add_column(0, "flow", pa.array(np.full(t.num_rows, i, np.int16))))
     return pa.concat_tables(tables)
