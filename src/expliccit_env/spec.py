@@ -205,6 +205,18 @@ class AgentCC(_Frozen):
     # absolute window target, held noise keeps the window at the perturbed
     # level long enough for its effect to show.
     noise_hold_steps: Annotated[int, Field(ge=1, le=1000)] = 1
+    # The noise stream's own seed, so several rollouts of one episode (the
+    # same seed, so the same path and loss draws) explore differently; unset,
+    # it derives from the episode's seed. Left out of the canonical form when
+    # unset, so specs without it keep their ids.
+    noise_seed: Annotated[int, Field(ge=0, lt=U64)] | None = None
+
+    @model_serializer(mode="wrap")
+    def _omit_unset_seed(self, handler: SerializerFunctionWrapHandler) -> dict[str, object]:
+        out: dict[str, object] = handler(self)
+        if self.noise_seed is None:
+            out.pop("noise_seed", None)
+        return out
 
     @property
     def name(self) -> str:
@@ -357,7 +369,8 @@ class EpisodeSpec(_Frozen):
         noise_seed = self.seed ^ 0x5EED_0F_A6E47
 
         def agent_plan(cc: AgentCC, seed: int) -> AgentPlan:
-            return AgentPlan(cc.policy.read(), cc.noise_sigma, seed, cc.noise_hold_steps)
+            own = seed if cc.noise_seed is None else cc.noise_seed
+            return AgentPlan(cc.policy.read(), cc.noise_sigma, own, cc.noise_hold_steps)
 
         def cross(i: int, c: TcpCross | UdpCross) -> CrossPlan:
             stop = self.duration_ms if c.stop_ms is None else c.stop_ms

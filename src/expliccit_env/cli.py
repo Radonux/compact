@@ -183,6 +183,17 @@ def _online(a: argparse.Namespace) -> int:
     return 0
 
 
+def _ppo(a: argparse.Namespace) -> int:
+    from expliccit_env.train.ppo import PPOSpec, run_ppo  # noqa: PLC0415
+
+    spec = PPOSpec.parse(Path(a.spec).read_text())
+    scratch = Path(a.scratch) if a.scratch else None
+    report = run_ppo(spec, Path(a.out), _build(a), workers=a.workers, scratch=scratch)
+    last = report["iterations"][-1]
+    print(json.dumps({"learner": last.get("learner"), "eval": last.get("eval")}, indent=2))
+    return 0
+
+
 def _import_expliccit(a: argparse.Namespace) -> int:
     from expliccit_env.train import run  # noqa: PLC0415
 
@@ -317,6 +328,13 @@ def main(argv: list[str] | None = None) -> int:
     to.add_argument("--scratch", help="node-local scratch for raw records")
     _common(to)
     to.set_defaults(fn=_online)
+    tp = tc.add_parser("ppo", help="recurrent PPO for net2 on a frozen net1, from the fixed rule")
+    tp.add_argument("spec", help="PPOSpec JSON")
+    tp.add_argument("out")
+    tp.add_argument("--workers", type=int, default=1, help="parallel UML guests")
+    tp.add_argument("--scratch", help="node-local scratch for raw records")
+    _common(tp)
+    tp.set_defaults(fn=_ppo)
     ti = tc.add_parser("import-expliccit", help="expliCCit's released models as a sage-v1 policy")
     ti.add_argument("models", help="expliCCit's sage_rl/offline/models directory")
     ti.add_argument("out")
