@@ -6,6 +6,7 @@ EXPLICCIT_UML_DIR; skipped otherwise.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 from pathlib import Path
@@ -22,6 +23,7 @@ from expliccit_env.guest_plan import GuestPlan, LinkPlan
 from expliccit_env.records import DROP_QUEUE_FULL, DROP_RANDOM, Records, load_records
 from expliccit_env.spec import CampaignSpec, EpisodeSpec
 from expliccit_env.uml import UmlBuild, run_guest
+from tests import onnx_policies
 from tests.perl_ref import run_perl
 
 pytestmark = pytest.mark.uml
@@ -151,6 +153,37 @@ def test_a_flow_can_fill_a_deep_buffer_on_a_long_fat_path(build: UmlBuild, tmp_p
     assert isinstance(out, EpisodeOk), out.row
     delay_max = out.tables["flow_seconds"]["delay_max_ms"].to_numpy()
     assert np.nanmax(delay_max) > 600, delay_max
+
+
+def test_a_window_far_beyond_the_path_is_bounded(build: UmlBuild, tmp_path: Path) -> None:
+    # An agent that grows its window 2^0.05 a step on 50 Mbit/s, 10 ms RTT
+    # and 26 packets never sees delay rise, so its window passes anything the
+    # path holds. Sending costs no virtual time, so only the send buffer
+    # stops it: at the setups' 64 MB the link sees 54 arrivals per departure,
+    # most of them dropped; sized to the path (EpisodeSpec._send_buffer) the
+    # flood is bounded.
+    raw = onnx_policies.constant(0.05)
+    sha = hashlib.sha256(raw).hexdigest()
+    pol = tmp_path / "grow.onnx"
+    pol.write_bytes(raw)
+    base = {
+        "path": {
+            "trace": {"kind": "periodic_levels", "levels_mbps": [50], "level_ms": 1000},
+            "delay": {"mahak_compat_mrtt_ms": 5},
+            "buffer": {"packets": 26},
+        },
+        "cc": {"kind": "agent", "mode": "hold", "policy": {"path": str(pol), "sha256": sha}},
+        "duration_ms": 4000,
+        "seed": 2,
+    }
+    ratio = {}
+    for name, sysctls in (("path", {}), ("64mb", {"net.ipv4.tcp_wmem": "4096 65536 67108864"})):
+        spec = EpisodeSpec.parse(json.dumps(base | {"sysctls": sysctls}))
+        out = run_episode(spec, build, tmp_path / name, timeout_s=600, keep_raw=True)
+        assert isinstance(out, EpisodeOk), out.row
+        rec = load_records(tmp_path / name / spec.episode_id() / "raw")
+        ratio[name] = rec.link(rec.link_arrival, 1).size / rec.link(rec.link_depart, 1).size
+    assert ratio["path"] < 15 and ratio["64mb"] > 30, ratio
 
 
 def test_loss_and_cross_traffic(build: UmlBuild, tmp_path: Path) -> None:

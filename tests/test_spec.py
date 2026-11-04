@@ -256,3 +256,34 @@ def test_paths_sweep_takes_any_trace_and_conditions_override_loss() -> None:
     assert [e.path.loss.downlink for e in eps] == [0.0, 0.01]
     assert all(e.steps and e.cc.name == "vegas" for e in eps)
     assert eps[0].guest_plan().downlink.trace.sum() == 24_000 * 7 // 12 + 48_000 * 7 // 12
+
+
+def test_send_buffer_follows_the_path() -> None:
+    # 16 times what the path holds (peak 1 s capacity times the longest RTT,
+    # plus the buffer), at least 1 MB and at most the setups' 64 MB; a spec's
+    # own tcp_wmem wins.
+    def wmem(bw: float, one_way_ms: int, packets: int, **extra: object) -> int:
+        spec = EpisodeSpec.parse(
+            json.dumps(
+                {
+                    "path": {
+                        "trace": {"kind": "periodic_levels", "levels_mbps": [bw], "level_ms": 1000},
+                        "delay": {"mahak_compat_mrtt_ms": one_way_ms},
+                        "buffer": {"packets": packets},
+                    },
+                    "cc": {"kind": "stock", "name": "cubic"},
+                }
+                | extra
+            )
+        )
+        return int(dict(spec.guest_plan().sysctls)["net.ipv4.tcp_wmem"].split()[2])
+
+    hold = 49_000 / 12 * 1504 * 0.010 + 26 * 1504  # bytes the 49 Mbit/s path holds
+    assert abs(wmem(49, 5, 26) - 16 * hold) < 16 * 1504
+    assert wmem(4, 5, 10) == 2**20
+    assert wmem(192, 80, 40960) == 64 * 2**20
+    override = {"sysctls": {"net.ipv4.tcp_wmem": "4096 16384 4194304"}}
+    assert wmem(192, 80, 40960, **override) == 4194304
+    # A cross flow's longer RTT counts.
+    longer = {"cross": [{"kind": "tcp", "cc": "cubic", "extra_rtt_ms": 90}]}
+    assert wmem(49, 5, 26, **longer) > 5 * wmem(49, 5, 26)

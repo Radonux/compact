@@ -40,6 +40,11 @@ from expliccit_env.guest_plan import (
 )
 
 SPEC_VERSION: Final = 1
+# Sender buffer limits (EpisodeSpec._send_buffer): Sage's and ccBench's 64 MB,
+# and SEND_BUFFER_PATHS times what the path holds, at least 1 MB.
+SEND_BUFFER_MAX: Final = 64 * 2**20
+SEND_BUFFER_MIN: Final = 2**20
+SEND_BUFFER_PATHS: Final = 16
 U64: Final = 2**64
 
 
@@ -307,6 +312,31 @@ class EpisodeSpec(_Frozen):
         kernel, the same bytes)."""
         return hashlib.sha256(self.canonical_json().encode()).hexdigest()[:20]
 
+    def _send_buffer(self) -> str:
+        """tcp_wmem for the senders: the setups' 64 MB at most, but no more than
+        SEND_BUFFER_PATHS times what the path holds in flight (its peak
+        capacity over 1 s times the longest flow's base RTT, plus the
+        buffer), and at least 1 MB. A flow never needs that much: about 2.5
+        bytes per byte in flight, twice its window. It bounds only a window
+        far beyond the path, which a real sender's NIC and CPU would stop
+        and which costs nothing in virtual time, so it would flood the link
+        with packets it drops (docs/validation.md, "TCP buffer limits")."""
+        counts = mm.dense_counts(self.path.trace.timestamps()).astype(np.int64)
+        cycle = np.tile(counts[1:], -(-2000 // max(counts.size - 1, 1)))
+        peak = int(np.convolve(cycle, np.ones(1000, np.int64), "valid").max()) * mm.PACKET_SIZE
+        extra = max((c.extra_rtt_ms for c in self.cross if isinstance(c, TcpCross)), default=0)
+        rtt_s = (2 * self.path.delay.one_way_ns + extra * 1_000_000) / 1e9
+        buf = self.path.buffer
+        queue = (
+            min(b for b in (buf.packets * mm.PACKET_SIZE, buf.bytes) if b)
+            if buf.packets or buf.bytes
+            else 0
+        )
+        cap = min(
+            SEND_BUFFER_MAX, max(SEND_BUFFER_MIN, SEND_BUFFER_PATHS * int(peak * rtt_s + queue))
+        )
+        return f"4096 65536 {cap}"
+
     def guest_plan(self) -> GuestPlan:
         down_ts = self.path.trace.timestamps()
         up_ts = (self.path.uplink_trace or self.path.trace).timestamps()
@@ -343,7 +373,9 @@ class EpisodeSpec(_Frozen):
             cc=self.cc.name,
             downlink=link(down_ts, self.path.loss.downlink),
             uplink=link(up_ts, self.path.loss.uplink),
-            sysctls=tuple(sorted(self.sysctls.items())),
+            sysctls=tuple(
+                sorted(({"net.ipv4.tcp_wmem": self._send_buffer()} | self.sysctls).items())
+            ),
             agent=agent,
             cross=tuple(cross(i, c) for i, c in enumerate(self.cross)),
             steps=self.steps or agent is not None,

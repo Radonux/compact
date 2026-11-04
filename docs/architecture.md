@@ -73,8 +73,17 @@ The sender's and receiver's TCP settings are those of Sage's
 these limits from memory, and in the 1 GiB guest its own would cap the
 send buffer at 4 MB, too little to fill a deep buffer on a long, fast path
 (`docs/validation.md`). For the same reason the guest's global TCP memory
-(`tcp_mem`) presses at 3/8 of its memory, not Linux's 6.25%. A spec's
-`sysctls` are written after these, so an episode can still set its own.
+(`tcp_mem`) presses at 3/8 of its memory, not Linux's 6.25%. One limit is
+sized to the path instead: each episode's send buffer (`tcp_wmem`'s
+maximum) is 16 times what its path holds in flight (the peak capacity over
+1 s times the longest flow's base RTT, plus the buffer), at least 1 MB and
+at most the scripts' 64 MB (`EpisodeSpec._send_buffer`). A flow needs about
+2.5 bytes of buffer per byte in flight, twice its window, so this never
+binds a flow the path could carry. It stops a policy whose window runs far
+beyond the path: sending costs no virtual time here, where a real sender's
+NIC, CPU and Mahimahi's own processing would stop it, so such a window
+would flood the link with packets it drops. A spec's `sysctls` are written
+after all of these, so an episode can still set its own.
 
 Cross traffic shares the same path in the same direction, sender to
 receiver. Cross flow `i` sends from port `6000 + i`. The observed flow sends

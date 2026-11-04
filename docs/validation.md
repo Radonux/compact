@@ -401,6 +401,24 @@ move by at most 0.02 on the test links and 0.06 on the validation links
 (their five-family means by at most 0.004 and 0.013), loss-based
 controllers fall by 0.2 to 0.9, and every validation choice stands.
 
+With 64 MB, a policy whose window grows without bound floods the link.
+Sending costs no virtual time, so nothing but the send buffer stops it: one
+60 s episode of the 60 s data (a threshold policy on 49 to 196 Mbit/s, 5 ms
+one way, a 26-packet buffer) recorded 1.78 GB of arrivals and 1.75 GB of
+drops against 31 MB of departures, and seven of that run's shards lost
+their runner to it and its like. In the rerun 30 s data, 99 of 14,400
+episodes (all policies) sent more than 3 times the capacity, against none
+before. The send buffer is therefore sized to the path (`docs/architecture.md`):
+16 times what the path holds, at least 1 MB and at most 64 MB. With it the
+same episode records 290 MB of arrivals. `test_a_window_far_beyond_the_path_is_bounded`
+runs an agent that grows its window every step on 50 Mbit/s, 10 ms and 26
+packets for 4 s: 8 arrivals per departure with the cap, 54 with 64 MB. Rerun
+with the cap, 148 episodes that the old regime let finish normally (six
+ccperf campaigns with Cubic, BBRv1 and Reno, and 43 of the broad data's
+episodes with a stock observed flow) gave the same `flow_seconds` tables,
+cell for cell (10,070 cells): the cap binds only such floods. The broad
+data is rerun with it.
+
 The setup scripts' other lines (the initial buffer sizes 87380 and 65536
 bytes, no cached metrics, no autocorking) change every episode a little,
 not only those the cap reached. Paired by episode, the out-of-distribution
