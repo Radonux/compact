@@ -394,7 +394,12 @@ is which states occurred. `exp-ccbench-27` and `exp-ccperf-29` ran before
 the change.
 
 Reruns (scheduled 2026-11-04; each result replaces the old one where it is
-cited):
+cited). The six deep-long reruns are done, on the same episode ids, with no
+failed episode (`exp-*-deeplong-32` to `-37`, `docs/training.md`,
+"Deep-long with the original setups' TCP limits"): on deep-long the rules
+move by at most 0.02 on the test links and 0.06 on the validation links
+(their five-family means by at most 0.004 and 0.013), loss-based
+controllers fall by 0.2 to 0.9, and every validation choice stands.
 
 - The deep-long family of the six runs that report it and are still used:
   the fixed rule's validation and test (`exp-rule-net1v4-val-11`,

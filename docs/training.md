@@ -389,13 +389,18 @@ All results use the expliCCit-like data of section 1 unless stated
 otherwise. Utility uses delay weight 0.5 and loss weight 4 (section 2).
 Intervals in brackets are 95% bootstraps.
 
-Every result here ran before 2026-11-04, when the guest still had Linux's
-own TCP buffer limits for 1 GiB (a 4 MB send buffer). That changes nothing
-on the train, validation and test links of the training, new and
-cubic-first families, but on about half of the deep-long family's links
-(and some 7% of net1 v4's broad data) buffer-filling controllers queued less
-than they would with the original setups' 64 MB (`docs/validation.md`, "TCP
-buffer limits").
+Until 2026-11-04 the guest had Linux's own TCP buffer limits for 1 GiB (a
+4 MB send buffer). That changes nothing on the train, validation and test
+links of the training, new and cubic-first families, but on about half of
+the deep-long family's links buffer-filling controllers queued less than
+with the original setups' 64 MB (`docs/validation.md`, "TCP buffer
+limits"). The deep-long family of every run below that is still used was
+rerun on the same episodes with the fix; the tables give the rerun's
+deep-long rows and means, marked with a dagger (†), and "Deep-long with the
+original setups' TCP limits" below lists the changes. The runs not rerun
+(the learned net2 on net1 v4, the mode rule and the share rule on the
+truth: negative results decided elsewhere) keep their old deep-long rows.
+net1 v4's data (about 7% of its links) is being rerun.
 
 ### net1 on held-out paths
 
@@ -1004,20 +1009,21 @@ link:
 | training conditions, 20 s | +0.154 | +0.084 | +0.123 | +0.130 |
 | training conditions, 60 s | +0.131 | -0.015 | +0.003 | +0.130 |
 | new conditions, 20 s | +0.271 | +0.163 | +0.148 | +0.292 |
-| deep buffers and long RTTs, 20 s | +0.274 | +0.199 | +0.204 | +0.230 |
+| deep buffers and long RTTs, 20 s † | +0.213 | +0.106 | +0.097 | +0.162 |
 | a Cubic flow from 0 s, 60 s | -0.082 (-0.253 to +0.082) | -0.526 (-0.911 to -0.185) | -0.668 | +0.066 (-0.059 to +0.182) |
-| mean of the five | +0.150 | -0.019 | -0.038 | +0.169 |
+| mean of the five † | +0.137 | -0.038 | -0.059 | +0.156 |
 
-- On these links the rule on net1 v4 leads BBRv3 by 0.150 on average,
-  within 0.02 of the same rule on the true BDP; on net1 v3 it trails by
-  0.019 at best. Most of the difference is the competition net1 v3 had
+- On these links the rule on net1 v4 leads BBRv3 by 0.137 on average
+  (0.150 before the deep-long rerun), within 0.02 of the same rule on the
+  true BDP; on net1 v3 it trails by 0.038 at best. Most of the difference is the competition net1 v3 had
   not seen: with a Cubic flow from the start for 60 s, the rule on net1
   v4 ties BBRv3, and on net1 v3 it loses by 0.53.
 - It also does better under net1 v3's own training conditions (+0.154
   against +0.123 at 20 s, +0.131 against +0.003 at 60 s).
-- For net1 v4 the choice of u is flat: 0.125 and 0.25 differ by 0.002.
+- For net1 v4 the choice of u is flat: 0.125 and 0.25 differ by 0.002
+  (0.001 after the deep-long rerun, which keeps every group's u).
   On deep, long paths the rule on net1 v4 beats the rule on the true BDP
-  (+0.274 against +0.230); with one u for every campaign, the true BDP is
+  (+0.213 against +0.162); with one u for every campaign, the true BDP is
   not an upper bound for the rule.
 - Limits of this result: these are the links u was chosen on, and each
   number is the best of six, so it leans optimistic; there are 21 links;
@@ -1043,14 +1049,15 @@ link, with 95% intervals over the 27 links:
 | training conditions, 20 s | +0.112 (+0.076 to +0.146) | +0.042 (+0.014 to +0.070) | -0.006 (-0.038 to +0.023) | BBRv1 -0.022 |
 | training conditions, 60 s | +0.118 (+0.070 to +0.163) | +0.115 (+0.064 to +0.170) | -0.001 (-0.034 to +0.028) | BBRv1 +0.022 |
 | new conditions, 20 s | +0.250 (+0.194 to +0.302) | +0.078 (+0.040 to +0.117) | -0.045 (-0.072 to -0.018) | BBRv1 +0.217 |
-| deep buffers and long RTTs, 20 s | +0.173 (+0.088 to +0.254) | +0.065 (+0.036 to +0.096) | +0.025 (-0.023 to +0.070) | BBRv1 +0.013 |
+| deep buffers and long RTTs, 20 s † | +0.175 | +0.081 | +0.032 | BBRv1 -0.027 |
 | a Cubic flow from 0 s, 60 s | -0.039 (-0.191 to +0.103) | +0.428 (+0.277 to +0.580) | -0.092 (-0.176 to -0.020) | Scalable +0.395 |
-| mean of the five | +0.123 | +0.146 | -0.024 | BBRv1 +0.070 |
+| mean of the five † | +0.123 | +0.149 | -0.022 | BBRv1 +0.062 |
 | BBRv3 or Westwood from 0 s, 60 s (test only) | +0.094 (-0.016 to +0.202) | +0.099 (+0.029 to +0.169) | -0.050 (-0.097 to -0.007) | BIC +0.226 |
 
 - On the test links the rule on net1 v4 leads BBRv3 by 0.123 on average
-  over the five families (validation said 0.150, the best of six), and
-  BBRv1, the best kernel controller on average, by 0.053. It beats the
+  over the five families (validation said 0.137, the best of six; 0.150
+  before the deep-long rerun), and
+  BBRv1, the best kernel controller on average, by 0.061. It beats the
   same rule on net1 v3 in every campaign, the interval excluding zero each
   time: by 0.04 under net1 v3's own conditions at 20 s, and by 0.43 with a
   Cubic flow from the start.
@@ -1170,15 +1177,15 @@ links):
 | training conditions, 20 s | +0.014 (-0.004 to +0.030) | +0.010 (-0.025 to +0.043) |
 | training conditions, 60 s | +0.039 (+0.019 to +0.061) | +0.046 (+0.012 to +0.080) |
 | new conditions, 20 s | +0.049 (+0.029 to +0.067) | +0.070 (+0.045 to +0.096) |
-| deep buffers and long RTTs, 20 s | +0.006 (-0.028 to +0.042) | +0.009 (-0.036 to +0.052) |
+| deep buffers and long RTTs, 20 s † | +0.009 | +0.016 |
 | a Cubic flow from 0 s, 60 s | +0.165 (+0.110 to +0.229) | +0.258 (+0.161 to +0.364) |
-| mean of the five | +0.055 | +0.079 |
+| mean of the five † | +0.055 | +0.080 |
 | BBRv3 or Westwood from 0 s (test only) | +0.087 (+0.065 to +0.108) | +0.126 (+0.082 to +0.172) |
 | 2 or 4 copies of itself | -0.337 (-0.453 to -0.230) | -0.794 (-0.975 to -0.613) |
 
-- Against BBRv3 the share rule at k = 1 leads by 0.208 on average over
-  the five families (the fixed rule by 0.130, the fixed rule on the true
-  BDP by 0.153), and with BBRv3 or Westwood competing, which neither
+- Against BBRv3 the share rule at k = 1 leads by 0.207 on average over
+  the five families (the fixed rule by 0.126, the fixed rule on the true
+  BDP by 0.149), and with BBRv3 or Westwood competing, which neither
   net1 saw, it matches BIC and Scalable (+0.206 against +0.226 and
   +0.214), which lose 0.4 to 1.7 elsewhere.
 - It is never worse than the fixed rule outside copies, and better under
@@ -1363,21 +1370,22 @@ ratios to Sage with 95% bootstrap intervals over links):
 |---|---|---|---|
 | training-20, clean | 0.911, 9.9 | 0.948, 5.4 | +4.1% (-1.9% to +11.5%), -46.0% (-56.8% to -31.0%) |
 | training-60, clean | 0.927, 10.6 | 0.958, 5.7 | +3.4% (-1.1% to +8.4%), -46.1% (-61.1% to -26.1%) |
-| deep-long-20, clean | 0.811, 72.4 | 0.936, 32.9 | +15.3% (+6.3% to +28.1%), -54.5% (-72.7% to -31.4%) |
+| deep-long-20, clean † | 0.820, 94.5 | 0.933, 33.4 | +13.7% (+4.8% to +26.2%), -64.7% (-75.2% to -50.2%) |
 | new-20, ACK loss 1% | 0.911, 9.8 | 0.946, 5.2 | +3.9% (-1.6% to +10.3%), -47.0% (-58.5% to -31.1%) |
 | training-20, loss 1% | 0.489, 3.0 | 0.944, 5.3 | +93.1% (+59.8% to +145.4%), +75.2% (+43.3% to +141.6%) |
 | new-20, loss 3% | 0.324, 2.4 | 0.928, 4.9 | +185.9% (+119.7% to +304.0%), +102.3% (+66.7% to +166.0%) |
 
 - The comparison goes the other way from expliCCit's: on clean test links
-  the fixed rule has 3 to 15% more utilization than Sage and 46 to 55%
-  less queueing delay, as on validation (+8 to +13% and -38 to -44%). The
+  the fixed rule has 3 to 14% more utilization than Sage and 46 to 65%
+  less queueing delay, as on validation (+8 to +13% and -38 to -44% in the
+  training families, +17% and -64% on deep, long paths). The
   share rule sits between them on delay (-23 to -32%) with 5 to 17% more
   utilization.
 - Under random loss Sage's utilization falls to 0.32 to 0.62, while both
   rules keep 0.93 to 0.96; their higher delay there comes with that
   throughput.
-- Log utility against BBRv3, over the five families: Sage -0.487, the
-  share rule +0.202, the fixed rule +0.123, BBRv1 +0.068, Cubic -0.679.
+- Log utility against BBRv3, over the five families †: Sage -0.505, the
+  share rule +0.198, the fixed rule +0.119, BBRv1 +0.062, Cubic -0.720.
   Against held-out competitors for 60 s: Sage -0.872, the fixed rule
   +0.101.
 - Copies of Sage share less evenly than copies of the fixed rule (Jain's
@@ -1389,6 +1397,47 @@ ratios to Sage with 95% bootstrap intervals over links):
   not each ACK; with no inference delay; on links it was not trained on
   (its training paths are not known here). And the split here is net1 v4
   with a fixed rule, not expliCCit's net1 and net2.
+
+### Deep-long with the original setups' TCP limits
+
+The deep-long family (2.5 times the delay, buffers of 4 to 16 BDP) is the
+only held-out family whose links needed more than the old 4 MB in flight.
+Its campaign in each run above was rerun on the same episodes (the same
+ids) with Sage's and ccBench's 64 MB limits:
+[`exp-rule-net1v4-val-deeplong-32`](https://github.com/Radonux/palaestra/releases/tag/exp-rule-net1v4-val-deeplong-32),
+[`exp-share-copies-val-deeplong-33`](https://github.com/Radonux/palaestra/releases/tag/exp-share-copies-val-deeplong-33),
+[`exp-sage-val-deeplong-34`](https://github.com/Radonux/palaestra/releases/tag/exp-sage-val-deeplong-34),
+[`exp-rule-net1v4-test-deeplong-35`](https://github.com/Radonux/palaestra/releases/tag/exp-rule-net1v4-test-deeplong-35),
+[`exp-share-test-deeplong-36`](https://github.com/Radonux/palaestra/releases/tag/exp-share-test-deeplong-36) and
+[`exp-sage-test-deeplong-37`](https://github.com/Radonux/palaestra/releases/tag/exp-sage-test-deeplong-37). No episode
+failed. Log utility minus BBRv3 on deep-long, before and after, on the test
+links:
+
+| Controller | before | after | mean of the five families, before and after |
+|---|---|---|---|
+| fixed rule on net1 v4 | +0.173 | +0.175 | +0.123, +0.123 |
+| share rule, k = 1 | +0.209 | +0.200 | +0.208, +0.207 |
+| fixed rule on the true BDP | +0.148 | +0.143 | +0.147, +0.146 |
+| BBRv1 | +0.013 | -0.027 | +0.070, +0.062 |
+| Sage | -0.358 | -0.449 | -0.487, -0.505 |
+| Cubic | -1.418 | -1.619 | -0.679, -0.720 |
+| BIC | -1.739 | -2.512 | -0.539, -0.693 |
+| Scalable | -1.681 | -2.537 | -0.467, -0.639 |
+
+(Rows are from the rule test's runs, except the share rule's, from its own
+test, and Sage's and Cubic's, from Sage's; where the three tests overlap
+they agree within 0.05.)
+
+- The rules barely move, since their own windows stay near the BDP; what
+  changes is the flows that fill the buffer: loss-based controllers fall
+  by 0.2 to 0.9 on deep-long, and with them the competitors the rules
+  face there.
+- Every choice made on validation stands: the fixed rule's u = 0.125
+  (+0.137 against +0.136 for u = 0.25, the five-family means), the true
+  BDP's and net1 v3's u = 0.375, and the share rule's ordering.
+- Against Sage alone on clean deep-long links, Sage now queues more (94.5
+  against 72.4 ms) and the fixed rule's lead widens to 13.7% more
+  utilization and 64.7% less queueing delay.
 
 ### ccperf's experiments
 

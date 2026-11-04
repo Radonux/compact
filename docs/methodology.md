@@ -270,7 +270,7 @@ for the learned net2, one for each 60-iteration run (section 6).
 | expliCCit's result | Here |
 |---|---|
 | net1 estimates every LCF with R^2 above 0.9 | 5 of 7 (0.95 to 0.99); busy fraction 0.45 and free buffer 0.09 |
-| The split costs about 5% utilization and 9% queueing delay against Sage | The other way here: on clean test links the fixed rule on net1 v4 has 3 to 15% more utilization and 46 to 55% less queueing delay than Sage's released policy, and Sage falls to 0.32 to 0.62 utilization under random loss (`exp-sage-test-26`, after `exp-sage-val-25`; `docs/training.md`, section 7). Sage runs outside its home: Linux 7.0, pacing per step, no inference delay, links it was not trained on |
+| The split costs about 5% utilization and 9% queueing delay against Sage | The other way here: on clean test links the fixed rule on net1 v4 has 3 to 14% more utilization and 46 to 65% less queueing delay than Sage's released policy, and Sage falls to 0.32 to 0.62 utilization under random loss (`exp-sage-test-26`, after `exp-sage-val-25`; `docs/training.md`, section 7). Sage runs outside its home: Linux 7.0, pacing per step, no inference delay, links it was not trained on |
 | On a 24/48 Mbit/s link (one-way delay 40 ms, 1000-packet buffer), under-utilization is traced to capacity underestimated by 25%, and replacing that belief with the truth restores utilization | Not reproduced. The released policy runs at 0.49 utilization, and its capacity belief is about right; replacing it with the truth gives 0.43. The wrong beliefs are busy fraction (1.0 against 0.53 true), queue (18 packets against 0), free buffer and queueing delay; replacing busy fraction alone gives 0.72 |
 | Sage's state, as computed here, equals `sage.cc`'s | yes: every compared column of every step, on a Cubic and a BBRv1-with-loss episode (`tests/test_sage.py`, run locally with a Sage checkout; CI skips it) |
 
@@ -298,10 +298,10 @@ design above, on links neither network has seen, in log utility:
   not improve it (`exp-net1v4-lr-12`), and two more seeds confirm the
   choice and these coverages to within 0.02 (`exp-net1v4-seeds-13`). On
   net1 v3's validation links the
-  fixed rule on it leads BBRv3 by 0.150 on average over five campaigns
-  (release `exp-rule-net1v4-val-11`). Once on the 27 test links
-  (`exp-rule-net1v4-test-14`), it leads BBRv3 by 0.123 and BBRv1, the best
-  kernel controller there, by 0.053 on average, beats the rule on net1 v3
+  fixed rule on it leads BBRv3 by 0.137 on average over five campaigns
+  (release `exp-rule-net1v4-val-11`, deep-long rerun in `-deeplong-32`). Once on the 27 test links
+  (`exp-rule-net1v4-test-14`, deep-long rerun in `-deeplong-35`), it leads BBRv3 by 0.123 and BBRv1, the best
+  kernel controller there, by 0.061 on average, beats the rule on net1 v3
   in every family (by 0.04 to 0.43, every interval above zero), and stays
   within 0.05 of the rule on the true BDP except with a Cubic flow from
   the start (0.09). With competitors neither net1 trained on (BBRv3 or
@@ -314,7 +314,7 @@ design above, on links neither network has seen, in log utility:
   busy and this flow's share small, wins once on the test links
   (`exp-share-test-18`): at k = 1 it is never worse than the fixed rule
   outside copies, leads it by 0.26 with a Cubic flow from the start and
-  by 0.13 with BBRv3 or Westwood, and leads BBRv3 by 0.208 on average.
+  by 0.13 with BBRv3 or Westwood, and leads BBRv3 by 0.207 on average.
   Its own copies lose 0.79 against the fixed rule's copies: it cannot
   tell a copy of itself from a buffer-filling competitor. A net2 with
   memory that cooperates with its copies and switches to the share rule

@@ -242,7 +242,7 @@ held-out paths our net1 reaches 0.95 to 0.99 for 5 of the 7 (busy fraction
 0.45, free buffer 0.09). expliCCit reports that its split costs about 5%
 utilization and 9% queueing delay against Sage; here, with Sage's released
 policy outside its own kernel and links, the fixed rule on net1 v4 has 3 to
-15% more utilization and 46 to 55% less queueing delay on clean test links.
+14% more utilization and 46 to 65% less queueing delay on clean test links.
 expliCCit's case study, which traces under-utilization to a capacity
 belief 25% too low, did not reproduce: here the released policy's capacity
 belief is about right.
