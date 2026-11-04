@@ -1,0 +1,15 @@
+{
+  "title": "PPO net2 on net1 v4: the cloned start and the first iterations",
+  "description": "Recurrent PPO for net2 (src/expliccit_env/train/ppo.py) on the frozen net1 v4 (exp-net1v4-grid-10's chosen run), starting from a clone of the fixed rule at u = 0.125: one cell, tau 3 s, exploration 0.1 (log2 of the window), K = 4 rollouts of 30 s per link, 8 links per iteration from examples/net1_broad.py's net2-train set with competition over-weighted, 10 iterations. The cloned start (iteration -1) and every fifth iteration are evaluated noise-free on the validation links' new-conditions family and paired by link with the rule itself: the start must match the rule there, and the learner's diagnostics show whether the pipeline learns. A debugging run for the pipeline, not a result.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "grid": "release:exp-net1v4-grid-10",
+    "models": "release:model-net1v3"
+  },
+  "prepare": "G=\"$IN/grid/$(cat \"$IN/grid/chosen.txt\")/net1.pt\"; uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$G\" --models \"$IN/models\" --u 0.125",
+  "matrix": {"seed": [0]},
+  "run": "S=\"$OUT/spec-s$SEED.json\"; jq --argjson s \"$SEED\" '.seed = $s' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/ppo-s$SEED\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ppo-*",
+  "timeout_minutes": 360
+}
