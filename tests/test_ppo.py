@@ -152,6 +152,7 @@ def test_ppo_loop_runs_an_iteration_with_copies(build: object, tmp_path: Path) -
         compete=1.0,
         copies=(2,),
         epochs=1,
+        critic_warmup=0,
     )
     report = ppo.run_ppo(spec, tmp_path / "out", build, workers=2)
     initial, entry = report["iterations"]

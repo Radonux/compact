@@ -1,0 +1,19 @@
+{
+  "title": "PPO net2 on net1 v5: the learner with scaled rewards and a critic warm-up",
+  "description": "The first debug run (exp-net2-ppo-debug-80, on net1 v4) showed the cloned start matching the rule on validation (+0.010 over 126 pairs) but a critic that did not learn: returns summed per-step utilities over about tau / 10 ms steps, so their scale was about 100, value loss 1e3 to 1e4 and explained variance near 0 until the last iteration, and the actor drifted on noise. Now each step's reward is scaled by 1 - exp(-10 ms / tau), so a return is a discounted mean utility, and the first 3 iterations update only the value network. The same cell on net1 v5 (exp-net1v4-recheck-79), from the rule at u = 0.125 (v5's own u is being chosen in parallel), 20 iterations, evaluated every fifth on the validation links' new-conditions family and paired with the rule. A debugging run, not a result.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v5": "release:exp-net1v4-recheck-79",
+    "models": "release:model-net1v3"
+  },
+  "prepare": "N=\"$IN/v5/net1-d0.05-w512-s0/net1.pt\"; uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$N\" --models \"$IN/models\" --u 0.125",
+  "matrix": {
+    "seed": [
+      0
+    ]
+  },
+  "run": "S=\"$OUT/spec-s$SEED.json\"; jq --argjson s \"$SEED\" '.seed = $s | .iterations = 20' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/ppo-s$SEED\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ppo-*",
+  "timeout_minutes": 360
+}

@@ -28,7 +28,7 @@ import shutil
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Any, Literal, cast
+from typing import Annotated, Any, Final, Literal, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -66,6 +66,7 @@ type F32 = npt.NDArray[np.float32]
 # Per-step reward: the validation tables' log utility (delay weight 0.5,
 # loss weight 4).
 _REWARD: Net2Spec = Net2Spec(reward="log_utility")
+_STEP_S: Final = 0.01  # the guest's step interval
 _UTILITY_LABELS = ("receive_rate_bps", "capacity_bps", "queue_delay_mean_ns", "base_rtt_ns")
 
 
@@ -87,6 +88,9 @@ class PPOSpec(BaseModel):
     memory: bool = True  # False: the ablation without memory
     critic_hidden: PositiveInt = 256
     critic_truth: bool = True  # False: the ablation with a plain critic
+    # Iterations that update only the value network, so the actor does not
+    # follow a blank critic.
+    critic_warmup: Annotated[int, Field(ge=0)] = 3
     iterations: PositiveInt = 40
     links_per_iteration: PositiveInt = 8
     group: PositiveInt = 4  # K rollouts per link
@@ -251,7 +255,9 @@ def _trajectory(
     lb = target(z).numpy()
     u = (np.log2(np.maximum(cwnd[d + 1], 1.0)) - lb).astype(np.float32)
     prev = np.concatenate([[0.0], u[:-1]]).astype(np.float32)
-    r = np.nan_to_num(score.utility(labels, _REWARD))
+    # Each step's reward weighs 1 - exp(-10 ms / tau), so a return is a
+    # discounted mean utility, of order 1 whatever tau is.
+    r = np.nan_to_num(score.utility(labels, _REWARD)) * -math.expm1(-_STEP_S / spec.tau_s)
     ends = np.append(d[1:], n - 1)
     cum = np.concatenate([[0.0], np.cumsum(r)])
     reward = (cum[ends + 1] - cum[d + 1]).astype(np.float32)  # steps d + 1 .. next decision
@@ -377,7 +383,9 @@ class _Learner:
         with torch.no_grad():
             return [self.critic(torch.from_numpy(tr.critic)).numpy() for tr in trs]
 
-    def update(self, trs: list[Trajectory], rng: np.random.Generator) -> dict[str, float]:
+    def update(
+        self, trs: list[Trajectory], rng: np.random.Generator, *, actor: bool = True
+    ) -> dict[str, float]:
         s = self.spec
         v_old = self.values(trs)
         mu_old = self.means(trs)
@@ -402,10 +410,11 @@ class _Learner:
                 ratio = torch.exp(((u - m0) ** 2 - (u - mu) ** 2) / var)
                 surr = torch.min(ratio * a, torch.clamp(ratio, 1 - s.clip, 1 + s.clip) * a)
                 loss = -(surr * mask).sum() / mask.sum()
-                self.opt_a.zero_grad()
-                loss.backward()
-                nn.utils.clip_grad_norm_(self.actor.parameters(), s.max_grad_norm)
-                self.opt_a.step()
+                if actor:
+                    self.opt_a.zero_grad()
+                    loss.backward()
+                    nn.utils.clip_grad_norm_(self.actor.parameters(), s.max_grad_norm)
+                    self.opt_a.step()
                 c, cmask = _pad([trs[i].critic for i in idx])
                 g, _ = _pad([ret[i][:, None] for i in idx])
                 vl = (((self.critic(c) - g.squeeze(-1)) ** 2) * cmask).sum() / cmask.sum()
@@ -543,7 +552,7 @@ def run_ppo(
         trs = _trajectories(it_dir / "rollouts", groups, net1, spec)
         entry: dict[str, Any] = {"iteration": it, "rollouts": summary}
         if trs:
-            entry["learner"] = learner.update(trs, rng)
+            entry["learner"] = learner.update(trs, rng, actor=it >= spec.critic_warmup)
         if not spec.keep_rollouts:
             shutil.rmtree(it_dir / "rollouts" / "shards", ignore_errors=True)
         if eval_arms and ((it + 1) % spec.eval_every == 0 or it + 1 == spec.iterations):
