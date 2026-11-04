@@ -308,6 +308,15 @@ design above, on links neither network has seen, in log utility:
   Westwood from 0 s) it still leads net1 v3 by 0.10. There Scalable and
   BIC beat every fixed rule, the true-BDP one included: the remaining gap
   is the policy's, not net1's.
+- net2 on net1 v4 (`docs/training.md`, "net2 on net1 v4"). Online TD3+BC
+  from the fixed rule lost to it on validation (`exp-net2v4-val-16`). A
+  share rule, the fixed rule's window raised when net1 believes the link
+  busy and this flow's share small, wins once on the test links
+  (`exp-share-test-18`): at k = 1 it is never worse than the fixed rule
+  outside copies, leads it by 0.26 with a Cubic flow from the start and
+  by 0.13 with BBRv3 or Westwood, and leads BBRv3 by 0.208 on average.
+  Its own copies lose 0.79 against the fixed rule's copies: it cannot
+  tell a copy of itself from a buffer-filling competitor.
 - net2 setting the window to a fixed multiple of net1's believed BDP
   beats every kernel controller on average: by 0.079 (95% interval 0.032
   to 0.123) over BBRv3, the best of them. The average is over three

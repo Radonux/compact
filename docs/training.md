@@ -1146,9 +1146,44 @@ No k met the bar set before this run (copies' queueing delay no worse
 than the fixed rule's), so the share rule's gain against loss-based
 competitors comes with a cost against copies, and which to prefer is a
 choice of weights, not a validation result. The single test therefore
-runs three candidates fixed in advance (the fixed rule, and the share
-rule at k = 0.5 and 1) with copies on the test links
-(`experiments/share-test.json`). UNRUN.
+ran three candidates fixed in advance (the fixed rule, and the share rule
+at k = 0.5 and 1) with copies on the test links.
+
+**Test links, once.** Release
+[`exp-share-test-18`](https://github.com/Radonux/palaestra/releases/tag/exp-share-test-18)
+(`experiments/share-test.json`) ran them with the true-BDP rule and all
+17 kernel controllers on the 27 test links: the five families, BBRv3 or
+Westwood from 0 s, and 2 and 4 copies for 30 s. No episode failed.
+Paired with the fixed rule on net1 v4 by link (95% intervals over the 27
+links):
+
+| Campaign | share k = 0.5 minus fixed rule | share k = 1 minus fixed rule |
+|---|---|---|
+| training conditions, 20 s | +0.014 (-0.004 to +0.030) | +0.010 (-0.025 to +0.043) |
+| training conditions, 60 s | +0.039 (+0.019 to +0.061) | +0.046 (+0.012 to +0.080) |
+| new conditions, 20 s | +0.049 (+0.029 to +0.067) | +0.070 (+0.045 to +0.096) |
+| deep buffers and long RTTs, 20 s | +0.006 (-0.028 to +0.042) | +0.009 (-0.036 to +0.052) |
+| a Cubic flow from 0 s, 60 s | +0.165 (+0.110 to +0.229) | +0.258 (+0.161 to +0.364) |
+| mean of the five | +0.055 | +0.079 |
+| BBRv3 or Westwood from 0 s (test only) | +0.087 (+0.065 to +0.108) | +0.126 (+0.082 to +0.172) |
+| 2 or 4 copies of itself | -0.337 (-0.453 to -0.230) | -0.794 (-0.975 to -0.613) |
+
+- Against BBRv3 the share rule at k = 1 leads by 0.208 on average over
+  the five families (the fixed rule by 0.130, the fixed rule on the true
+  BDP by 0.153), and with BBRv3 or Westwood competing, which neither
+  net1 saw, it matches BIC and Scalable (+0.206 against +0.226 and
+  +0.214), which lose 0.4 to 1.7 elsewhere.
+- It is never worse than the fixed rule outside copies, and better under
+  any competition: by 0.26 with a Cubic flow from the start, and 0.13
+  with the held-out competitors.
+- Its copies pay for it: 0.79 below the fixed rule's copies, whose queue
+  stays shortest (19 and 29 ms for 2 and 4 copies, against 31 and 37 ms)
+  with the same fairness (Jain 0.97 and 0.93 to 0.95).
+- So the test confirms the trade-off validation found, on new links.
+  Weighting copies as one family of six, the fixed rule is ahead; leaving
+  them out, the share rule is. A net2 that tells a copy of itself from a
+  buffer-filling competitor would keep both; the share signal alone
+  cannot.
 
 ### Tuned comparison
 
@@ -1378,11 +1413,16 @@ target from its beliefs. Three seeds of the learned net2, 60 iterations
 of online training and arm A2 (the means) have run; on validation none
 beat the constant. What it leaves open, in the order the plan needs it:
 
-- First, finish the share rule (section 7, "net2 on net1 v4"): copies of
-  it on one link, then one test against the fixed rule and the kernel
-  controllers. Online TD3+BC from the rule lost on validation; a learned
-  net2 needs a lower-variance signal than broad 30 s rollouts give its
-  critic (paired rollouts, or a policy search over a few parameters).
+- First, a net2 that tells a copy of itself from a buffer-filling
+  competitor (section 7, "net2 on net1 v4"): the share rule gains under
+  competition and loses against its own copies, on validation and test
+  alike. A flow sharing the link with copies of a delay-keeping rule sees
+  the queue drain now and then; one sharing it with Cubic never does, so
+  a net2 with memory can push only when net1 believes the queue has not
+  drained for several round trips. Online TD3+BC from the rule lost on
+  validation; a learned net2 needs a lower-variance signal than broad
+  30 s rollouts give its critic (paired rollouts, or a policy search over
+  a few parameters).
   net1 v4's data still lacks competitors that arrive before the observed
   flow, and its bins end at the training ranges of delay and buffer.
 - The human reading (a few percentiles per LCF) as net2's input, against
