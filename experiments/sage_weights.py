@@ -21,7 +21,7 @@ Needs Python 3.8 with Sage's pinned stack, for example:
 Usage: ENV/bin/python experiments/sage_weights.py SAGE_CHECKOUT OBS.npy OUT
     SAGE_CHECKOUT  github.com/Soheil-ab/sage at eedd281 (tests/sage_ref.py)
     OBS.npy        float32 [N, 78], sage-v1 messages of one episode
-    OUT            gets weights.npz, actions.npy and obs69.npy
+    OUT            gets weights.npz, actions.npy, obs.npy and obs69.npy
 """
 
 import sys
@@ -74,6 +74,7 @@ for o in obs:
     acts.append(float(a.numpy()[0, 0]))
 np.save(f"{out}/actions.npy", np.array(acts, np.float32))
 np.save(f"{out}/obs69.npy", obs)
+np.save(f"{out}/obs.npy", np.load(obs_path))  # the messages, for sage_export.py --check
 enc1, gru, enc2, neck, mix = policy._layers
 
 
