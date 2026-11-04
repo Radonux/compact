@@ -1,0 +1,16 @@
+{
+  "title": "net1 v4 on its data rerun with the original setups' TCP limits, against a net1 retrained on it",
+  "description": "net1 v4's three datasets were rerun with the same specs after the guest took Sage's and ccBench's 64 MB TCP buffer limits (exp-data-net1-broad-30s-38, -60s-39, -ood-40; before: releases 5, 8 and 9, with a 4 MB send buffer that capped buffer-filling flows on about 7% of the links). This trains one net1 with net1 v4's chosen settings (dropout 0.05, width 512, seed 0) on the new data and reports it next to net1 v4 itself (--compare) on the same new rows: whether net1 v4 is still honest on what the new guest produces decides whether it is kept.",
+  "train": true,
+  "inputs": {
+    "d30": "release:exp-data-net1-broad-30s-38",
+    "d60": "release:exp-data-net1-broad-60s-39",
+    "ood": "release:exp-data-net1-broad-ood-40",
+    "grid": "release:exp-net1v4-grid-10"
+  },
+  "matrix": {"seed": [0]},
+  "run": "uv run python experiments/net1_train.py \"$OUT/net1-d0.05-w512-s$SEED\" --spec experiments/specs/net1v4.json --set dropout=0.05 --set width=512 --seed $SEED --data \"$IN/d30/campaign-train30\" \"$IN/d60/campaign-train60\" --ood competitors=\"$IN/ood/campaign-ood-competitors\" --ood loss=\"$IN/ood/campaign-ood-loss\" --ood rtt=\"$IN/ood/campaign-ood-rtt\" --ood buffer=\"$IN/ood/campaign-ood-buffer\" --compare \"$IN/grid/$(cat \"$IN/grid/chosen.txt\")/net1.pt\"",
+  "collect": "uv run python experiments/net1_grid.py \"$OUT\" \"$OUT\"/net1-*",
+  "collect_inputs": false,
+  "timeout_minutes": 360
+}
