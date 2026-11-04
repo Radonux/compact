@@ -401,14 +401,23 @@ move by at most 0.02 on the test links and 0.06 on the validation links
 (their five-family means by at most 0.004 and 0.013), loss-based
 controllers fall by 0.2 to 0.9, and every validation choice stands.
 
-With 64 MB, a policy whose window grows without bound floods the link.
-Sending costs no virtual time, so nothing but the send buffer stops it: one
-60 s episode of the 60 s data (a threshold policy on 49 to 196 Mbit/s, 5 ms
-one way, a 26-packet buffer) recorded 1.78 GB of arrivals and 1.75 GB of
-drops against 31 MB of departures, and seven of that run's shards lost
-their runner to it and its like. In the rerun 30 s data, 99 of 14,400
-episodes (all policies) sent more than 3 times the capacity, against none
-before. The send buffer is therefore sized to the path (`docs/architecture.md`):
+With 64 MB, a policy whose window grows without bound floods the link,
+and only the send buffer stops it. One 60 s episode of the 60 s data (a
+threshold policy with theta 0.1 on 49 to 196 Mbit/s, 5 ms one way, a
+26-packet buffer) wrote 1.75 GB of arrival records and 1.72 GB of drop
+records against 0.03 GB of departure records, and seven of that run's
+shards lost their runner to it and its like. Those are record bytes, 64 a
+packet; rerun locally on 2026-11-04 and counted from the records, the
+downlink saw 27.2 million arrivals (40.7 GB of packets, 5.4 Gbit/s on
+average) and 26.8 million drops against 378,000 departures (76 Mbit/s), 71
+arrivals per departure. The flood comes from the window: a host with the
+setups' 64 MB would flood the same way, so the limit that follows is a
+deliberate choice of how far a window may run, not the removal of an
+artifact. What is particular to this environment is the rate, since
+sending here costs no virtual time; whether a real sender and Mahimahi's
+single userspace process pass 450,000 packets a second is UNVERIFIED. In
+the rerun 30 s data, 99 of 14,400 episodes (all policies) sent more than 3
+times the capacity, against none before. The send buffer is therefore sized to the path (`docs/architecture.md`):
 16 times what the path holds, at least 1 MB and at most 64 MB. With it the
 same episode records 290 MB of arrivals. `test_a_window_far_beyond_the_path_is_bounded`
 runs an agent that grows its window every step on 50 Mbit/s, 10 ms and 26
@@ -427,6 +436,20 @@ without it (`-38`), the same 14,400 ids, changed 1,482 episodes:
 | a policy among the flows | 1,372 of 3,788 | mean -0.050, 449 by more than 0.05, at most -0.61 | 0.93 |
 | Hybla among the flows, no policy | 98 of 929 | mean -0.002, one by more than 0.05 (-0.094) | 0.05 |
 | any other | 12 of 9,683 | mean -0.004, at most -0.032 | 0.003 |
+
+By policy, the 1,372 changed policy episodes are threshold-0.1's 573 of
+616 (567 of them dropped more than half of what reached the link),
+threshold-0.3's 411 of 656 (407), threshold-0.6's 165 of 592 (159),
+threshold-0.9's 4 of 600 (4), and the fixed rule's (u = 0.25 on net1) 219
+of 1,324 (none; mean utilization change 0.0000, not traced further). The
+floods are the delay-threshold teachers' (`examples/net1_varied.py`): each
+grows the window by 2^0.01 per 10 ms step until min RTT over smoothed RTT
+falls below theta, a standing queue of (1/theta - 1) base RTTs, and reacts
+to nothing else, loss included. Where the buffer holds less than that
+queue, drops keep it from forming and the window grows for the rest of the
+episode; the target is 9 base RTTs for theta 0.1 and 0.11 for theta 0.9.
+The data generation is left as it is: these episodes are what the teachers
+do.
 
 Local reruns (2026-11-04) of 18 of them reproduce both releases bit for bit.
 Three Hybla and two policy episodes give release 38's result with the
@@ -539,6 +562,15 @@ published; #50 and #52 to #58 were cancelled), and so are #59 to #68,
 cancelled, which had the first version of the limit. The `-deeplong` reruns and
 runs #43 to #48 remain the record of 64 MB without a limit. The runs listed
 above as not rerun stay so, for the reasons given there.
+
+### Freeze (2026-11-04)
+
+The guest, the kernel and the TCP settings are frozen at `1365f0e`, the
+send-buffer limit's commit: the guest and kernel as built from it, the
+setup scripts' sysctls, and `EpisodeSpec._send_buffer`. Every run from #69
+on uses them. A later change to any of them restarts the critical path
+(net1's data, net1, then the rules' choices), so one is made only for a real
+bug, and recorded here with its commit.
 
 ## Teacher modules, and seeded runs across guest versions (M10)
 

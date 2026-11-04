@@ -90,10 +90,11 @@ bytes, and at least the initial window's 10 segments. No stock controller
 reached it in a 340-episode sample (`docs/validation.md`). What does is a
 window far beyond the path: a policy that floods the link, and at times
 Hybla's slow start on long paths, which grows the window by up to 2^ρ - 1
-packets per ACK. Sending costs no virtual time here, so without the limit
-such a window puts up to 64 MB on the link every round trip, tens of Gbit/s
-that a real sender's NIC, CPU and Mahimahi's own processing would not pass.
-A spec's `sysctls` are written after all of these, so an episode can still
+packets per ACK. The limit is a deliberate choice, not a fix for an
+artifact: such a flood comes from the window, and a real host with the
+setups' 64 MB would flood too. What this environment adds is the rate,
+since sending costs no virtual time: one 60 s flood offered 5.4 Gbit/s to a
+link that carried 76 Mbit/s (`docs/validation.md`). A spec's `sysctls` are written after all of these, so an episode can still
 set its own.
 
 Cross traffic shares the same path in the same direction, sender to
