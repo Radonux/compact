@@ -325,6 +325,13 @@ design above, on links neither network has seen, in log utility:
   copies, but every rule on the truth fails with copies (the fixed one
   by 1.06 against itself on net1 v4), since the link's capacity is not
   the capacity a shared flow can take: the LCF set lacks that quantity.
+  Told the number of flows N (constant and known, on validation;
+  `exp-fairshare-val-21` to `exp-fairshare-used-val-23`), a share rule on
+  the truth that aims at 1/N of the BDP and pushes only below 1/N of the
+  capacity in use matches the fixed rule alone and leads it with copies
+  (by 0.29) and with a Cubic flow from the start (by 0.09): N, or the fair
+  share, is the missing LCF for these conditions. Whether a sender can
+  estimate N is open.
 - net2 setting the window to a fixed multiple of net1's believed BDP
   beats every kernel controller on average: by 0.079 (95% interval 0.032
   to 0.123) over BBRv3, the best of them. The average is over three

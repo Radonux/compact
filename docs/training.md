@@ -1274,6 +1274,60 @@ without their own intervals):
   against A1). net1's bias there helps by accident and is not a
   property to count on.
 
+**Told the number of flows, a rule on the truth cooperates with its copies
+and competes with Cubic.** The candidate missing quantity is the number
+of flows N on the bottleneck. `experiments/share_rule_export.py --flows N`
+gives it to the share rule, and `experiments/fairshare.py` runs conditions
+where N is constant and known: alone for 20 s (N = 1), a Cubic flow from
+0 s for 60 s (N = 2), and 2 or 4 copies starting together for 30 s, on
+the 21 validation links. Each episode's policy is told its N, so these
+are upper bounds for a net1 that would have to estimate it. Three
+releases, each with the fixed rule on net1 v4 and BBRv3 (log utility
+minus BBRv3, paired by link):
+
+| Rule | release | alone | 2 or 4 copies | Cubic from 0 s | mean |
+|---|---|---|---|---|---|
+| fixed rule, net1 v4 | 21, 22, 23 | +0.183, +0.183, +0.180 | +0.096, +0.056, +0.111 | -0.031, -0.059, -0.029 | +0.083, +0.060, +0.087 |
+| aims at 1/N, pushes below 1/N of the capacity, truth, k = 1 | 21 | +0.211 | +0.449 | -0.395 | +0.089 |
+| the same, k = 3 | 21 | +0.167 | +0.439 | -0.194 | +0.137 |
+| the same, k = 4 | 22, 23 | +0.111, +0.108 | +0.269, +0.326 | +0.040, +0.068 | +0.140, +0.167 |
+| the same, k = 6 | 22 | -0.210 | -1.217 | +0.224 | -0.401 |
+| the same on net1 v4's beliefs, k = 2 | 21 | +0.076 | +0.173 | -0.465 | -0.072 |
+| aims at 1/N, pushes below 1/N of the capacity in use, truth, k = 2 | 23 | +0.199 | +0.460 | -0.286 | +0.124 |
+| the same, k = 4 | 23 | +0.187 | +0.398 | +0.065 | +0.216 |
+| the same, k = 6 | 23 | +0.166 | -0.605 | +0.249 | -0.064 |
+
+(Releases
+[`exp-fairshare-val-21`](https://github.com/Radonux/palaestra/releases/tag/exp-fairshare-val-21),
+[`exp-fairshare-k-val-22`](https://github.com/Radonux/palaestra/releases/tag/exp-fairshare-k-val-22)
+and
+[`exp-fairshare-used-val-23`](https://github.com/Radonux/palaestra/releases/tag/exp-fairshare-used-val-23);
+`experiments/fairshare-val.json`, `fairshare-k-val.json` and
+`fairshare-used-val.json`. Episode seeds are drawn in order, so the runs
+differ in seeds; the fixed rule's rows show that spread.)
+
+- Knowing N fixes copies: aiming at 1/N of the true BDP, 2 and 4 copies
+  keep the queue at 3 to 6 ms for k up to 3 (11 ms at k = 4 in its second
+  form) with utilization 0.96 to 0.98 and Jain's index 1.00 (the fixed
+  rule's copies: 23 and 36 ms, Jain 0.92 with 4).
+- The first form of the push, k busy max(0, 1 - N s), also fires when a
+  flow alone is not yet using the link, so the gain that holds a Cubic
+  flow off (k of 4 and more) overshoots alone and among copies.
+- Measured against 1/N of the capacity in use, k max(0, 1 - N s / busy),
+  the push is zero for a flow alone and for a copy at its fair share. At
+  k = 4 this rule matches the fixed rule alone (+0.187 against +0.180)
+  and leads it with copies (by 0.29) and with a Cubic flow from the start
+  (by 0.09); larger k gains more against Cubic and loses with copies.
+- On net1 v4's beliefs the same rules leave copies' links underused
+  (utilization 0.63 to 0.82): net1 already believes less capacity on a
+  shared link, so dividing by N counts the sharing twice.
+- What this shows: with the truth and N, one rule does well in all three
+  conditions, so the LCF set lacks N (or the fair share it implies), not
+  a mode switch. What it does not show: k = 4 was chosen on these links;
+  N is constant here and handed to the rule; conditions where N changes
+  (the training families' flows from 8 s, UDP) are not run; and nothing
+  says a sender can estimate N, which is the next question.
+
 ### Tuned comparison
 
 The search below ran on the expliCCit-like data. Its harness (grid
@@ -1506,10 +1560,11 @@ beat the constant. What it leaves open, in the order the plan needs it:
   (section 7, "net2 on net1 v4"): the share rule gains under competition
   and loses against its own copies, on validation and test alike, and a
   hand-made switch between a cooperative mode and the share rule kept
-  neither gain (`exp-mode-val-19`). The cooperative mode is the right
-  behaviour among copies; what fails is deciding when to leave it. That
-  decision needs evidence over seconds, not single steps, which suits a
-  learned net2 with memory more than hand-set thresholds. Online TD3+BC
+  neither gain (`exp-mode-val-19`). Told the number of flows N, a rule on
+  the truth keeps both (`exp-fairshare-used-val-23`), so the next
+  question is net1's: whether N, or the fair share, can be estimated from
+  one sender's measurements, and how well, before a net1 v5 adds it to the
+  LCFs. A learned net2 with memory remains the other route. Online TD3+BC
   from the rule lost on validation; a learned net2 needs a lower-variance
   signal than broad 30 s rollouts give its critic (paired rollouts, or a
   policy search over a few parameters).
