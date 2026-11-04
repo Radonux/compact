@@ -66,7 +66,7 @@ def split_links(split: str) -> dict[str, dict[str, Any]]:
 def controllers(stock: str, policies: list[str]) -> tuple[list[dict[str, Any]], dict[str, str]]:
     """The stock controllers (comma-separated, or all) and the policies
     (NAME=PATH, run as "hold" agents), and agent:SHA12 -> NAME."""
-    names = list(STOCK_NAMES) if stock == "all" else stock.split(",")
+    names = list(STOCK_NAMES) if stock == "all" else [n for n in stock.split(",") if n]
     ccs: list[dict[str, Any]] = [{"kind": "stock", "name": n} for n in names]
     aliases: dict[str, str] = {}
     for name, path in (x.split("=", 1) for x in policies):

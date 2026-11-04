@@ -14,9 +14,19 @@ Writes OUT/share-u{u0}-k{k}.onnx for each k; --oracle writes
 OUT/share-u{u0}-k{k}-oracle.onnx instead: the same rule on the true LCFs,
 read from the guest's live truth into net1's bins (each mean is then the
 true value's bin centre).
+
+--flows N gives the rule the number of flows on the bottleneck, which is
+not among the LCFs: the window aims at 1/N of the believed BDP, and the
+rule pushes only while this flow gets less than 1/N of the capacity,
+
+    u = u0 - log2(N) + k * busy * max(0, 1 - N * receive_rate / capacity)
+
+written to OUT/share-u{u0}-k{k}-n{N}[-oracle].onnx. Without it the graph is
+the one above, byte for byte.
 """
 
 import argparse
+import math
 from pathlib import Path
 
 import torch
@@ -35,7 +45,7 @@ class ShareRule(nn.Module):
     center: torch.Tensor
     spread: torch.Tensor
 
-    def __init__(self, net1: fit.Net1, u0: float, k: float) -> None:
+    def __init__(self, net1: fit.Net1, u0: float, k: float, flows: int | None = None) -> None:
         super().__init__()
         s = net1.lcf_scaler
         self.register_buffer("cols", s.cols.clone())
@@ -45,14 +55,18 @@ class ShareRule(nn.Module):
         self.busy = lcfs.index("busy_fraction")
         self.recv = lcfs.index("receive_rate_bps")
         self.cap = lcfs.index("capacity_bps")
-        self.u0, self.k = u0, k
+        self.u0, self.k, self.flows = u0, k, flows
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         phys = x.clone()
         phys[:, self.cols] = x[:, self.cols] * self.spread + self.center
         busy = torch.clamp(phys[:, self.busy], 0.0, 1.0)
         share = phys[:, self.recv] / torch.clamp(phys[:, self.cap], min=0.1)
-        u = self.u0 + self.k * busy * torch.clamp(1.0 - share, 0.0, 1.0)
+        if self.flows is None:
+            u = self.u0 + self.k * busy * torch.clamp(1.0 - share, 0.0, 1.0)
+        else:
+            u0 = self.u0 - math.log2(self.flows)
+            u = u0 + self.k * busy * torch.clamp(1.0 - self.flows * share, 0.0, 1.0)
         return torch.clamp(u / ACTION_MAX, -1.0, 1.0).unsqueeze(1)
 
 
@@ -63,14 +77,16 @@ def main() -> None:
     p.add_argument("--u0", type=float, required=True)
     p.add_argument("--k", type=float, nargs="+", required=True)
     p.add_argument("--oracle", action="store_true")
+    p.add_argument("--flows", type=int, help="flows on the bottleneck, known to the rule")
     a = p.parse_args()
     net1, _ = fit.load_net1(a.net1)
     truth = frozenset(net1.lcfs) if a.oracle else frozenset[str]()
     a.out.mkdir(parents=True, exist_ok=True)
     for k in a.k:
-        rule = ShareRule(net1, a.u0, k).eval()
+        rule = ShareRule(net1, a.u0, k, a.flows).eval()
         graph = fit.policy_graph(net1, rule, ACTION_MAX, action="bdp", view="means", truth=truth)
-        name = f"share-u{a.u0:g}-k{k:g}" + ("-oracle" if a.oracle else "")
+        name = f"share-u{a.u0:g}-k{k:g}" + (f"-n{a.flows}" if a.flows else "")
+        name += "-oracle" if a.oracle else ""
         (a.out / f"{name}.onnx").write_bytes(to_onnx(graph))
         print(name)
 

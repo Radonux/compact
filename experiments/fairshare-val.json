@@ -1,0 +1,14 @@
+{
+  "title": "The share rule told the number of flows, on the truth and on net1 v4, on validation links",
+  "description": "On the true LCFs every window rule fails with copies of itself, since each copy aims at the whole link's BDP (exp-share-oracle-val-20): the capacity a shared flow can take is not among the LCFs. This tests whether the number of flows N on the bottleneck is the missing quantity: the share rule told N (experiments/share_rule_export.py --flows N: u = 0.125 - log2(N) + k busy max(0, 1 - N receive/capacity), so the window aims at 1/N of the BDP and pushes only below 1/N of the capacity), for k in {0, 1, 2, 3}, read from the guest's truth (--oracle) and from net1 v4's beliefs, next to the fixed rule on net1 v4 (u = 0.125) and BBRv3; at N = 1 the rule is the share rule itself (the same graph), whose copies and Cubic runs without N are in exp-share-oracle-val-20. Conditions where N is constant and known (experiments/fairshare.py, seed 11, the 21 validation links): the flow alone for 20 s (N = 1), with a Cubic flow from 0 s for 60 s (N = 2), and 2 or 4 copies starting together for 30 s. N is given per episode, so this is an upper bound for a net1 that would estimate it.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "grid": "release:exp-net1v4-grid-10"
+  },
+  "prepare": "G=\"$IN/grid/$(cat \"$IN/grid/chosen.txt\")/net1.pt\"; uv run python experiments/rule_export.py \"$OUT/v4\" \"$G\" --u 0.125; for n in 1 2 4; do uv run python experiments/share_rule_export.py \"$OUT/fair\" \"$G\" --u0 0.125 --k 0 1 2 3 --flows $n; uv run python experiments/share_rule_export.py \"$OUT/fair\" \"$G\" --u0 0.125 --k 0 1 2 3 --flows $n --oracle; done; P=(--policy \"rule-v4=$OUT/v4/rule-u0.125.onnx\"); for k in 0 1 2 3; do for n in 1 2 4; do P+=(--policy \"fair-k$k@$n=$OUT/fair/share-u0.125-k$k-n$n.onnx\" --policy \"fair-oracle-k$k@$n=$OUT/fair/share-u0.125-k$k-n$n-oracle.onnx\"); done; done; uv run python experiments/fairshare.py \"$OUT\" --split val --seed 11 --stock bbr3 \"${P[@]}\"",
+  "shards": 20,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps; done; uv run python experiments/slim_steps.py \"$OUT\"",
+  "collect": "uv run python experiments/rule_report.py \"$OUT\" && uv run python experiments/copies_report.py \"$OUT\"",
+  "timeout_minutes": 240
+}
