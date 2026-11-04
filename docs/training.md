@@ -1079,6 +1079,49 @@ link, with 95% intervals over the 27 links:
   +0.025) and trails it everywhere else, by 0.30 with the held-out
   competitors.
 
+### net1 v5: net1 v4's settings, retrained under the frozen settings
+
+The guest's TCP settings changed twice after net1 v4 was trained (the
+setups' 64 MB limits, then the per-path send-buffer limit; both in
+`docs/validation.md`), and are frozen at `1365f0e`. net1 v4's three
+datasets were regenerated with the same specs under them
+([`exp-data-net1-broad-30s-73`](https://github.com/Radonux/palaestra/releases/tag/exp-data-net1-broad-30s-73),
+[`-60s-74`](https://github.com/Radonux/palaestra/releases/tag/exp-data-net1-broad-60s-74),
+[`-ood-75`](https://github.com/Radonux/palaestra/releases/tag/exp-data-net1-broad-ood-75)),
+and release
+[`exp-net1v4-recheck-79`](https://github.com/Radonux/palaestra/releases/tag/exp-net1v4-recheck-79)
+trained a net1 on them with net1 v4's chosen settings (three members,
+dropout 0.05, width 512, `experiments/specs/net1v4.json`) and scored net1
+v4 itself on the same rows. The new net1 is as good or better on every
+LCF's 90% coverage, and its CRPS skill on the validation rows is higher on
+six of the seven LCFs (mean 0.774 against 0.753; one-way delay 0.001
+lower), so it replaces net1 v4 as **net1 v5**, with no new search (the
+settings were searched for net1 v4, and nothing got worse). 90% coverage /
+R^2:
+
+| Rows | net1 | capacity | free buffer | queue | busy fraction | one-way delay | receive rate |
+|---|---|---|---|---|---|---|---|
+| validation links | v5 | 0.92 / 0.80 | 0.89 / 0.41 | 0.92 / 0.91 | 0.91 / 0.87 | 0.97 / 1.00 | 0.94 / 0.99 |
+| | v4 | 0.90 / 0.79 | 0.86 / 0.40 | 0.90 / 0.76 | 0.90 / 0.87 | 0.96 / 1.00 | 0.93 / 0.95 |
+| test links | v5 | 0.92 / 0.81 | 0.91 / 0.47 | 0.92 / 0.90 | 0.91 / 0.88 | 0.97 / 1.00 | 0.94 / 0.99 |
+| | v4 | 0.89 / 0.80 | 0.88 / 0.45 | 0.90 / 0.60 | 0.91 / 0.88 | 0.96 / 1.00 | 0.92 / 0.94 |
+| BBRv3 or Westwood competing | v5 | 0.92 / 0.83 | 0.92 / 0.41 | 0.92 / 0.85 | 0.91 / 0.78 | 0.98 / 1.00 | 0.94 / 0.99 |
+| | v4 | 0.88 / 0.81 | 0.88 / 0.37 | 0.89 / 0.71 | 0.90 / 0.77 | 0.97 / 1.00 | 0.92 / 0.95 |
+| random loss 3% to 6% | v5 | 0.88 / 0.56 | 0.88 / 0.23 | 0.91 / 0.85 | 0.81 / 0.81 | 0.97 / 1.00 | 0.92 / 0.99 |
+| | v4 | 0.86 / 0.57 | 0.88 / 0.22 | 0.91 / 0.43 | 0.84 / 0.83 | 0.97 / 1.00 | 0.93 / 0.96 |
+| one-way delay 61 to 90 ms | v5 | 0.84 / 0.70 | 0.89 / 0.30 | 0.89 / 0.74 | 0.89 / 0.77 | 0.90 / -2.54 | 0.92 / 0.95 |
+| | v4 | 0.85 / 0.64 | 0.88 / 0.27 | 0.86 / 0.46 | 0.91 / 0.78 | 0.91 / -2.44 | 0.89 / 0.84 |
+| buffers 8 to 16 BDP | v5 | 0.90 / 0.83 | 0.44 / 0.04 | 0.90 / 0.75 | 0.90 / 0.87 | 0.96 / 1.00 | 0.94 / 0.97 |
+| | v4 | 0.85 / 0.78 | 0.41 / 0.04 | 0.87 / 0.47 | 0.90 / 0.87 | 0.94 / 1.00 | 0.88 / 0.87 |
+
+The largest gain is the queue (R^2 0.90 against 0.60 on the test links):
+v4 never saw the deeper queues the 64 MB limits let buffer-filling flows
+build. Two cells are a little worse: queueing delay's coverage at 61 to 90
+ms (0.80 against 0.86) and busy fraction's under 3% to 6% loss (0.81
+against 0.84). The range limits stay as they were (one-way delay above the
+training range, free buffer on deep buffers). The fixed rule's u and the
+share rule's k are chosen again on net1 v5 (`experiments/rule-net1v5-val.json`).
+
 ### net2 on net1 v4
 
 The fixed rule leaves share on the table against loss-based flows present
@@ -1754,6 +1797,41 @@ queue and free buffer.
   patches hurt: busy fraction from the truth drops the cloned policy to
   0.144 utilization, and with the queue group from the truth TD3+BC's
   drop fraction rises from 0 to 0.385.
+
+### Alarms that need no ground truth (R2)
+
+Can a deployed net1 tell when its beliefs are wrong? Release
+[`exp-r2-alarms-81`](https://github.com/Radonux/palaestra/releases/tag/exp-r2-alarms-81)
+(`experiments/r2_alarms.py`) scores alarms computed only from net1's output
+and the sender's own measurements: physical invariants among the beliefs
+(receive rate at most capacity times busy fraction; mean queueing delay
+equal to queue over capacity; queue plus free buffer constant over an
+episode), each distribution's entropy, and delayed checks against the
+delivery rate and min RTT measured three smoothed RTTs later. Each alarm's
+threshold is the 95th percentile of its episode mean on net1 v4's
+validation links. A belief about an LCF is wrong in an episode when the
+truth lies outside net1's central 90% set in more than half of its steps.
+Detection is counted among the episodes wrong about the LCF, false alarms
+among the in-distribution test links' episodes right about it.
+
+- False alarms stay near the nominal 5% per alarm on the test links, and
+  0.07 to 0.17 per LCF when any alarm counts.
+- The alarms catch net1 v3 where its belief contradicts what the flow
+  measures: one-way delay on buffers of 8 to 16 BDP (0.83 of 168 wrong
+  episodes, AUC 0.91, mostly the min RTT check), queueing delay at 61 to
+  90 ms (0.89 of 90, AUC 0.92, the queue-over-capacity invariant), and
+  capacity under 3% to 6% loss (0.63 of 287, AUC 0.79).
+- They miss net1 v3's capacity under competition, the fault that
+  retraining net1 alone repaired (net1 v3 to v4): with a Cubic flow from 0 s, 0.12 of 43 wrong episodes
+  (AUC 0.52); with a BBRv3 or Westwood competitor, 0.11 of 388 (AUC 0.46).
+  A capacity believed at 0.59 of the truth is still above the flow's own
+  share, so nothing it measures contradicts it, and net1 v3 is confident
+  there, so its entropy does not rise either (the explanation is
+  inferred, not tested).
+
+So alarms of this kind cover beliefs that the flow's own measurements can
+refute, and not beliefs that those measurements are consistent with; the
+latter would need the flow to probe, which is outside this work.
 
 ## 8. Next
 
