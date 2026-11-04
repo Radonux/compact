@@ -78,12 +78,16 @@ sized to the path instead: each episode's send buffer (`tcp_wmem`'s
 maximum) is 16 times what its path holds in flight (the peak capacity over
 1 s times the longest flow's base RTT, plus the buffer), at least 1 MB and
 at most the scripts' 64 MB (`EpisodeSpec._send_buffer`). A flow needs about
-2.5 bytes of buffer per byte in flight, twice its window, so this never
-binds a flow the path could carry. It stops a policy whose window runs far
-beyond the path: sending costs no virtual time here, where a real sender's
-NIC, CPU and Mahimahi's own processing would stop it, so such a window
-would flood the link with packets it drops. A spec's `sysctls` are written
-after all of these, so an episode can still set its own.
+2.5 bytes of buffer per byte in flight, so the cap still lets about 6 times
+what the path holds be in flight. It binds only windows far beyond that:
+policies that flood the link, and Hybla's slow start on long paths
+(`docs/validation.md` has the counts). Sending costs no virtual time here,
+so without the cap such a window puts up to 64 MB on the link every round
+trip, tens of Gbit/s that a real sender's NIC, CPU and Mahimahi's own
+processing would not pass. The cap stands in for those limits; its
+multiple is a choice, not a measurement of the original hosts. A spec's
+`sysctls` are written after all of these, so an episode can still set its
+own.
 
 Cross traffic shares the same path in the same direction, sender to
 receiver. Cross flow `i` sends from port `6000 + i`. The observed flow sends

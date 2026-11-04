@@ -416,8 +416,36 @@ packets for 4 s: 8 arrivals per departure with the cap, 54 with 64 MB. Rerun
 with the cap, 148 episodes that the old regime let finish normally (six
 ccperf campaigns with Cubic, BBRv1 and Reno, and 43 of the broad data's
 episodes with a stock observed flow) gave the same `flow_seconds` tables,
-cell for cell (10,070 cells): the cap binds only such floods. The broad
-data is rerun with it.
+cell for cell (10,070 cells).
+
+That check was too narrow to show that the cap binds only floods. The 30 s
+data rerun with the cap (`exp-data-net1-broad-30s-49`) against the one
+without it (`-38`), the same 14,400 ids, changed 1,482 episodes:
+
+| Episodes | Changed | Utilization change of those changed | Drop fraction without the cap (median) |
+|---|---|---|---|
+| a policy among the flows | 1,372 of 3,788 | mean -0.050, 449 by more than 0.05, at most -0.61 | 0.93 |
+| Hybla among the flows, no policy | 98 of 929 | mean -0.002, one by more than 0.05 (-0.094) | 0.05 |
+| any other | 12 of 9,683 | mean -0.004, at most -0.032 | 0.003 |
+
+Local reruns (2026-11-04) of 18 of them reproduce both releases bit for bit.
+Three Hybla and two policy episodes give release 38's result with the
+send buffer at 64 MB and release 49's with the cap, so the cap is the
+cause there. The 12 others give release 38's result at its commit
+(`1a9ed5a`) and release 49's at the cap's, with or without the cap: what
+moves them is the plan's added `tcp_wmem` write itself, not its value
+(not traced further; M10 below found guest changes shifting the kernel's
+random stream). So the cap binds floods (83% of the changed policy
+episodes dropped more than half of what reached the link, and the most
+changed, a threshold policy on a 10-packet buffer at the 1 MB floor, fell
+from 0.95 to 0.34) and Hybla's slow start, which grows the window by 2^ρ - 1
+packets per ACK (ρ the RTT over 25 ms) and overshoots the path on long
+RTTs. With either
+setting a flood is unlike the original setups', whose senders could not
+push 64 MB per round trip into Mahimahi; the cap is the nearer of the two,
+and its multiple is a choice (`docs/architecture.md`). The broad data is
+rerun with it (`-49`, `-50`, `-51`), and so is everything that ran
+between the TCP limit fix and the cap with a policy or Hybla in it (below).
 
 The setup scripts' other lines (the initial buffer sizes 87380 and 65536
 bytes, no cached metrics, no autocorking) change every episode a little,
@@ -452,6 +480,17 @@ work replaced, decided on conditions the limit did not reach (copies and
 competitors on the plain links); the fairshare runs, copies and held-out
 competitors used only links that need at most 3.1 MB in flight in all; and
 `exp-test-links-duration-2` and net1 v3 are superseded.
+
+Reruns for the send-buffer cap (scheduled 2026-11-04): every run above
+that came after the TCP limit fix but before the cap and has a policy or
+Hybla among its flows, namely ccBench and ccperf (`exp-ccbench-30`,
+`exp-ccperf-31`), the case study (`exp-expliccit-case-42`) and the six
+whole validation and test runs (#43 to #48). The validation runs go first
+and the test runs after them, once the validation choices are settled on
+the capped runs, so each test link set runs once more, not twice. The
+`-deeplong` reruns and runs #43 to #48 remain the record of the 64 MB
+setting without the cap. The runs listed above as not rerun stay so, for
+the reasons given there.
 
 ## Teacher modules, and seeded runs across guest versions (M10)
 
