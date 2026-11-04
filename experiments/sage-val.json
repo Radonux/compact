@@ -1,0 +1,15 @@
+{
+  "title": "Sage's released policy against the split on net1 v4, on validation links",
+  "description": "expliCCit reports that its split (net1 and net2) costs about 5% utilization and 9% queueing delay against Sage. Here Sage's released policy (release exp-sage-model-24, converted under sage-v1 and checked against TensorFlow; MIT-licensed) runs as a hold agent next to the fixed rule (u = 0.125) and the share rule (k = 1) on net1 v4, BBRv3, Cubic and BBRv1, on the five validation families (seed 11) and as 2 and 4 copies for 30 s (experiments/copies.py, seed 11). Nothing is chosen here: Sage is released as it is and the split's candidates were fixed on validation earlier, so this checks that Sage runs as expected before the single test. Reported: log utility against BBRv3 per family, the copies' fairness and queueing delay, and utilization and queueing delay against Sage on the conditions where the flow is alone (experiments/sage_report.py).",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "grid": "release:exp-net1v4-grid-10",
+    "sage": "release:exp-sage-model-24"
+  },
+  "prepare": "G=\"$IN/grid/$(cat \"$IN/grid/chosen.txt\")/net1.pt\"; SAGE=\"$IN/sage/sage/sage.onnx\"; echo \"fc0d6f1da45e4948ee3d96784642793954ed5e52adc1eddd0c9883d5d8fe2f9e  $SAGE\" | sha256sum -c; uv run python experiments/rule_export.py \"$OUT/v4\" \"$G\" --u 0.125; uv run python experiments/share_rule_export.py \"$OUT/share\" \"$G\" --u0 0.125 --k 1; P=(--policy \"sage=$SAGE\" --policy \"rule-v4=$OUT/v4/rule-u0.125.onnx\" --policy \"share-k1=$OUT/share/share-u0.125-k1.onnx\"); experiments/rule_eval.sh \"$OUT\" val 11 11 bbr3,cubic,bbr \"${P[@]}\"; uv run python experiments/copies.py \"$OUT/copies\" --split val --duration-ms 30000 --seed 11 --n 2 4 --stock bbr3 \"${P[@]}\"; mv \"$OUT/copies/c-copies-30s\" \"$OUT/\"; jq -s add \"$OUT/aliases.json\" \"$OUT/copies/aliases.json\" > \"$OUT/a.json\"; mv \"$OUT/a.json\" \"$OUT/aliases.json\"",
+  "shards": 20,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps; done; uv run python experiments/slim_steps.py \"$OUT\"",
+  "collect": "uv run python experiments/rule_report.py \"$OUT\" --apart copies-30s && uv run python experiments/copies_report.py \"$OUT\" && uv run python experiments/sage_report.py \"$OUT\"",
+  "timeout_minutes": 300
+}
