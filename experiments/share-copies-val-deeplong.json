@@ -1,0 +1,14 @@
+{
+  "title": "Share rule, validation: deep-long again with 64 MB TCP buffers",
+  "description": "The deep-long family of exp-share-copies-val-17 (share-copies-val.json) again, with the same episodes (the same controllers, links, conditions and seeds), now that the guest has Sage's and ccBench's TCP buffer limits (64 MB) in place of Linux's own for a 1 GiB guest (a 4 MB send buffer), which capped buffer-filling flows on that family's longer links (docs/validation.md, \"TCP buffer limits\"). The other families of that run needed at most 3.5 MB in flight and are not rerun.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "grid": "release:exp-net1v4-grid-10"
+  },
+  "prepare": "G=\"$IN/grid/$(cat \"$IN/grid/chosen.txt\")/net1.pt\"; uv run python experiments/rule_export.py \"$OUT/v4\" \"$G\" --u 0.125; uv run python experiments/share_rule_export.py \"$OUT/share\" \"$G\" --u0 0.125 --k 0.5 1 1.5 2; P=(--policy \"rule-v4=$OUT/v4/rule-u0.125.onnx\"); for k in 0.5 1 1.5 2; do P+=(--policy \"share-k$k=$OUT/share/share-u0.125-k$k.onnx\"); done; RULE_EVAL_FAMILIES=deep-long:20 experiments/rule_eval.sh \"$OUT\" val 11 11 bbr3 --policy \"rule-v4=$OUT/v4/rule-u0.125.onnx\" --policy \"share-k1.5=$OUT/share/share-u0.125-k1.5.onnx\"",
+  "shards": 20,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps; done; uv run python experiments/slim_steps.py \"$OUT\"",
+  "collect": "uv run python experiments/rule_report.py \"$OUT\"",
+  "timeout_minutes": 240
+}

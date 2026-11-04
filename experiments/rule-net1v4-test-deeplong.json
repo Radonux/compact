@@ -1,0 +1,15 @@
+{
+  "title": "Fixed rule on net1 v4, test: deep-long again with 64 MB TCP buffers",
+  "description": "The deep-long family of exp-rule-net1v4-test-14 (rule-net1v4-test.json) again, with the same episodes (the same controllers, links, conditions and seeds), now that the guest has Sage's and ccBench's TCP buffer limits (64 MB) in place of Linux's own for a 1 GiB guest (a 4 MB send buffer), which capped buffer-filling flows on that family's longer links (docs/validation.md, \"TCP buffer limits\"). The other families of that run needed at most 3.5 MB in flight and are not rerun.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "grid": "release:exp-net1v4-grid-10",
+    "models": "release:model-net1v3"
+  },
+  "prepare": "G=\"$IN/grid/$(cat \"$IN/grid/chosen.txt\")/net1.pt\"; M=\"$IN/models\"; uv run python experiments/rule_export.py \"$OUT/v4\" \"$G\" --u 0.125; uv run python experiments/rule_export.py \"$OUT/v3\" \"$M/net1v3.pt\" --u 0.375; uv run python experiments/rule_export.py \"$OUT/oracle\" \"$M/net1v3.pt\" --u 0.375 --oracle; P=(--policy \"v4-u0.125=$OUT/v4/rule-u0.125.onnx\" --policy \"v3-u0.375=$OUT/v3/rule-u0.375.onnx\" --policy \"v3-u0.25=$M/rule-u0.25.onnx\" --policy \"oracle-u0.375=$OUT/oracle/rule-u0.375-oracle.onnx\" --policy \"learned-s0=$M/learned-td3bc-n40-s0.onnx\"); RULE_EVAL_FAMILIES=deep-long:20 experiments/rule_eval.sh \"$OUT\" test 13 31 all \"${P[@]}\"",
+  "shards": 20,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps; done; uv run python experiments/slim_steps.py \"$OUT\"",
+  "collect": "uv run python experiments/rule_report.py \"$OUT\"",
+  "timeout_minutes": 240
+}
