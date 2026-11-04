@@ -1,0 +1,15 @@
+{
+  "title": "ccperf's benchmark, the experiments this emulator can express, every controller",
+  "description": "The 51 of the 121 experiments per controller in ccperf's benchmark (gitlab.com/ccperf/ccperf at 18d1620, with the semantics of its ns-3 backend at 7c1709f) that this emulator can express, plus synchronous fairness of 2 and 10 flows, which ccperf builds but never adds. They are single flows on ccperf's five static paths, synchronous and start-time fairness, loss resilience, deep and shallow buffers, rate steps, pulses and random walks, Poisson rate traces on ccperf's three dynamic paths, and fairness against Reno, Cubic and Vegas. Each runs 5 times with fresh seeds, start times, walks and traces (experiments/ccperf.py, which names the divergences and the experiments left out). Every kernel controller, Sage's released policy (exp-sage-model-24), and the fixed rule (u = 0.125) and share rule (k = 1) on net1 v4. Scored by experiments/ccperf_report.py from each episode's flow_seconds table: utilization, queueing delay, Jain's index of the flows under test, and their share against a competitor over their fair share. The links are not the train, validation or test links, and nothing is chosen on them.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "grid": "release:exp-net1v4-grid-10",
+    "sage": "release:exp-sage-model-24"
+  },
+  "prepare": "G=\"$IN/grid/$(cat \"$IN/grid/chosen.txt\")/net1.pt\"; SAGE=\"$IN/sage/sage/sage.onnx\"; echo \"fc0d6f1da45e4948ee3d96784642793954ed5e52adc1eddd0c9883d5d8fe2f9e  $SAGE\" | sha256sum -c; uv run python experiments/rule_export.py \"$OUT/v4\" \"$G\" --u 0.125; uv run python experiments/share_rule_export.py \"$OUT/share\" \"$G\" --u0 0.125 --k 1; uv run python experiments/ccperf.py \"$OUT\" --seed 11 --repeats 5 --stock all --policy \"sage=$SAGE\" --policy \"rule-v4=$OUT/v4/rule-u0.125.onnx\" --policy \"share-k1=$OUT/share/share-u0.125-k1.onnx\"",
+  "shards": 40,
+  "run": "for c in \"$OUT\"/p-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables flow_seconds; done",
+  "collect": "uv run python experiments/ccperf_report.py \"$OUT\"",
+  "timeout_minutes": 360
+}

@@ -476,6 +476,45 @@ index of copies). Where it departs from ccBench:
 - Step traces are 7 s levels that repeat after 35 s; runs last 30 s, so
   each sees one raised or lowered period, as in ccBench.
 
+ccBench asks how a controller trades throughput against delay on many
+links. ccperf (Vielhaus, gitlab.com/ccperf/ccperf at `18d1620`, MIT) asks
+more kinds of question: about responsiveness, buffers, fairness among
+copies and against other controllers. `experiments/ccperf.py` plans the
+experiments of ccperf's benchmark that this emulator can express, with the
+semantics of ccperf's ns-3 backend (ccperf-ns3 at `7c1709f`, GPL-2, read
+only). `experiments/ccperf_report.py` scores them, and
+`experiments/ccperf.json` runs both for every controller, 5 times each:
+
+| Experiment | Runs per controller and repeat | What varies |
+|---|---|---|
+| `single_flow` | 5 | ccperf's five static paths, 16 to 115 Mbit/s and 15 to 800 ms base RTT |
+| `synchronous_fairness` | 7 | 5 flows on each static path; 2 and 10 flows on the default path |
+| `start_time_fairness` | 3 | 2, 5 or 10 flows, all but the first starting in [0, 5) s |
+| `loss_resilience` | 7 | 0.1% to 5% random loss |
+| `deep_buffers`, `shallow_buffers` | 5, 6 | buffers of 1 packet to 16 BDP; 5 flows with 10 packets |
+| `rate_step`, `rate_pulse`, `rate_random_walk` | 4, 2, 2 | capacity steps up or down at 10 s, 5 s pulses, a bounded random walk every 0.1 or 1 s |
+| `replay_rate_trace` | 3 | Poisson capacity of 0.57 to 3.04 Mbit/s on ccperf's dynamic paths |
+| `reno_fairness`, `cubic_fairness`, `vegas_fairness` | 3 each | 2, 4 or 10 flows, half of them the competitor |
+
+Per run the report gives utilization, the queueing delay of the flows under
+test, Jain's index of their throughputs, and their share against a
+competitor over their fair share; `summary.md` averages them per experiment
+and controller, and `ccperf.csv` keeps every variant. ccperf has no single
+score, and neither does this.
+
+That is 51 of ccperf's 121 experiments per controller. The rest need
+emulator features this one lacks: per-flow RTT (RTT fairness),
+time-varying delay and loss (RTT and loss steps, pulses and walks), AQM
+(ccperf's AQM runs, and its scalability runs, which use CoDel), ECN, ACK
+compression, a policer, Poisson UDP, and an observed flow that stops early
+(TCP on-off). Scalability with drop-tail does not test scalability: the
+buffer of one BDP at the higher rate lets a loss-based controller fill it
+before the step, so Cubic used 0.999 of a step from 16 to 512 Mbit/s in a
+local check. The planner's docstring names each divergence; the main ones
+are greedy flows where ccperf sends a fixed size, our own Poisson traces in
+place of Pantheon's files, and random loss before the bottleneck where
+ccperf drops after it.
+
 ## Known limits
 
 Limits marked `ponytail` in the code name their upgrade path there.
