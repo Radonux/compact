@@ -316,7 +316,11 @@ design above, on links neither network has seen, in log utility:
   outside copies, leads it by 0.26 with a Cubic flow from the start and
   by 0.13 with BBRv3 or Westwood, and leads BBRv3 by 0.208 on average.
   Its own copies lose 0.79 against the fixed rule's copies: it cannot
-  tell a copy of itself from a buffer-filling competitor.
+  tell a copy of itself from a buffer-filling competitor. A net2 with
+  memory that cooperates with its copies and switches to the share rule
+  when net1 believes the buffer nearly full kept neither gain on
+  validation (`exp-mode-val-19`), so the fixed rule remains ahead with
+  copies weighted as one family of six.
 - net2 setting the window to a fixed multiple of net1's believed BDP
   beats every kernel controller on average: by 0.079 (95% interval 0.032
   to 0.123) over BBRv3, the best of them. The average is over three

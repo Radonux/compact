@@ -1185,6 +1185,55 @@ links):
   buffer-filling competitor would keep both; the share signal alone
   cannot.
 
+**A net2 with memory does not resolve it, on validation.** Copies of the
+fixed rule fill the buffer about as much as a Cubic flow does (in
+`exp-share-copies-val-17` the median queue is 0.38 and 0.57 base RTTs for
+2 and 4 copies, against 0.55 with Cubic), so the queue alone cannot tell
+them apart. The mode rule (`experiments/mode_rule_export.py`, exported
+with a recurrent state) therefore cooperates with a window that follows
+its own share,
+
+    share = (s + 0.3 (1 - busy) + 0.05) / 1.05, at most 1;  u = 0.125 + log2(share)
+
+(s is receive rate over capacity), which is the fixed rule when alone. It
+competes as the share rule (k = 1) for a period of 10 or 20 units (the
+base RTT, at least 100 ms) after net1 believes the buffer more than 0.7
+full or the queue over one base RTT, and again whenever the mean believed
+fill stays above 0.35 just after. Local runs on four validation links,
+not published, chose this design over six others; its other numbers are
+not tuned. Release
+[`exp-mode-val-19`](https://github.com/Radonux/palaestra/releases/tag/exp-mode-val-19)
+(`experiments/mode-val.json`) ran it, its cooperative mode alone, the
+fixed rule and the share rule on the five validation families and as 2
+and 4 copies; no episode failed. Log utility minus BBRv3, paired by link:
+
+| Family | fixed rule | share k = 1 | mode, period 20 | mode, period 10 | cooperative mode alone |
+|---|---|---|---|---|---|
+| training conditions, 20 s | +0.141 | +0.121 | +0.089 | +0.081 | -0.041 |
+| training conditions, 60 s | +0.136 | +0.163 | +0.120 | +0.108 | -0.232 |
+| new conditions, 20 s | +0.265 | +0.296 | +0.199 | +0.192 | -0.266 |
+| deep buffers and long RTTs, 20 s | +0.228 | +0.209 | +0.122 | +0.126 | +0.205 |
+| a Cubic flow from 0 s, 60 s | -0.087 | +0.156 | -0.056 | -0.143 | -1.822 |
+| 2 or 4 copies of itself, 30 s | +0.066 | -0.583 | -0.058 | +0.019 | +0.510 |
+| mean of the six | +0.124 | +0.060 | +0.070 | +0.064 | -0.274 |
+
+- The cooperative mode does what it was built for: its copies keep the
+  queue at 5 and 8 ms (2 and 4 copies, against 23 and 36 ms for the fixed
+  rule) at the same fairness (Jain 0.97 to 0.99), and lead the fixed
+  rule's copies by 0.44. Against any competitor it yields and starves, by
+  1.7 below the fixed rule with a Cubic flow from the start.
+- The switch keeps neither gain. It trails the fixed rule in every family
+  but Cubic from the start, where it gains only 0.03 (the share rule
+  gains 0.24), and its copies do no better than the fixed rule's. In the
+  local runs such copies often stayed in the competing mode, which their
+  own full buffer keeps calling for; that is not checked on these links.
+- So no candidate beats the fixed rule with copies weighted as one family
+  of six, and the mode rule was not run on test. In the local runs, every
+  switch that held up against Cubic left its copies competing, and every
+  one that let copies cooperate yielded to Cubic: probes of whether the
+  others yield failed on noise in single-step beliefs, on Cubic's slow
+  growth, and on copies falling out of step.
+
 ### Tuned comparison
 
 The search below ran on the expliCCit-like data. Its harness (grid
@@ -1413,16 +1462,17 @@ target from its beliefs. Three seeds of the learned net2, 60 iterations
 of online training and arm A2 (the means) have run; on validation none
 beat the constant. What it leaves open, in the order the plan needs it:
 
-- First, a net2 that tells a copy of itself from a buffer-filling
-  competitor (section 7, "net2 on net1 v4"): the share rule gains under
-  competition and loses against its own copies, on validation and test
-  alike. A flow sharing the link with copies of a delay-keeping rule sees
-  the queue drain now and then; one sharing it with Cubic never does, so
-  a net2 with memory can push only when net1 believes the queue has not
-  drained for several round trips. Online TD3+BC from the rule lost on
-  validation; a learned net2 needs a lower-variance signal than broad
-  30 s rollouts give its critic (paired rollouts, or a policy search over
-  a few parameters).
+- A net2 that tells a copy of itself from a buffer-filling competitor
+  (section 7, "net2 on net1 v4"): the share rule gains under competition
+  and loses against its own copies, on validation and test alike, and a
+  hand-made switch between a cooperative mode and the share rule kept
+  neither gain (`exp-mode-val-19`). The cooperative mode is the right
+  behaviour among copies; what fails is deciding when to leave it. That
+  decision needs evidence over seconds, not single steps, which suits a
+  learned net2 with memory more than hand-set thresholds. Online TD3+BC
+  from the rule lost on validation; a learned net2 needs a lower-variance
+  signal than broad 30 s rollouts give its critic (paired rollouts, or a
+  policy search over a few parameters).
   net1 v4's data still lacks competitors that arrive before the observed
   flow, and its bins end at the training ranges of delay and buffer.
 - The human reading (a few percentiles per LCF) as net2's input, against
