@@ -1,0 +1,14 @@
+{
+ "title": "R2: alarms that flag wrong net1 beliefs without ground truth, on net1 v3 and v4",
+ "description": "Research item R2: per LCF, the detection and false-alarm rates (and AUC) of alarms computed from net1's own outputs and the sender's measurements only: physical invariants among its beliefs (I1 to I3), its distributions' entropy (H), and delayed checks against the measured delivery rate and min RTT (C1, C2). Thresholds at the 95th percentile on net1 v4's validation links of the 30 s training data (exp-data-net1-broad-30s-73); false alarms on its test links; detection on the test-link episodes with a Cubic flow from 0 s or a held-out observed controller, and on the four held-out families (exp-data-net1-broad-ood-75). Scored for net1 v3 (model-net1v3), mostly wrong there, and net1 v4 (exp-net1v4-grid-10, its chosen run), mostly right.",
+ "train": true,
+ "inputs": {
+  "d30": "release:exp-data-net1-broad-30s-73",
+  "ood": "release:exp-data-net1-broad-ood-75",
+  "v3": "release:model-net1v3",
+  "grid": "release:exp-net1v4-grid-10"
+ },
+ "shards": 1,
+ "run": "uv run python experiments/r2_alarms.py \"$OUT\" --net1 v3=\"$IN/v3/net1v3.pt\" --net1 v4=\"$IN/grid/$(cat \"$IN/grid/chosen.txt\")/net1.pt\" --calib \"$IN/d30/campaign-train30\" --negatives \"$IN/d30/campaign-train30\" --positives buffer=\"$IN/ood/campaign-ood-buffer\" --positives competitors=\"$IN/ood/campaign-ood-competitors\" --positives loss=\"$IN/ood/campaign-ood-loss\" --positives rtt=\"$IN/ood/campaign-ood-rtt\"",
+ "timeout_minutes": 180
+}
