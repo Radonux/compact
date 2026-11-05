@@ -2001,8 +2001,11 @@ The design (`src/expliccit_env/train/ppo.py`, `recurrent.py`):
   a group-mean baseline.
 - **Start.** A clone of the fixed rule.
 
-The cloned start matches the rule: -0.003 over 126 validation pairs
-(`exp-net2-ppo-debug-80` on net1 v4, `exp-net2-ppo-debug-v5-84` on v5).
+The cloned start matches the rule within noise over 126 validation
+pairs: +0.010 on net1 v4 (`exp-net2-ppo-debug-80`), and +0.007 and -0.003
+on v5 (`exp-net2-ppo-debug-v5-84`, from u = 0.125; each stage-1 cell). The
+start holds each decision for a min RTT, where the rule decides every
+step.
 
 **Stage 1** ([`exp-net2-ppo-search1-90`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-ppo-search1-90)):
 tau in 1, 3 and 10 s by exploration sigma in 0.05, 0.1 and 0.2, from
