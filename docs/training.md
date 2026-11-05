@@ -2245,6 +2245,22 @@ link, mean over three seeds, minus the rule, with 95% intervals over the
     to +0.020) as copies.
   - **Spread of u across states.** It stayed at 0.014 to 0.035 in training,
     as in round 1.
+- **Most of the copies loss was the graph, not the learning.** The
+  held-decision graph kept a decision's window until the next decision,
+  freezing the BDP that window was computed from; the rule re-reads its
+  belief every step.
+  - As 2 and 4 copies on the gates' validation links (a local check), the
+    untrained clone of the rule lost 0.121 (-0.284 to +0.032) to the rule
+    itself, and queued 6 ms more with 2 copies.
+  - Since `85de8d0` a decision holds its u, and each step aims the window
+    at that step's believed BDP. The clone then matches the rule as copies
+    (+0.009, -0.063 to +0.078).
+  - The copies results of both gates above are therefore about 0.12 worse
+    than the learning alone made them.
+  - `experiments/net2-clone-copies.json` repeats the check as a release
+    (UNRUN at the time of writing).
+  - Round 3 (`experiments/net2-r3-ppo.json`, `net2-r3-td3.json`, UNRUN)
+    retrains on the fixed graph.
 
 ### Inference cost per decision
 
