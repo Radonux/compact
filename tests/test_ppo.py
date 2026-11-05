@@ -65,9 +65,10 @@ def test_held_graph_decides_where_the_learner_reads_decisions(memory: bool) -> N
     # The cloned rule asks for 2^0.25 times the believed BDP at each decision ...
     for k in d:
         assert windows[k] == pytest.approx(beliefs[k] + 0.25, abs=1e-4)
-    # ... and holds the window the decision's noise made until the next one.
+    # ... and holds the u the decision's noise made until the next one: the
+    # window follows each step's believed BDP, as the rule's does.
     for k, nxt in itertools.pairwise(d):
-        held = windows[k + 1 : nxt]
+        held = (np.array(windows) - np.array(beliefs))[k + 1 : nxt]
         assert np.ptp(held) < 1e-4 if len(held) > 1 else True
 
 

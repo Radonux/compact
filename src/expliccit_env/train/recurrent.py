@@ -122,10 +122,17 @@ class RecurrentActor(nn.Module):
 class HeldPolicyGraph(PolicyGraph):
     """PolicyGraph with a RecurrentActor that decides once per block.
 
+    A decision holds its realized u (the u it asked for, plus the guest's
+    exploration noise on that step) for the block, and every step aims the
+    window at 2^u times the believed BDP of that step, as the fixed rule
+    does. Holding the window instead froze the BDP the window was computed
+    from: copies of the cloned rule then queued more than copies of the
+    rule and lost 0.12 in log utility to them.
+
     State, [1, hidden + 5]: the GRU's hidden state, the previous decision's
-    realized u, the steps left in the block, the held window (log2
+    realized u, the steps left in the block, the window of this step (log2
     packets), the believed BDP at the decision (log2 packets), and 1 on
-    the step after a decision (when its realized window is read)."""
+    the step after a decision (when its realized u is read)."""
 
     def __init__(self, base: PolicyGraph, actor: RecurrentActor) -> None:
         super().__init__(base.scaler, base.net1, base.lcf_scaler, actor, base.action_max)
@@ -156,16 +163,15 @@ class HeldPolicyGraph(PolicyGraph):
         lc = torch.log2(torch.clamp(cwnd, min=1.0)).squeeze(1)
         n = self.actor.hidden
         h = state[:, :n]
-        prev_u, left, held, lb_dec, pending = (state[:, n + i] for i in range(5))
+        prev_u, left, _, lb_dec, pending = (state[:, n + i] for i in range(5))
         captured = pending > 0.5
         prev_u = torch.where(captured, lc - lb_dec, prev_u)
-        held = torch.where(captured, lc, held)
         decide = left < 0.5
         inp = torch.cat([x, (prev_u / self.action_max).unsqueeze(1)], dim=1)
         h_new = self.actor.cell(inp, h)
         u = self.actor.mean(h_new) * self.action_max
         h = torch.where(decide.unsqueeze(1), h_new, h)
-        window = torch.where(decide, lb + u, held)
+        window = torch.where(decide, lb + u, lb + prev_u)
         a = torch.clamp(window - lc, -_A_LIMIT, _A_LIMIT).unsqueeze(1)
         left = torch.where(decide, block_steps(obs[:, OBS_MIN_RTT]) - 1, left - 1)
         lb_dec = torch.where(decide, lb, lb_dec)
