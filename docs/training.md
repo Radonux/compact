@@ -1461,6 +1461,45 @@ ratios to Sage with 95% bootstrap intervals over links):
   (its training paths are not known here). And the split here is net1 v4
   with a fixed rule, not expliCCit's net1 and net2.
 
+**With expliCCit's own split, under the frozen settings.** Release
+[`exp-sage-v5-val-94`](https://github.com/Radonux/palaestra/releases/tag/exp-sage-v5-val-94)
+(`experiments/sage-v5-val.json`) runs expliCCit's released net1 and actor
+as deployed (`third_party/expliccit-models`) next to Sage, the fixed rule
+(u = 0.25) and the share rule (k = 0.5) on net1 v5, and BBRv3, on the
+validation links (seed 11) and as 2 and 4 copies. No episode failed.
+Nothing is chosen from it. Its plan draws other episode seeds than
+`exp-sage-val-72` on the same links and conditions, since the planner's
+random stream runs over the controllers, so Sage's rows are a second
+draw: Sage's five-family mean against BBRv3 is -0.598 here and -0.589
+there. With the flow alone (means over the 21 links; ratios to Sage with
+95% bootstrap intervals over links):
+
+| Campaign, condition | Sage: utilization, delay (ms) | expliCCit's policy | against Sage: utilization, delay | Fixed rule, net1 v5 | against Sage: utilization, delay |
+|---|---|---|---|---|---|
+| training-20, clean | 0.866, 11.1 | 0.657, 15.1 | -24.1% (-35.8% to -13.7%), +36% (-39% to +199%) | 0.982, 12.2 | +13.4% (+4.9% to +25.9%), +10% (-32% to +102%) |
+| training-60, clean | 0.902, 9.4 | 0.673, 18.5 | -25.4% (-39.5% to -12.4%), +97% (-14% to +297%) | 0.990, 12.7 | +9.7% (+3.4% to +18.7%), +35% (-3% to +104%) |
+| deep-long-20, clean | 0.792, 111.9 | 0.138, 2.1 | -82.6% (-92.3% to -69.9%), -98% (-99% to -95%) | 0.931, 35.7 | +17.5% (+4.3% to +35.6%), -68% (-77% to -45%) |
+| new-20, ACK loss 1% | 0.871, 11.6 | 0.593, 15.5 | -31.9% (-45.9% to -19.4%), +33% (-42% to +211%) | 0.982, 12.2 | +12.7% (+4.7% to +24.8%), +5% (-37% to +101%) |
+| training-20, loss 1% | 0.475, 2.4 | 0.678, 28.6 | +42.8% (+13.2% to +84.9%), +1112% (+538% to +1819%) | 0.979, 11.2 | +106.2% (+65.9% to +175.1%), +377% (+273% to +546%) |
+
+- expliCCit's claim does not reproduce with its own released policy:
+  on clean validation links it has 24 to 25% less utilization than Sage
+  (expliCCit: about 5%), and on deep, long paths it nearly stops (0.14).
+  Its delay against Sage is higher, but the intervals are too wide to
+  size it. In log utility against BBRv3 it is the lowest controller in
+  every family (-1.38 to -2.25; Sage -0.42 to -0.98). Its copies share
+  least evenly (Jain's index 0.937 and 0.844 with 2 and 4 copies).
+- On expliCCit's own case-study link it reaches 0.50 utilization, against
+  0.92 for Sage (`exp-crosscheck-93`, link a).
+- The fixed rule on net1 v5 keeps 10 to 18% more utilization than Sage on
+  clean links. Its queueing delay is no longer below Sage's (+10% and +35%
+  in the training families, both intervals including 0). A likely reason,
+  not tested: u = 0.25 asks for 2^0.25 = 1.19 times the believed BDP,
+  where net1 v4's rule asked for 2^0.125 = 1.09.
+- Whether the gap belongs to this environment or to the released
+  checkpoint is open: the cross-check (`tools/crosscheck`) runs the same
+  policy on the case-study link on the original stack, UNRUN there.
+
 ### Deep-long with the original setups' TCP limits
 
 The deep-long family (2.5 times the delay, buffers of 4 to 16 BDP) is the

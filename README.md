@@ -245,6 +245,8 @@ capacity (0.81), busy fraction (0.88) or free buffer (0.47)
 utilization and 9% queueing delay against Sage; here, with Sage's released
 policy outside its own kernel and links, the fixed rule on net1 v4 has 3 to
 14% more utilization and 46 to 65% less queueing delay on clean test links.
+expliCCit's own released policy, as deployed, has 24 to 25% less
+utilization than Sage on clean validation links (`exp-sage-v5-val-94`).
 expliCCit's case study, which traces under-utilization to a capacity
 belief 25% too low, did not reproduce (`exp-expliccit-case-42`): here the
 released policy's capacity belief is within 14%, and its busy fraction is
