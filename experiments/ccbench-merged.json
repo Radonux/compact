@@ -1,0 +1,12 @@
+{
+  "title": "ccBench's suites for every controller, with the rules on net1 v5",
+  "description": "ccBench's games are between the controllers of one run, so the rules on net1 v5 (exp-ccbench-v5-89, planned with --only so its episodes are those of the full run) are ranked against the stock controllers and Sage of exp-ccbench-78 by merging the two runs' campaigns (their shards have distinct names; BBRv3 ran in both, with identical episodes and metrics) and leaving out the rules on net1 v4 (experiments/ccbench_report.py EXCLUDE). No episode is run here.",
+  "train": true,
+  "inputs": {
+    "a": "release:exp-ccbench-78",
+    "b": "release:exp-ccbench-v5-89"
+  },
+  "shards": 1,
+  "run": "for c in \"$IN/a\"/c-*; do n=$(basename \"$c\"); mkdir -p \"$OUT/$n/shards\"; for d in \"$IN/a/$n\"/shards/* \"$IN/b/$n\"/shards/*; do ln -s \"$d\" \"$OUT/$n/shards/$(basename \"$d\")\"; done; done; jq -s add \"$IN/a/aliases.json\" \"$IN/b/aliases.json\" > \"$OUT/aliases.json\"; uv run python experiments/ccbench_report.py \"$OUT\" rule-v4 share-k1; rm -rf \"$OUT\"/c-*",
+  "timeout_minutes": 60
+}

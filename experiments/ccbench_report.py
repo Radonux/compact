@@ -21,8 +21,9 @@ to them, absolute means over runs and windows: utilization (all flows'
 bytes over the trace's capacity), the controller's mean queueing delay, its
 share of the capacity against a competitor, and Jain's index of copies.
 
-Usage: python experiments/ccbench_report.py OUT
-Appends to OUT/summary.md.
+Usage: python experiments/ccbench_report.py OUT [EXCLUDE...]
+Appends to OUT/summary.md. Controllers named in EXCLUDE are left out of
+the games and the tables (for one run merged from two).
 """
 
 import json
@@ -65,7 +66,7 @@ Metrics = dict[str, dict[str, list[float]]]
 
 
 def collect(
-    camp: Path, suite: str, aliases: dict[str, str]
+    camp: Path, suite: str, aliases: dict[str, str], exclude: frozenset[str] = frozenset()
 ) -> tuple[Games, dict[tuple[str, int], float], Metrics]:
     """Per game (run and window) the value each controller is judged on, the
     capacity there, and each controller's absolute metrics."""
@@ -87,6 +88,8 @@ def collect(
             spec = EpisodeSpec.model_validate_json(sj)
             raw = json.loads(sj)
             who = name_of(raw["cross"][0]["cc"] if versus else raw["cc"], aliases)
+            if who in exclude:
+                continue
             key = json.dumps([raw["path"], raw["cc"]["name"] if versus else ""], sort_keys=True)
             one_way = spec.path.delay.one_way_ns / 1e6
             col = {
@@ -141,14 +144,14 @@ def league(
     return wins, played
 
 
-def main(out: Path) -> None:
+def main(out: Path, exclude: frozenset[str] = frozenset()) -> None:
     aliases: dict[str, str] = json.loads((out / "aliases.json").read_text())
     lines: list[str] = []
     for camp in sorted(out.glob("c-*")):
         suite = camp.name[2:]
         if suite not in WINDOWS:
             continue
-        games, cap_of, metrics = collect(camp, suite, aliases)
+        games, cap_of, metrics = collect(camp, suite, aliases, exclude)
         wins, played = league(suite, games, cap_of)
         names = sorted(metrics, key=lambda n: (-wins[n] / max(played[n], 1), n))
         cols = list(next(iter(metrics.values())).keys()) if metrics else []
@@ -165,4 +168,4 @@ def main(out: Path) -> None:
 
 
 if __name__ == "__main__":
-    main(Path(sys.argv[1]))
+    main(Path(sys.argv[1]), frozenset(sys.argv[2:]))
