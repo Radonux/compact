@@ -29,7 +29,7 @@ type SplitBy = Literal["spec", "link", "row"]
 
 @dataclass(frozen=True, slots=True)
 class Steps:
-    """Rows of every recorded step, in episode then step order."""
+    """Rows of every recorded step, by episode id, then step."""
 
     obs: F32  # [n, 78], the step message as recorded (may hold inf and NaN)
     labels: dict[str, F32]  # label name -> [n], NaN where undefined
@@ -123,8 +123,14 @@ def load(
     if not parts:
         raise ValueError("no steps left after the stride")
     cat = {k: np.concatenate([q[k] for q in parts]) for k in parts[0]}
-    episode_ids = tuple(index)
-    episode = cat.pop("episode")
+    # Rows in one order whatever the order of the shards' rows, which list
+    # episodes as the workers finished them: by episode id, then step.
+    episode_ids = tuple(sorted(index))
+    pos = {e: i for i, e in enumerate(episode_ids)}
+    rank = np.array([pos[e] for e in index], np.int64)  # appearance -> sorted
+    order = np.lexsort((cat["step"], rank[cat["episode"]]))
+    cat = {k: v[order] for k, v in cat.items()}
+    episode = rank[cat.pop("episode")]
     split = (
         _row_split(seed, val, test, episode.size)
         if split_by == "row"

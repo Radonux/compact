@@ -200,6 +200,47 @@ def test_load_keeps_only_the_named_controllers(tmp_path: Path) -> None:
     assert paired.step.tolist() == [0, 1, 0, 1, 0, 1, 3]
 
 
+def test_load_orders_rows_whatever_the_shard_order(tmp_path: Path) -> None:
+    import pyarrow as pa  # noqa: PLC0415
+    import pyarrow.parquet as pq  # noqa: PLC0415
+
+    def shard(d: Path, rows: list[tuple[str, int]]) -> None:
+        d.mkdir(parents=True)
+        eps = sorted({e for e, _ in rows})
+        pq.write_table(
+            pa.table(
+                {
+                    "episode_id": eps,
+                    "status": ["ok"] * len(eps),
+                    "spec_json": [json.dumps({"path": {"bw": i}}) for i in range(len(eps))],
+                    "controller": ["bbr"] * len(eps),
+                }
+            ),
+            d / "episodes.parquet",
+        )
+        obs = np.array([[ord(e[-1]), k] + [0] * (OBS_DIM - 2) for e, k in rows], np.float32)
+        pq.write_table(
+            pa.table(
+                {
+                    "episode_id": [e for e, _ in rows],
+                    "step": [k for _, k in rows],
+                    "obs": pa.FixedSizeListArray.from_arrays(pa.array(obs.ravel()), OBS_DIM),
+                    "action": np.zeros(len(rows), np.float32),
+                    "reward": np.zeros(len(rows), np.float32),
+                }
+            ),
+            d / "steps.parquet",
+        )
+
+    rows = [(e, k) for e in ("a", "b", "c") for k in range(4)]
+    shard(tmp_path / "x" / "s", rows)
+    shard(tmp_path / "y" / "s", rows[::-1])  # as workers that finished in another order
+    x, y = (data.load([tmp_path / d], seed=0, val=0.3, test=0.3, split_by="row") for d in "xy")
+    assert x.episode_ids == y.episode_ids == ("a", "b", "c")
+    assert np.array_equal(x.obs, y.obs) and np.array_equal(x.split, y.split)
+    assert x.step.tolist() == [0, 1, 2, 3] * 3 and x.episode.tolist() == [0] * 4 + [1] * 4 + [2] * 4
+
+
 def test_as_deployed_rounds_beliefs_and_actions() -> None:
     lcf = Scaler.fit(
         tuple(range(7)), np.random.default_rng(0).normal(size=(50, 7)).astype(np.float32), "minmax"
