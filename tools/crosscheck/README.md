@@ -227,7 +227,7 @@ the comparison.
 
 ## Comparing
 
-    gh release download exp-crosscheck-RUN --dir rel && mkdir release
+    gh release download exp-crosscheck-93 --dir rel && mkdir release
     cat rel/crosscheck.tar.zst.part-* | zstd -dc | tar -x -C release
     tar -xJf crosscheck-logs.tar.xz        # their logs, in logs/
     uv run python tools/crosscheck/compare.py --mahimahi logs --palaestra release --out crosscheck.md
@@ -317,5 +317,6 @@ UNVERIFIED, since no environment here runs the original stack: every
 command for it above (the shells, iperf3's flags on Ubuntu 16.04, the
 sysctl and modprobe lines, Sage's `sage.sh` arguments and the edit for link
 c, read from the sources of Sage at `eedd281`, ccBench at `49b5ada` and
-Mahimahi at `f1346c3`), and expliCCit's slot. The CI experiment itself is
-UNRUN: it was not dispatched.
+Mahimahi at `f1346c3`), and expliCCit's slot. palaestra's side ran as
+`exp-crosscheck-93` (60 episodes, none failed); that release is the one to
+compare against.
