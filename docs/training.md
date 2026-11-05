@@ -2158,20 +2158,19 @@ link, mean over three seeds, minus the rule, with 95% intervals over the
   copy of itself from a buffer-filling competitor, which is the gain the
   gate asks for. Whether longer training or another signal would is
   UNRUN.
-- **No fallback this round.** TD3+BC, the planned fallback, was not run
-  again.
-  - Online TD3+BC from the rule already lost to it on validation on net1
-    v4 (`exp-net2v4-val-16`).
-  - A hand-made switch between cooperating and competing kept neither
-    gain (`exp-mode-val-19`).
-  - What is missing is a hidden variable: whether the other flows are
-    copies or a buffer-filling competitor. Told the number of flows, a
-    rule on the truth handles both (`exp-fairshare-used-val-23`).
-  - A fallback worth running would infer that over time, with memory and
-    probing, in an off-policy learner trained on the same competition mix
-    and copies. That is new work (UNRUN). The ablations planned for a
-    working net2 (memory, the asymmetric critic, distributions against
-    means, the raw step message) are not run either.
+- **What came next.** Two changes follow from this diagnosis
+  (`experiments/net2-ppo-team.json`, `net2-ppo-flows.json`; UNRUN at the
+  time of writing).
+  - **A team reward for copies.** Copies are scored with every flow
+    running the policy. A copy that learns from its own utility gains by
+    pushing harder than the others, which lowers what they all get. With
+    the team reward, a copy learns from the copies' mean utility, while a
+    flow facing Cubic or BBR keeps its own.
+  - **A value network that also counts the other flows on the link.**
+    It sees how many copies, stock TCP flows and UDP flows are active at
+    each decision; the actor never sees this.
+  - Online TD3+BC from the rule already lost to it on net1 v4
+    (`exp-net2v4-val-16`), and stays the next fallback.
 
 ### Inference cost per decision
 

@@ -573,7 +573,8 @@ Done under the frozen settings, with no failed episode: the broad data
 (`exp-rule-net1v5-val-82`, `exp-share-net1v5-val-85`), the case study
 (`exp-expliccit-case-91`), ccperf (`exp-ccperf-77`, `exp-ccperf-v5-87`) and
 ccBench (`exp-ccbench-78`, `exp-ccbench-v5-89`, merged in
-`exp-ccbench-merged-92`). The test runs wait for 2026-11-16.
+`exp-ccbench-merged-92`). The test links run once, in one run before the
+2026-11-16 cutoff (`experiments/final-test.json`).
 
 ### Freeze (2026-11-04)
 
