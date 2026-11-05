@@ -1858,8 +1858,8 @@ latter would need the flow to probe, which is outside this work.
 Measured outside the guest with the guest's own runtime and loading steps
 (`tools/policy-bench`: tract 0.22.5, inputs by name, the graph optimized
 once and then run once per decision with its state carried), on one core
-of the CI-like container (an Intel Xeon, 4 vCPUs, shared, so times are
-noisy), 20,000 calls after 1,000 warm-up calls, 2026-11-05:
+of the development container (an Intel Xeon, 4 vCPUs, shared, so times
+are noisy; not a CI runner), 20,000 calls after 1,000 warm-up calls, 2026-11-05:
 
 | Policy | median | 90th percentile | 99th percentile |
 |---|---|---|---|
