@@ -1807,7 +1807,7 @@ only in the split: once a random row split, once a link split, for seeds
   - free buffer falls from 0.65 to below 0, worse than predicting the
     mean;
   - busy fraction falls from 0.96 to 0.75;
-  - capacity's mean absolute error is 3.9 times as large, one-way
+  - capacity's mean absolute error is 4.0 times as large, one-way
     delay's 2.1 times and receive rate's 1.9 times.
   Queue and queueing delay are the exception: there the row split is no
   better.
