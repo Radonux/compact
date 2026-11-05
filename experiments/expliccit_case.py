@@ -12,7 +12,8 @@ and the report gives the spread over all nine.
 
 Usage: python experiments/expliccit_case.py plan OUT
        python experiments/expliccit_case.py report OUT
-plan imports the eight policies into OUT/policies and plans OUT/c-case;
+plan imports the eight policies, and two without some of the deployed
+rounding (ROUNDING), into OUT/policies and plans OUT/c-case;
 report appends the results to OUT/summary.md: per policy, utilization and
 mean queueing delay (from flow_seconds), and for the policy as deployed,
 its net1's median beliefs against the truth along its own runs.
@@ -50,6 +51,20 @@ PATCHES = {  # name -> LCFs taken from the truth
     ),
     "all seven": TRUTH_COLUMNS,
 }
+# The deployed controller rounds net1's first six LCFs to integers, busy
+# fraction among them (a share, so 0 or 1): the policy with no LCF rounded,
+# and with every rounding but busy fraction's. name -> LCFs left unrounded.
+ROUNDING = {
+    "none, no LCF rounded": (
+        "queue_delay_mean_ns",
+        "queue_pkts",
+        "capacity_bps",
+        "free_buffer_pkts",
+        "busy_fraction",
+        "one_way_delay_ns",
+    ),
+    "none, busy fraction not rounded": ("busy_fraction",),
+}
 LINKS = [(ow, buf) for ow in (39, 40, 41) for buf in (980, 1000, 1020)]  # (40, 1000) is expliCCit's
 
 
@@ -68,6 +83,10 @@ def plan(out: Path) -> None:
     for i, (name, truth) in enumerate(PATCHES.items()):
         d = out / "policies" / f"p{i}"
         run.import_expliccit(MODELS, d, [], as_deployed=True, truth=frozenset(truth))
+        policies.append(f"{name}={d / 'policy.onnx'}")
+    for i, (name, unrounded) in enumerate(ROUNDING.items()):
+        d = out / "policies" / f"r{i}"
+        run.import_expliccit(MODELS, d, [], as_deployed=True, unrounded=frozenset(unrounded))
         policies.append(f"{name}={d / 'policy.onnx'}")
     ccs, aliases = controllers("", policies)
     eps = [
@@ -130,7 +149,7 @@ def report(out: Path) -> None:
         " | mean queueing delay (ms), expliCCit's link |",
         "|---|---|---|---|---|",
     ]
-    for name in PATCHES:
+    for name in [*PATCHES, *ROUNDING]:
         r = rows.get(name, [])
         if len(r) < len(LINKS):
             lines.append(f"| {name} | {len(r)} of {len(LINKS)} runs ok | | | |")

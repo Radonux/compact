@@ -71,6 +71,7 @@ def import_expliccit(
     *,
     as_deployed: bool,
     truth: frozenset[str] = frozenset(),
+    unrounded: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """expliCCit's released net1 and actor as a sage-v1 policy (actions
     in [-1, 1], as its tanh gives), and net1's error on our data. The LCFs
@@ -80,8 +81,16 @@ def import_expliccit(
     net1, actor = fit.load_expliccit(models)
     graph = fit.policy_graph(net1, actor, 1.0, truth=truth)
     graph.as_deployed = as_deployed
+    if unrounded:  # deployed, but these of the first six LCFs left unrounded
+        graph.rounded = torch.tensor(
+            [i < 6 and n not in unrounded for i, n in enumerate(net1.lcfs)], dtype=torch.bool
+        )
     (out / "policy.onnx").write_bytes(to_onnx(graph))
-    report: dict[str, Any] = {"as_deployed": as_deployed, "from_truth": sorted(truth)}
+    report: dict[str, Any] = {
+        "as_deployed": as_deployed,
+        "from_truth": sorted(truth),
+        "unrounded": sorted(unrounded),
+    }
     if data_dirs:
         steps = data.load(data_dirs, seed=0, val=0.0, test=0.0)
         report["net1_on_data"] = fit.report_net1(net1, steps)

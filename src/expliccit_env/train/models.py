@@ -318,6 +318,7 @@ class PolicyGraph(nn.Module):
     truth_units: torch.Tensor
     from_truth: torch.Tensor
     truth_bounds: torch.Tensor
+    rounded: torch.Tensor
 
     def __init__(
         self,
@@ -339,6 +340,9 @@ class PolicyGraph(nn.Module):
         self.register_buffer("truth_units", torch.zeros(0))
         self.register_buffer("from_truth", torch.zeros(0, dtype=torch.bool))
         self.register_buffer("truth_bounds", torch.zeros(0))
+        # With as_deployed, the LCFs rounded to integers (in net1's order);
+        # empty: the first six, as expliCCit's deployed controller does.
+        self.register_buffer("rounded", torch.zeros(0, dtype=torch.bool))
         self.view: nn.Module | None = None
         self.target: WindowTarget | None = None
 
@@ -402,7 +406,8 @@ class PolicyGraph(nn.Module):
             z = torch.where(self.from_truth, zt.repeat(1, reps), z)
         if self.as_deployed:
             c = torch.relu(self.lcf_scaler.inverse(z))
-            c = torch.cat([torch.round(c[:, :6]), c[:, 6:]], dim=1)
+            mask = self.rounded if self.rounded.numel() else torch.arange(c.shape[1]) < 6
+            c = torch.where(mask, torch.round(c), c)
             z = (c - self.lcf_scaler.center) / self.lcf_scaler.spread
         x = z if self.view is None else self.view(z)
         if state is None:
