@@ -115,6 +115,10 @@ class PPOSpec(BaseModel):
     # its own utility, or the mean of theirs at each step. A flow facing
     # other controllers always learns from its own.
     copies_reward: Literal["own", "team"] = "own"
+    # The value network also sees, at each decision, how many other copies
+    # of the policy, stock TCP flows and UDP flows share the link then:
+    # privileged, like the true LCFs, and never shown to the actor.
+    critic_flows: bool = False
     eval_every: PositiveInt = 5
     seed: Annotated[int, Field(ge=0)] = 0
     keep_rollouts: bool = False
@@ -189,19 +193,41 @@ def _group_episodes(
     ]
 
 
+# The kinds of other flow on the link, in the critic's counts.
+_RIVALS: Final = ("copy", "tcp", "udp")
+
+
+def _rivals(e: EpisodeSpec) -> npt.NDArray[np.float64]:
+    """An episode's cross flows as rows: kind (index in _RIVALS), start
+    and stop in seconds."""
+
+    def kind(c: TcpCross | UdpCross) -> int:
+        if isinstance(c, UdpCross):
+            return 2
+        return 0 if isinstance(c.cc, AgentCC) else 1
+
+    rows = [
+        (kind(c), c.start_ms / 1000, (e.duration_ms if c.stop_ms is None else c.stop_ms) / 1000)
+        for c in e.cross
+    ]
+    return np.array(rows, np.float64).reshape(-1, 3)
+
+
 def _batch(
     arms: list[tuple[PathSpec, Condition]], policy: Path, spec: PPOSpec, rng: np.random.Generator
-) -> tuple[list[EpisodeSpec], dict[str, int]]:
-    """One iteration's rollouts: links_per_iteration links, K each, and each
-    episode's link index (its group)."""
+) -> tuple[list[EpisodeSpec], dict[str, int], dict[str, npt.NDArray[np.float64]]]:
+    """One iteration's rollouts: links_per_iteration links, K each, each
+    episode's link index (its group), and its cross flows (_rivals)."""
     eps: list[EpisodeSpec] = []
     groups: dict[str, int] = {}
+    rivals: dict[str, npt.NDArray[np.float64]] = {}
     for j in range(spec.links_per_iteration):
         arm = arms[int(rng.integers(len(arms)))]
         for e in _group_episodes(arm, policy, spec, rng, bool(rng.random() < spec.compete)):
             groups[e.episode_id()] = j
+            rivals[e.episode_id()] = _rivals(e)
             eps.append(e)
-    return eps, groups
+    return eps, groups, rivals
 
 
 def _views(net1: fit.Net1, spec: PPOSpec) -> tuple[nn.Module | None, nn.Module]:
@@ -264,9 +290,11 @@ def _trajectory(
     target: nn.Module,
     spec: PPOSpec,
     group: tuple[int, int],
+    rivals: npt.NDArray[np.float64],
 ) -> Trajectory | None:
-    """One flow's decisions; ``t`` is its steps in step order and
-    ``utility`` the reward of each of those steps."""
+    """One flow's decisions; ``t`` is its steps in step order, ``utility``
+    the reward of each of those steps and ``rivals`` its episode's cross
+    flows (_rivals)."""
     n = t.num_rows
     flat = cast("pa.FixedSizeListArray[Any, Any]", t["obs"].combine_chunks()).flatten()
     obs = np.asarray(flat, np.float32).reshape(n, OBS_DIM)
@@ -296,12 +324,27 @@ def _trajectory(
         y = np.stack([labels[k][d] * np.float32(LCF_UNITS[k][0]) for k in net1.lcfs], axis=1)
         ys = net1.lcf_scaler(torch.from_numpy(y)).numpy()
         parts.insert(0, np.where(np.isfinite(ys), ys, 0.0).astype(np.float32))
+    if spec.critic_flows:
+        parts.append(active(rivals, d * _STEP_S))
     critic = np.concatenate(parts, axis=1).astype(np.float32)
     return Trajectory(group, inp, critic, u, reward, gamma)
 
 
+def active(rivals: npt.NDArray[np.float64], times: npt.NDArray[Any]) -> npt.NDArray[np.float32]:
+    """At each time (s into the episode), how many cross flows of each
+    kind in _RIVALS are active, over 4."""
+    on = (rivals[None, :, 1] <= times[:, None]) & (times[:, None] < rivals[None, :, 2])
+    kinds = rivals[:, 0].astype(int)
+    counts = [(on & (kinds == k)).sum(axis=1) for k in range(len(_RIVALS))]
+    return (np.stack(counts, axis=1) / 4).astype(np.float32)
+
+
 def _trajectories(
-    rollouts: Path, groups: dict[str, int], net1: fit.Net1, spec: PPOSpec
+    rollouts: Path,
+    groups: dict[str, int],
+    net1: fit.Net1,
+    spec: PPOSpec,
+    rivals: dict[str, npt.NDArray[np.float64]],
 ) -> list[Trajectory]:
     """Every agent flow of every ok rollout episode."""
     view, target = _views(net1, spec)
@@ -332,7 +375,16 @@ def _trajectories(
         if spec.copies_reward == "team" and len(fl) > 1:
             utils = team_utility(utils)
         for (f, t), u in zip(fl, utils, strict=True):
-            tr = _trajectory(t, u, net1, view=view, target=target, spec=spec, group=(groups[e], f))
+            tr = _trajectory(
+                t,
+                u,
+                net1,
+                view=view,
+                target=target,
+                spec=spec,
+                group=(groups[e], f),
+                rivals=rivals[e],
+            )
             if tr is not None:
                 out.append(tr)
     return out
@@ -553,7 +605,12 @@ def run_ppo(
     net1, net1_spec = fit.load_net1(spec.net1_from)
     fit.save_net1(net1, net1_spec, out / "net1.pt")
     width = _width(net1, spec)
-    critic_width = width + 2 + (len(net1.lcfs) if spec.critic_truth else 0)
+    critic_width = (
+        width
+        + 2
+        + (len(net1.lcfs) if spec.critic_truth else 0)
+        + (len(_RIVALS) if spec.critic_flows else 0)
+    )
     learner = _Learner(width, critic_width, spec)
     train_arms = _arms(spec.paths_from, rng)
     eval_arms = _arms(spec.eval_from, rng) if spec.eval_from else []
@@ -577,9 +634,9 @@ def run_ppo(
             break
         it_dir = out / f"iter{it:03d}"
         policy = _export(it_dir / "policy.onnx", net1, learner.actor, spec)
-        eps, groups = _batch(train_arms, policy, spec, rng)
+        eps, groups, rivals = _batch(train_arms, policy, spec, rng)
         summary = next(iter(run(it_dir / "rollouts", eps).values()))
-        trs = _trajectories(it_dir / "rollouts", groups, net1, spec)
+        trs = _trajectories(it_dir / "rollouts", groups, net1, spec, rivals)
         entry: dict[str, Any] = {"iteration": it, "rollouts": summary}
         if trs:
             entry["learner"] = learner.update(trs, rng, actor=it >= spec.critic_warmup)

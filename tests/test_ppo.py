@@ -108,6 +108,13 @@ def test_team_utility_is_the_copies_mean_at_each_step() -> None:
     assert ta.tolist() == [2.0, 3.0, 3.0] and tb.tolist() == [2.0, 3.0]
 
 
+def test_the_critic_counts_the_flows_active_at_each_decision() -> None:
+    # A copy for the whole episode, Cubic from 8 s, UDP from 5 to 15 s.
+    rivals = np.array([[0, 0.0, 30.0], [1, 8.0, 30.0], [2, 5.0, 15.0]])
+    counts = ppo.active(rivals, np.array([1.0, 6.0, 10.0, 20.0]))
+    assert (counts * 4).tolist() == [[1, 0, 0], [1, 0, 1], [1, 1, 1], [1, 1, 0]]
+
+
 def test_noise_seed_is_left_out_unless_set(tmp_path: Path) -> None:
     pol = tmp_path / "p.onnx"
     pol.write_bytes(b"x")
@@ -127,8 +134,10 @@ def test_noise_seed_is_left_out_unless_set(tmp_path: Path) -> None:
 
 
 @pytest.mark.uml
-@pytest.mark.parametrize("reward", ["own", "team"])
-def test_ppo_loop_runs_an_iteration_with_copies(build: object, tmp_path: Path, reward: str) -> None:
+@pytest.mark.parametrize(("reward", "flows"), [("own", False), ("team", True)])
+def test_ppo_loop_runs_an_iteration_with_copies(
+    build: object, tmp_path: Path, reward: str, flows: bool
+) -> None:
     from expliccit_env.uml import UmlBuild  # noqa: PLC0415
 
     assert isinstance(build, UmlBuild)
@@ -162,6 +171,7 @@ def test_ppo_loop_runs_an_iteration_with_copies(build: object, tmp_path: Path, r
         epochs=1,
         critic_warmup=0,
         copies_reward=reward,  # pyright: ignore[reportArgumentType]
+        critic_flows=flows,
     )
     report = ppo.run_ppo(spec, tmp_path / "out", build, workers=2)
     initial, entry = report["iterations"]
