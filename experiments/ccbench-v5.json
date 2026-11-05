@@ -1,0 +1,15 @@
+{
+  "title": "ccBench with the rules on net1 v5 (and BBRv3 as a check)",
+  "description": "The policy rows of ccBench for net1 v5 (release model-net1v5): the fixed rule at u = 0.25 and the share rule at u0 = 0.25, k = 0.5, both chosen on validation over three campaign seeds, with BBRv3. The plan is the full run's (exp-ccbench-78: every stock controller, Sage, then the two rules, the same seed) with the two rules on net1 v5 in place of those on net1 v4, so every episode keeps its seed, walk and start times, and only BBRv3's and the two rules' episodes are written (--only). BBRv3's rows must equal exp-ccbench-78's, which checks that the runs combine.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "m": "release:model-net1v5",
+    "sage": "release:exp-sage-model-24"
+  },
+  "prepare": "SAGE=\"$IN/sage/sage/sage.onnx\"; echo \"fc0d6f1da45e4948ee3d96784642793954ed5e52adc1eddd0c9883d5d8fe2f9e  $SAGE\" | sha256sum -c; (cd \"$IN/m\" && sha256sum -c SHA256SUMS); uv run python experiments/ccbench.py \"$OUT\" --suite solo friendly loss copies competitors --seed 7 --stock all --policy \"sage=$SAGE\" --policy \"rule-v5=$IN/m/rule-u0.25.onnx\" --policy \"share-k0.5=$IN/m/share-u0.25-k0.5.onnx\" --only bbr3,rule-v5,share-k0.5",
+  "shards": 30,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables flow_seconds; done",
+  "collect": "uv run python experiments/ccbench_report.py \"$OUT\"",
+  "timeout_minutes": 360
+}

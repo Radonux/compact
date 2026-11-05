@@ -36,7 +36,7 @@ from typing import Any
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
-from heldout import controllers
+from heldout import controllers, keep_only
 
 from expliccit_env import campaign
 from expliccit_env.spec import EpisodeSpec
@@ -153,12 +153,13 @@ def main() -> None:
     p.add_argument("--seed", type=int, required=True)
     p.add_argument("--stock", default="all", help="comma-separated stock controllers, or all")
     p.add_argument("--policy", action="append", default=[], help="NAME=PATH of an ONNX policy")
+    p.add_argument("--only", default="", help="write only these controllers' episodes (NAMEs)")
     a = p.parse_args()
     ccs, aliases = controllers(a.stock, a.policy)
     rng = np.random.default_rng(a.seed)
     a.out.mkdir(parents=True, exist_ok=True)
     for suite in a.suite:
-        eps = episodes(suite, ccs, rng)
+        eps = keep_only(episodes(suite, ccs, rng), a.only, aliases)
         campaign.write_episodes(a.out / f"c-{suite}", eps, {"name": f"c-{suite}"})
         print(f"c-{suite}: {len(eps)} episodes")
     (a.out / "aliases.json").write_text(json.dumps(aliases, indent=1) + "\n")

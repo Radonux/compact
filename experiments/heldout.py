@@ -32,7 +32,7 @@ from typing import Any
 
 import numpy as np
 
-from expliccit_env.spec import STOCK_NAMES, CampaignSpec
+from expliccit_env.spec import STOCK_NAMES, AgentCC, CampaignSpec, EpisodeSpec
 from expliccit_env.train import data
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -61,6 +61,19 @@ def split_links(split: str) -> dict[str, dict[str, Any]]:
             path = json.loads(sj)["path"]
             paths.setdefault(data.link_key(sj), {k: path[k] for k in ("trace", "delay", "buffer")})
     return paths
+
+
+def keep_only(eps: list[EpisodeSpec], only: str, aliases: dict[str, str]) -> list[EpisodeSpec]:
+    """The episodes whose controller is named in ``only`` (comma-separated
+    stock names and policy NAMEs; empty keeps all). Planning every
+    controller and keeping some leaves the random stream, so each kept
+    episode's seed, walk and start times, as a plan of all of them has."""
+    names = {n for n in only.split(",") if n}
+    if not names:
+        return eps
+    return [
+        e for e in eps if (aliases[e.cc.label] if isinstance(e.cc, AgentCC) else e.cc.name) in names
+    ]
 
 
 def controllers(stock: str, policies: list[str]) -> tuple[list[dict[str, Any]], dict[str, str]]:

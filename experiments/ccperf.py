@@ -81,7 +81,7 @@ from typing import Any, NamedTuple
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
-from heldout import controllers
+from heldout import controllers, keep_only
 
 from expliccit_env import campaign
 from expliccit_env.spec import EpisodeSpec
@@ -229,6 +229,7 @@ def main() -> None:
     p.add_argument("--repeats", type=int, default=5)
     p.add_argument("--stock", default="all", help="comma-separated stock controllers, or all")
     p.add_argument("--policy", action="append", default=[], help="NAME=PATH of an ONNX policy")
+    p.add_argument("--only", default="", help="write only these controllers' episodes (NAMEs)")
     a = p.parse_args()
     ccs, aliases = controllers(a.stock, a.policy)
     rng = np.random.default_rng(a.seed)
@@ -255,7 +256,8 @@ def main() -> None:
                 )
                 eps[r.exp].append(spec)
                 variants[r.exp][spec.episode_id()] = (r.variant, r.n_test)
-    for exp, specs in eps.items():
+    for exp, planned in eps.items():
+        specs = keep_only(planned, a.only, aliases)
         campaign.write_episodes(a.out / f"p-{exp}", specs, {"name": f"p-{exp}"})
         (a.out / f"p-{exp}" / "variants.json").write_text(json.dumps(variants[exp]) + "\n")
         print(f"p-{exp}: {len(specs)} episodes")
