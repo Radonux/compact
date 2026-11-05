@@ -86,10 +86,11 @@ build. Stock controllers' windows reach about twice what the path holds
 (slow start's overshoot, BBR's two BDPs on a shallow buffer), so the limit
 grants what autotuning asks for a window of four times the path at BBR's
 factor: 12 times 2304 bytes per packet the path holds, about 18 times its
-bytes, and at least the initial window's 10 segments. No stock controller
-reached it in a 340-episode sample (`docs/validation.md`). What does is a
-window far beyond the path: a policy that floods the link, and at times
-Hybla's slow start on long paths, which grows the window by up to 2^ρ - 1
+bytes, and at least the initial window's 10 segments. In a 340-episode
+sample of stock controllers it changed 3, all with Hybla, by at most 0.0003
+in utilization (`docs/validation.md`). What reaches it is a window far
+beyond the path: a policy that floods the link, and at times Hybla's slow
+start on long paths, which grows the window by up to 2^ρ - 1
 packets per ACK. The limit is a deliberate choice, not a fix for an
 artifact: such a flood comes from the window, and a real host with the
 setups' 64 MB would flood too. What this environment adds is the rate,

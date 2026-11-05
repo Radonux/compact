@@ -1,0 +1,14 @@
+{
+  "title": "Cross-check links: palaestra's side of the comparison with the original stack",
+  "description": "palaestra's runs of the four cross-check links (tools/crosscheck/links.py), for comparison with the same links on the original stack (Ubuntu 16.04, Sage's Linux 4.19, ccBench's Mahimahi; tools/crosscheck/README.md): (a) expliCCit's case-study link, 24 and 48 Mbit/s alternating every 7 s, 40 ms one way, 1000 packets, 45 s; (b) 48 Mbit/s, 20 ms, 1 BDP; (c) 12 Mbit/s, 40 ms, 4 BDP, 1% data loss; (d) ccBench's solo cell 96 Mbit/s, 80 ms, 4 BDP; 30 s each. Cubic, BBRv1, Vegas, Sage's released policy (exp-sage-model-24) and expliCCit's released policy as deployed (third_party/expliccit-models), seeds 1 to 3. The release keeps link_events, so tools/crosscheck/compare.py computes the same metrics from it as from the team's Mahimahi logs: utilization, and the mean and 95th percentile of the queueing delay at the bottleneck, after a 2 s warm-up. The kit the team runs (trace files, links.json) is in kit/.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "sage": "release:exp-sage-model-24"
+  },
+  "prepare": "SAGE=\"$IN/sage/sage/sage.onnx\"; echo \"fc0d6f1da45e4948ee3d96784642793954ed5e52adc1eddd0c9883d5d8fe2f9e  $SAGE\" | sha256sum -c; uv run python tools/crosscheck/links.py plan \"$OUT\" --sage \"$SAGE\"",
+  "shards": 15,
+  "run": "uv run expliccit campaign run \"$OUT/c-crosscheck\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables link_events,flow_seconds",
+  "collect": "uv run python tools/crosscheck/compare.py --palaestra \"$OUT\" --out \"$OUT/summary.md\"",
+  "timeout_minutes": 120
+}
