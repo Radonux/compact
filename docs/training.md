@@ -1775,6 +1775,51 @@ same paths (BBRv1 +0.817 against +0.82, Vegas +0.735 against +0.74).
   over 100 ms, so it barely explores at the window's own time scale); and
   one decision per RTT.
 
+### net1 on a random row split
+
+expliCCit's net1 trainer splits rows at random: 20% for test, then 20% of
+the rest for validation. It reports R^2 above 0.9 for every LCF on the
+held-out rows. A row split puts a training row of the same episode 10 ms
+from each test row.
+
+Release
+[`exp-net1-row-split-97`](https://github.com/Radonux/palaestra/releases/tag/exp-net1-row-split-97)
+(`experiments/net1_row_split.py`) trains net1 with expliCCit's settings
+on the expliCCit-like data of section 1: its inputs and LCFs, min-max
+scaling, batch 256, and up to 500 epochs with patience 20. The data is
+regenerated in each cell under the frozen settings, and all six cells
+loaded identical data. The two arms use the same fractions and differ
+only in the split: once a random row split, once a link split, for seeds
+0, 1 and 2. Test rows of each split, mean over seeds (range):
+
+| LCF | R^2, row split | R^2, link split | mean absolute error, row split | link split |
+|---|---|---|---|---|
+| queueing delay (ms) | 0.971 (0.968 to 0.978) | 0.980 (0.970 to 0.986) | 9.1 | 11.0 |
+| queue (packets) | 0.963 (0.960 to 0.967) | 0.985 (0.981 to 0.987) | 21.1 | 17.9 |
+| capacity (Mbit/s) | 0.998 (0.997 to 0.998) | 0.976 (0.964 to 0.982) | 0.43 | 1.68 |
+| free buffer (packets) | 0.651 (0.644 to 0.655) | -0.215 (-0.264 to -0.127) | 136 | 280 |
+| busy fraction | 0.963 (0.952 to 0.976) | 0.754 (0.712 to 0.813) | 0.007 | 0.021 |
+| one-way delay (ms) | 0.999 (0.999 to 0.999) | 0.992 (0.985 to 0.997) | 0.32 | 0.66 |
+| receive rate (Mbit/s) | 0.998 (0.997 to 0.999) | 0.994 (0.990 to 0.997) | 0.66 | 1.22 |
+
+- **What a row split overstates.** On links net1 has not seen, it does
+  worse than the row split shows:
+  - free buffer falls from 0.65 to below 0, worse than predicting the
+    mean;
+  - busy fraction falls from 0.96 to 0.75;
+  - capacity's mean absolute error is 3.9 times as large, one-way
+    delay's 2.1 times and receive rate's 1.9 times.
+  Queue and queueing delay are the exception: there the row split is no
+  better.
+- **Training length.** The row split's validation rows sit next to its
+  training rows, so its validation loss kept improving: it stopped after
+  57 to 88 epochs, against 21 to 24 for the link split.
+- **The claim itself.** Even on the row split, free buffer reaches only
+  0.65, so the R^2 above 0.9 does not reproduce here for every LCF.
+- **Limits.** This is our expliCCit-like data, not expliCCit's. Its LCFs
+  are computed by our labeller, so the comparison is with the method, not
+  with expliCCit's numbers.
+
 ### Case study: expliCCit's 24 and 48 Mbit/s link
 
 expliCCit's draft traces its policy's under-utilization on this link to

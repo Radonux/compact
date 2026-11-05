@@ -241,7 +241,9 @@ twenty-second episodes per core-hour on Mahak's ICNP'25 space, with about
 broad data's test links net1 v5 reaches it for queueing delay (0.95),
 queue (0.90), one-way delay (1.00) and receive rate (0.99), not for
 capacity (0.81), busy fraction (0.88) or free buffer (0.47)
-(`docs/training.md`, net1 v5). expliCCit reports that its split costs about 5%
+(`docs/training.md`, net1 v5). expliCCit's random row split overstates
+new links: with its settings, free buffer has R^2 0.65 on held-out rows
+and -0.22 on held-out links (`exp-net1-row-split-97`). expliCCit reports that its split costs about 5%
 utilization and 9% queueing delay against Sage; here, with Sage's released
 policy outside its own kernel and links, the fixed rule on net1 v4 has 3 to
 14% more utilization and 46 to 65% less queueing delay on clean test links.
