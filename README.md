@@ -302,7 +302,9 @@ utility (log of the throughput share, minus delay and loss penalties):
   trained on three new seeds, it stays within 0.004 of the fixed rule and
   does not beat it against competition, so it failed its gate
   (`exp-net2-ppo-gate-99`). It learned an offset of the multiple, not a
-  way to tell its own copies from a buffer-filling competitor.
+  way to tell its own copies from a buffer-filling competitor. A second
+  round, with a team reward for copies, failed too
+  (`exp-net2-gate-team-104`).
 - **Means against distributions.** On the validation links, a net2 that
   sees only the means of net1's distributions (arm A2) does at least as
   well as one that sees the distributions (A3). So far net2 gets no

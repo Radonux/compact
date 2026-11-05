@@ -2219,19 +2219,32 @@ link, mean over three seeds, minus the rule, with 95% intervals over the
   copy of itself from a buffer-filling competitor, which is the gain the
   gate asks for. Whether longer training or another signal would is
   UNRUN.
-- **What came next.** Two changes follow from this diagnosis
-  (`experiments/net2-ppo-team.json`, `net2-ppo-flows.json`; UNRUN at the
-  time of writing).
-  - **A team reward for copies.** Copies are scored with every flow
-    running the policy. A copy that learns from its own utility gains by
-    pushing harder than the others, which lowers what they all get. With
-    the team reward, a copy learns from the copies' mean utility, while a
-    flow facing Cubic or BBR keeps its own.
-  - **A value network that also counts the other flows on the link.**
+- **Round 2 did not pass either.** It tried two changes that follow from
+  this diagnosis.
+  - **A team reward for copies**
+    ([`exp-net2-ppo-team-101`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-ppo-team-101)).
+    Copies are scored with every flow running the policy. A copy that
+    learns from its own utility gains by pushing harder than the others,
+    which lowers what they all get. So a copy learns from the copies' mean
+    utility, while a flow facing Cubic or BBR keeps its own.
+  - **A value network that also counts the other flows on the link**
+    ([`exp-net2-ppo-flows-102`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-ppo-flows-102)).
     It sees how many copies, stock TCP flows and UDP flows are active at
     each decision; the actor never sees this.
-  - Online TD3+BC from the rule already lost to it on net1 v4
-    (`exp-net2v4-val-16`), and stays the next fallback.
+  - **Training.** Learning rate 3e-4 or 1e-3, seeds 1 to 3, 60 iterations,
+    the competition mix with 2 or 4 copies. No episode failed.
+  - **The gate**
+    ([`exp-net2-gate-team-104`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-team-104),
+    same rule, campaign seed 21). All four candidates stay within 0.003
+    of the rule over the five families. Both competition intervals
+    include 0 for every candidate. Their copies are worse than the rule's
+    by 0.13 to 0.16, the team reward notwithstanding.
+  - **The kept candidate** (the flow counts, learning rate 3e-4, +0.003)
+    has -0.019 (-0.042 to +0.004) with Cubic from the start, -0.023
+    (-0.057 to +0.008) in the competition conditions, and -0.128 (-0.301
+    to +0.020) as copies.
+  - **Spread of u across states.** It stayed at 0.014 to 0.035 in training,
+    as in round 1.
 
 ### Inference cost per decision
 

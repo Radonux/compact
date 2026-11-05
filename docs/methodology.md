@@ -350,8 +350,10 @@ design above, on links neither network has seen, in log utility:
   of the rule over five validation families. It does not beat the rule
   against competition (both intervals include 0), and the kept candidate's
   copies are worse by 0.13. It learned an offset of u, not a policy that
-  tells a copy from a competitor. net2 stays the fixed rule and the share
-  rule.
+  tells a copy from a competitor. A second round, with a team reward for
+  copies and a value network that counts the other flows, did not pass
+  either (`exp-net2-gate-team-104`). net2 stays the fixed rule and the
+  share rule.
 - net2 setting the window to a fixed multiple of net1's believed BDP
   beats every kernel controller on average: by 0.079 (95% interval 0.032
   to 0.123) over BBRv3, the best of them. The average is over three
