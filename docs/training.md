@@ -1119,8 +1119,28 @@ v4 never saw the deeper queues the 64 MB limits let buffer-filling flows
 build. Two cells are a little worse: queueing delay's coverage at 61 to 90
 ms (0.80 against 0.86) and busy fraction's under 3% to 6% loss (0.81
 against 0.84). The range limits stay as they were (one-way delay above the
-training range, free buffer on deep buffers). The fixed rule's u and the
-share rule's k are chosen again on net1 v5 (`experiments/rule-net1v5-val.json`).
+training range, free buffer on deep buffers).
+
+**The rules on net1 v5, validation links over three campaign seeds.** The
+fixed rule's u (release
+[`exp-rule-net1v5-val-82`](https://github.com/Radonux/palaestra/releases/tag/exp-rule-net1v5-val-82),
+u in -0.25 to 0.5 on the five families, seeds 11, 21 and 31): u = 0.25 and
+u = 0.125 tie (means over the five families 0.1448 and 0.1456 on seed 11,
+0.1494 and 0.1490 on seed 21, 0.1472 and 0.1454 on seed 31), and the rule
+stated before the run, the higher mean over seeds, picks **u = 0.25**
+(0.1471 against 0.1467). The two trade places by family on every seed:
+u = 0.25 is better with a Cubic flow from the start by 0.065 to 0.073, u =
+0.125 on the training conditions by about 0.03. The share rule's k (release
+[`exp-share-net1v5-val-85`](https://github.com/Radonux/palaestra/releases/tag/exp-share-net1v5-val-85),
+u0 = 0.25, k in 0.5 to 2, the five families and 2 and 4 copies of each
+controller, the same seeds): **k = 0.5** on every seed, by the mean over
+the six campaigns. Every share rule is below the fixed rule once copies
+count (k = 0.5: +0.045, +0.061, +0.051 against the rule's +0.104, +0.123,
++0.109), since copies of it cost it about -0.55 against the rule's -0.09;
+over the five families alone k = 0.5 is ahead (about +0.16 against +0.14),
+most with a Cubic flow from the start (+0.12 to +0.17 against -0.001 to
++0.048). net1 v5 and both rules are release
+[`model-net1v5`](https://github.com/Radonux/palaestra/releases/tag/model-net1v5).
 
 ### net2 on net1 v4
 

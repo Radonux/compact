@@ -238,9 +238,10 @@ twenty-second episodes per core-hour on Mahak's ICNP'25 space, with about
 `docs/methodology.md`, section 6, is the current status. A summary:
 
 **Reproduction.** expliCCit reports R^2 above 0.9 for every LCF; on the
-broad data's test links net1 v4 reaches it for queue (0.90) and one-way
-delay (1.00), not for capacity (0.82), busy fraction (0.88) or free buffer
-(0.53) (`docs/training.md`, net1 v4). expliCCit reports that its split costs about 5%
+broad data's test links net1 v5 reaches it for queueing delay (0.95),
+queue (0.90), one-way delay (1.00) and receive rate (0.99), not for
+capacity (0.81), busy fraction (0.88) or free buffer (0.47)
+(`docs/training.md`, net1 v5). expliCCit reports that its split costs about 5%
 utilization and 9% queueing delay against Sage; here, with Sage's released
 policy outside its own kernel and links, the fixed rule on net1 v4 has 3 to
 14% more utilization and 46 to 65% less queueing delay on clean test links.
