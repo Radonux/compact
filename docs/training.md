@@ -2158,6 +2158,20 @@ link, mean over three seeds, minus the rule, with 95% intervals over the
   copy of itself from a buffer-filling competitor, which is the gain the
   gate asks for. Whether longer training or another signal would is
   UNRUN.
+- **No fallback this round.** TD3+BC, the planned fallback, was not run
+  again.
+  - Online TD3+BC from the rule already lost to it on validation on net1
+    v4 (`exp-net2v4-val-16`).
+  - A hand-made switch between cooperating and competing kept neither
+    gain (`exp-mode-val-19`).
+  - What is missing is a hidden variable: whether the other flows are
+    copies or a buffer-filling competitor. Told the number of flows, a
+    rule on the truth handles both (`exp-fairshare-used-val-23`).
+  - A fallback worth running would infer that over time, with memory and
+    probing, in an off-policy learner trained on the same competition mix
+    and copies. That is new work (UNRUN). The ablations planned for a
+    working net2 (memory, the asymmetric critic, distributions against
+    means, the raw step message) are not run either.
 
 ### Inference cost per decision
 
