@@ -1,0 +1,19 @@
+{
+  "title": "PPO net2 on net1 v5, search stage 2: learning rate, K and the training mix",
+  "description": "Stage 2 of the PPO net2 search on validation (stage 1: exp-net2-ppo-search1-90). Stage 1 kept, by its stated rule (the best last evaluation), tau = 1 s and sigma = 0.05 (+0.014 against the rule; every cell within about 0.03 of it). Its cells all moved toward a lower constant u at a speed growing with sigma, gaining alone and losing against Cubic: the training mix (competition on half the links, split evenly over Cubic, BBR and 2, 3 or 4 copies) favours a lower u, and no cell learned to tell competition apart (spread of u across states 0.015 to 0.037). Here, at tau = 1 s and sigma = 0.05: learning rate 1e-4, 3e-4 or 1e-3, by K = 2 or 4 rollouts per link (32 rollouts per iteration either way), by the mix: stage 1's, or competition on 80% of the links split evenly over Cubic, BBR and 2 copies. 40 iterations each, evaluated noise-free every 10 and at the start on the validation links' new-conditions family, paired by link with the rule. The stage keeps the cell with the best last evaluation; its training is then repeated over three seeds and checked on all validation families (the gate on 11-11). Validation links only.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v5": "release:exp-net1v4-recheck-79",
+    "models": "release:model-net1v3"
+  },
+  "prepare": "N=\"$IN/v5/net1-d0.05-w512-s0/net1.pt\"; uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$N\" --models \"$IN/models\" --u 0.25",
+  "matrix": {
+    "lr": [0.0001, 0.0003, 0.001],
+    "k": [2, 4],
+    "mix": ["stage1", "compete"]
+  },
+  "run": "S=\"$OUT/spec-lr$LR-k$K-$MIX.json\"; jq --argjson lr \"$LR\" --argjson k \"$K\" --arg mix \"$MIX\" '.tau_s = 1 | .noise_sigma = 0.05 | .lr = $lr | .group = $k | .links_per_iteration = (32 / $k) | .iterations = 40 | .eval_every = 10 | if $mix == \"compete\" then .compete = 0.8 | .copies = [2] else . end' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/ppo-lr$LR-k$K-$MIX\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ppo-*",
+  "timeout_minutes": 360
+}
