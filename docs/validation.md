@@ -563,6 +563,14 @@ cancelled, which had the first version of the limit. The `-deeplong` reruns and
 runs #43 to #48 remain the record of 64 MB without a limit. The runs listed
 above as not rerun stay so, for the reasons given there.
 
+Done under the frozen settings, with no failed episode: the broad data
+(`exp-data-net1-broad-30s-73`, `-60s-74`, `-ood-75`), Sage's validation
+(`exp-sage-val-72`), the fixed rule's u and the share rule's k on net1 v5
+(`exp-rule-net1v5-val-82`, `exp-share-net1v5-val-85`), the case study
+(`exp-expliccit-case-91`), ccperf (`exp-ccperf-77`, `exp-ccperf-v5-87`) and
+ccBench (`exp-ccbench-78`, `exp-ccbench-v5-89`, merged in
+`exp-ccbench-merged-92`). The test runs wait for 2026-11-16.
+
 ### Freeze (2026-11-04)
 
 The guest, the kernel and the TCP settings are frozen at `1365f0e`, the

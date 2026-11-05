@@ -1504,89 +1504,94 @@ they agree within 0.05.)
 
 ### ccperf's experiments
 
-Release
-[`exp-ccperf-31`](https://github.com/Radonux/palaestra/releases/tag/exp-ccperf-31)
-(`experiments/ccperf.json`; the benchmark is described in
-`docs/architecture.md`) ran the 59 of ccperf's 121 experiments this
-emulator expresses, plus 2, for every kernel controller, Sage's released
-policy, and the fixed rule (u = 0.125) and share rule (k = 1) on net1 v4,
-five times each with fresh seeds, after the TCP buffer fix: 6,100 runs, none
-failed. Nothing was chosen on these links. Means over each experiment's
-variants and repeats (`summary.md` has every controller, `ccperf.csv` every
-variant):
+The 59 of ccperf's 121 experiments this emulator expresses, plus 2
+(`experiments/ccperf.json`; `docs/architecture.md`), for every kernel
+controller, Sage's released policy and the two rules on net1 v5 (u =
+0.25; share rule k = 0.5), five times each with fresh seeds, under the
+frozen settings: release
+[`exp-ccperf-77`](https://github.com/Radonux/palaestra/releases/tag/exp-ccperf-77)
+ran the controllers and
+[`exp-ccperf-v5-87`](https://github.com/Radonux/palaestra/releases/tag/exp-ccperf-v5-87)
+the rules on net1 v5 on the same episodes (planned with `--only`; all 61
+of BBRv3's rows, run in both, are identical). Nothing was chosen on these
+links. Means over each experiment's variants and repeats:
 
-| Experiment | Measure | Fixed rule | Share rule | BBRv1 | BBRv3 | Cubic | Sage |
+| Experiment | Measure | Fixed rule (v5) | Share rule (v5) | BBRv1 | BBRv3 | Cubic | Sage |
 |---|---|---|---|---|---|---|---|
-| single flow, 5 paths | utilization | 0.851 | 0.868 | 0.863 | 0.861 | 0.621 | 0.455 |
-| | queueing delay (ms) | 3.0 | 3.5 | 52.2 | 43.5 | 9.9 | 2.0 |
-| deep buffers, 1 to 16 BDP | utilization | 0.914 | 0.939 | 0.986 | 0.984 | 0.999 | 0.998 |
-| | queueing delay (ms) | 1.7 | 1.8 | 19.3 | 8.7 | 74.6 | 4.8 |
-| random loss, 0.1 to 5% | utilization | 0.829 | 0.907 | 0.978 | 0.684 | 0.415 | 0.528 |
-| shallow buffers | utilization | 0.863 | 0.880 | 0.797 | 0.726 | 0.636 | 0.764 |
-| rate steps, pulses, random walks | utilization | 0.938, 0.943, 0.908 | 0.953, 0.965, 0.950 | 0.979, 0.968, 0.978 | 0.970, 0.957, 0.975 | 0.962, 0.940, 0.998 | 0.979, 0.933, 0.894 |
-| Poisson rate traces | utilization | 0.874 | 0.900 | 0.943 | 0.914 | 0.875 | 0.953 |
-| | queueing delay (ms) | 302 | 344 | 244 | 211 | 523 | 553 |
-| synchronous, start-time, RTT fairness | Jain's index | 0.904, 0.870, 0.869 | 0.943, 0.873, 0.902 | 0.855, 0.873, 0.855 | 0.969, 0.965, 0.838 | 0.938, 0.953, 0.668 | 0.800, 0.791, 0.817 |
-| against Reno, Cubic, Vegas | share over fair share | 0.970, 0.993, 1.494 | 1.372, 1.412, 1.605 | 1.245, 0.976, 1.739 | 0.823, 0.746, 1.694 | 1.056, 1.076, 1.679 | 0.252, 0.298, 1.177 |
+| single flow, 5 paths | utilization | 0.917 | 0.911 | 0.863 | 0.861 | 0.621 | 0.454 |
+|  | queueing delay (ms) | 25.0 | 32.8 | 52.2 | 43.5 | 9.9 | 2.0 |
+| deep buffers, 1 to 16 BDP | utilization | 0.998 | 0.998 | 0.986 | 0.984 | 0.999 | 0.998 |
+|  | queueing delay (ms) | 2.6 | 2.4 | 19.3 | 8.7 | 74.6 | 4.8 |
+| random loss, 0.1 to 5% | utilization | 0.972 | 0.977 | 0.978 | 0.684 | 0.415 | 0.528 |
+| shallow buffers | utilization | 0.926 | 0.927 | 0.797 | 0.726 | 0.636 | 0.762 |
+| rate steps, pulses, random walks | utilization | 0.987, 0.986, 0.972 | 0.989, 0.989, 0.981 | 0.979, 0.968, 0.978 | 0.970, 0.957, 0.975 | 0.962, 0.940, 0.998 | 0.979, 0.933, 0.894 |
+| Poisson rate traces | utilization | 0.876 | 0.813 | 0.943 | 0.914 | 0.875 | 0.946 |
+|  | queueing delay (ms) | 314 | 365 | 244 | 211 | 523 | 540 |
+| synchronous, start-time, RTT fairness | Jain's index | 0.897, 0.824, 0.832 | 0.899, 0.858, 0.880 | 0.855, 0.873, 0.855 | 0.969, 0.965, 0.839 | 0.938, 0.953, 0.668 | 0.791, 0.796, 0.823 |
+| against Reno, Cubic, Vegas | share over fair share | 0.763, 0.847, 1.495 | 1.061, 1.088, 1.534 | 1.245, 0.976, 1.739 | 0.823, 0.746, 1.694 | 1.056, 1.076, 1.679 | 0.252, 0.303, 1.186 |
 
-- On paths of fixed capacity the rules keep queueing delay at 1.5 to 3.5
-  ms, a tenth of BBRv1's or less, and they hold up under random loss (0.83
-  and 0.91) where Cubic and Sage do not. On the Poisson traces, whose
-  capacity jumps, they queue 300 to 340 ms: more than BBRv1 and BBRv3 (211
-  to 244 ms), less than Cubic and Sage (523 to 553 ms).
-- They leave capacity unused on small paths: on ccperf's default path (16
-  Mbit/s, 15 ms base RTT, a BDP of 20 packets) the fixed rule reaches 0.85
-  and the share rule 0.89, against 0.99 to 1.00 for BBRv1, Cubic and Sage,
-  and 0.93 and 0.95 with deeper buffers. The path lies inside net1 v4's
-  training ranges (4 to 150 Mbit/s, 5 to 60 ms one way), so this is not a
-  range limit; that net1 v4 underestimates its BDP is the likely cause,
-  not yet checked.
-- Against Cubic and Reno the fixed rule takes its fair share (0.97 to 0.99,
-  0.86 to 1.22 by number of flows); the share rule takes 1.4 times it, and
-  Sage a quarter to a third. Among the rules' own copies with different
-  RTTs, Jain's index is 0.87 to 0.90, against Cubic's 0.67.
-- On the 800 ms WINDS satellite path with 0.74% loss the rules (0.46 and
-  0.52) match BBRv1 (0.47, at 239 ms of queueing delay against their 1 ms);
-  Cubic and Sage reach 0.02 and 0.04.
+- The rules keep utilization at 0.97 to 0.99 under random loss, on deep
+  and shallow buffers and through rate steps, pulses and walks, where
+  BBRv3 falls to 0.68 under loss and Cubic and Sage further. On deep
+  buffers their queueing delay stays at 2 to 3 ms, against 9 to 75 ms
+  for the kernel controllers.
+- On the Poisson traces, whose capacity jumps, they queue 314 and 365 ms:
+  more than BBRv1 and BBRv3 (211 to 244 ms), less than Cubic and Sage.
+  Alone, their mean queueing delay (25 and 33 ms) is mostly the 800 ms
+  WINDS satellite path's.
+- On ccperf's default path (16 Mbit/s, 15 ms) the fixed rule now uses
+  0.998; the 0.85 on net1 v4 came from u = 0.125's margin, not from net1
+  ("A small path" below).
+- Against Reno and Cubic the fixed rule takes a little less than its fair
+  share (0.76 and 0.85), the share rule about its fair share (1.06 and
+  1.09), and Sage a quarter to a third. Among copies with different RTTs,
+  Jain's index is 0.83 to 0.88, against Cubic's 0.67.
+- On net1 v4 (u = 0.125, k = 1; `exp-ccperf-31`, before the send-buffer
+  limit) the fixed rule used 0.851 alone, 0.914 on deep buffers and 0.829
+  under loss; the kernel controllers' rows there equal these.
 
 ### ccBench's suites
 
-Release
-[`exp-ccbench-30`](https://github.com/Radonux/palaestra/releases/tag/exp-ccbench-30)
-(`experiments/ccbench.json`) ran ccBench's solo and friendliness suites and
-three more (random loss, copies, BBRv1 or BBRv3 as the competitor) for the
-same 20 controllers, after the TCP buffer fix: 24,300 episodes. Nothing
-was chosen on these links. Games are ccBench's leagues among these 20
-controllers (`docs/architecture.md`, "Benchmark"); utilization and queueing
-delay are means over runs and windows:
+ccBench's solo and friendliness suites and three more (random loss,
+copies, BBRv1 or BBRv3 as the competitor), for every kernel controller,
+Sage's released policy and the two rules on net1 v5, under the frozen
+settings: release
+[`exp-ccbench-78`](https://github.com/Radonux/palaestra/releases/tag/exp-ccbench-78)
+ran the controllers and
+[`exp-ccbench-v5-89`](https://github.com/Radonux/palaestra/releases/tag/exp-ccbench-v5-89)
+the rules on net1 v5 on the same episodes (`--only`; BBRv3, run in both,
+has identical metrics), and
+[`exp-ccbench-merged-92`](https://github.com/Radonux/palaestra/releases/tag/exp-ccbench-merged-92)
+ranks them together, the rules on net1 v4 left out. Nothing was chosen on
+these links. Games are ccBench's leagues among these controllers
+(`docs/architecture.md`, "Benchmark"); utilization and queueing delay are
+means over runs and windows:
 
 | Suite | Measure | Fixed rule | Share rule | BBRv1 | BBRv3 | Cubic | Sage |
 |---|---|---|---|---|---|---|---|
-| solo (2,760 games) | games won | 79.2% | 68.3% | 35.7% | 18.8% | 2.6% | 21.3% |
-| | utilization, queueing delay (ms) | 0.932, 12.9 | 0.939, 19.2 | 0.936, 35.7 | 0.923, 42.5 | 0.946, 153.9 | 0.742, 21.4 |
-| random loss (600) | games won | 83.3% | 77.5% | 57.7% | 6.3% | 0.5% | 16.0% |
-| | utilization | 0.923 | 0.928 | 0.929 | 0.676 | 0.217 | 0.453 |
-| friendly, a Cubic flow first (500) | games won | 16.2% | 13.8% | 48.8% | 33.6% | 31.0% | 7.6% |
-| | share of capacity | 0.330 | 0.417 | 0.497 | 0.399 | 0.369 | 0.204 |
-| BBRv1 or BBRv3 first (400) | games won | 27.5% | 29.2% | 53.0% | 44.5% | 34.5% | 2.0% |
-| | share of capacity | 0.461 | 0.590 | 0.541 | 0.382 | 0.441 | 0.143 |
-| 2, 4 or 8 copies | Jain's index, queueing delay (ms) | 0.943, 40.2 | 0.926, 58.2 | 0.967, 68.8 | 0.985, 57.8 | 0.934, 126.1 | 0.899, 50.9 |
+| solo (2,760 games) | games won | 73.5% | 66.0% | 42.4% | 25.0% | 3.4% | 25.2% |
+| | utilization, queueing delay (ms) | 0.945, 15.6 | 0.948, 18.9 | 0.936, 35.7 | 0.923, 42.5 | 0.946, 153.9 | 0.742, 21.5 |
+| random loss (600) | games won | 80.8% | 78.2% | 61.0% | 8.3% | 1.3% | 17.7% |
+| | utilization | 0.943 | 0.946 | 0.929 | 0.676 | 0.217 | 0.453 |
+| friendly, a Cubic flow first (500) | games won | 10.2% | 14.4% | 49.6% | 34.6% | 31.0% | 8.0% |
+| | share of capacity | 0.398 | 0.426 | 0.497 | 0.399 | 0.369 | 0.206 |
+| BBRv1 or BBRv3 first (400) | games won | 32.5% | 32.2% | 52.5% | 44.5% | 35.5% | 2.2% |
+| | share of capacity | 0.514 | 0.584 | 0.541 | 0.382 | 0.441 | 0.143 |
+| 2, 4 or 8 copies | Jain's index, queueing delay (ms) | 0.924, 41.6 | 0.925, 50.6 | 0.967, 68.8 | 0.985, 57.8 | 0.934, 126.1 | 0.899, 49.9 |
 
-- Alone and under random loss the fixed rule wins the most games of the
-  20, by its low delay at full enough utilization: ccBench's score is
-  throughput squared over delay.
+- Alone and under random loss the fixed rule wins the most games, by its
+  low delay at full utilization: ccBench's score is throughput squared
+  over delay.
 - Against a Cubic flow that started 5 s earlier, with buffers of 1 to 16
-  BDP, both rules take less than half (0.33 and 0.42 of the capacity),
-  and BBRv1 comes closest to half. This is the gap the earlier sections
-  found against loss-based competitors present from the start: a window
-  near the BDP takes a small share from a flow that fills the buffer.
+  BDP, both rules take less than half (0.40 and 0.43 of the capacity),
+  and BBRv1 comes closest to half: a window near the BDP takes a small
+  share from a flow that fills the buffer, the gap the validation
+  families show with a Cubic flow from the start.
 - Against BBRv1 or BBRv3 first, the share rule takes more than half
-  (0.59) and the fixed rule a little less (0.46).
-- [`exp-ccbench-27`](https://github.com/Radonux/palaestra/releases/tag/exp-ccbench-27)
-  ran before the TCP buffer fix. It ranks the rules the same, but with
-  buffers it could not fill, Cubic queued less (120 against 154 ms alone,
-  241 against 323 ms in the friendliness suite) and won 54% of
-  friendliness games against 31% now.
+  (0.58) and the fixed rule about half (0.51).
+- On net1 v4 (`exp-ccbench-30`, before the send-buffer limit) the rules
+  ranked the same, with less utilization alone (0.932) and under loss
+  (0.923).
 
 ### Tuned comparison
 
