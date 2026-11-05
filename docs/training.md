@@ -1986,6 +1986,58 @@ nothing the flow measures contradicts it. The fault was found with ground
 truth (the oracle rule and net1's coverage), which a deployment would not
 have.
 
+### net2 by recurrent PPO (in progress; gate on 2026-11-11)
+
+The design (`src/expliccit_env/train/ppo.py`, `recurrent.py`):
+
+- **Actor.** A GRU actor that sees net1's binned beliefs and its own
+  previous action, never raw step messages or the true LCFs. It sets u,
+  the next window as 2^u times the believed BDP, once per min RTT clamped
+  to 10 to 50 ms, and holds it in between inside the exported graph.
+- **Critic.** It also sees the true LCFs (an asymmetric critic).
+- **Reward.** Log utility per step from the ground truth, discounted by
+  exp(-dt / tau).
+- **Rollouts.** K rollouts per link on one seed with different noise, and
+  a group-mean baseline.
+- **Start.** A clone of the fixed rule.
+
+The cloned start matches the rule: -0.003 over 126 validation pairs
+(`exp-net2-ppo-debug-80` on net1 v4, `exp-net2-ppo-debug-v5-84` on v5).
+
+**Stage 1** ([`exp-net2-ppo-search1-90`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-ppo-search1-90)):
+tau in 1, 3 and 10 s by exploration sigma in 0.05, 0.1 and 0.2, from
+u = 0.25 on net1 v5, 40 iterations of 32 rollouts. The evaluation is
+noise-free, on the validation links' new-conditions family, paired with
+the rule. No cell moved far from the rule: last evaluations ranged from
+-0.027 to +0.014. By the rule stated in advance, the best last
+evaluation, stage 1 kept tau = 1 s and sigma = 0.05. Every cell shows the
+same pattern, at the last evaluation (minus the rule):
+
+| Cell | alone, ACK loss 1% | alone, loss 0.1% | BBRv1 from 4 s | Cubic from 0 s | two Cubic flows | mean u |
+|---|---|---|---|---|---|---|
+| tau 1 s, sigma 0.05 | +0.033 | +0.029 | +0.071 | -0.033 | -0.029 | 0.22 |
+| tau 1 s, sigma 0.2 | +0.076 | +0.058 | +0.018 | -0.187 | -0.141 | 0.07 |
+| tau 10 s, sigma 0.1 | +0.046 | +0.037 | +0.036 | -0.024 | -0.045 | 0.19 |
+
+Every cell drifted toward a lower u that barely depends on the state
+(spread across states 0.015 to 0.037), faster for larger sigma. That is
+what a lower constant u does: it gains alone and loses against Cubic.
+
+The training mix explains it. Half the links have competition, split
+evenly over Cubic, BBR and 2, 3 or 4 copies. Cubic is therefore a tenth
+of the links, and on the rest a lower u is better. PPO's clipped step in
+the mean grows with sigma, which is why larger sigma drifted further.
+
+A local check (not a release) ruled out a bias from the exploration
+noise itself. With the guest's per-step noise, the best constant u on the
+validation links' training family stays 0.125 for sigma up to 0.2, and
+the noise hurts a low u most.
+
+No cell learned to tell competition apart, which is what the gate asks
+for. Stage 2 (`experiments/net2-ppo-search2.json`, UNRUN at the time of
+writing) varies the learning rate and K, and adds a mix with competition
+on 80% of the links (Cubic, BBR and two copies, evenly).
+
 ### Inference cost per decision
 
 Measured outside the guest with the guest's own runtime and loading steps
