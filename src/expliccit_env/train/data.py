@@ -21,7 +21,10 @@ type Split = Literal["train", "val", "test"]
 # What keeps episodes in one split: "spec" is everything in the episode spec
 # but cc and seed; "link" is the bottleneck link alone (capacity trace,
 # delay, buffer, uplink trace), whatever the cross traffic or random loss.
-type SplitBy = Literal["spec", "link"]
+# "row" keeps nothing together: each step falls on its own, as a random row
+# split (expliCCit's) does, so held-out rows sit next to training rows of
+# the same episode. Only to measure what that split overstates.
+type SplitBy = Literal["spec", "link", "row"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +65,11 @@ def link_key(spec_json: str) -> str:
 def _split_of(key: str, seed: int, val: float, test: float) -> Split:
     u = int.from_bytes(hashlib.sha256(f"{seed}:{key}".encode()).digest()[:8], "big") / 2**64
     return "test" if u < test else "val" if u < test + val else "train"
+
+
+def _row_split(seed: int, val: float, test: float, n: int) -> npt.NDArray[np.str_]:
+    u = np.random.default_rng(seed).random(n)
+    return np.where(u < test, "test", np.where(u < test + val, "val", "train"))
 
 
 def load(
@@ -116,16 +124,21 @@ def load(
         raise ValueError("no steps left after the stride")
     cat = {k: np.concatenate([q[k] for q in parts]) for k in parts[0]}
     episode_ids = tuple(index)
-    by_episode = np.array([split_of[e] for e in episode_ids])
+    episode = cat.pop("episode")
+    split = (
+        _row_split(seed, val, test, episode.size)
+        if split_by == "row"
+        else np.array([split_of[e] for e in episode_ids])[episode]
+    )
     return Steps(
         obs=cat.pop("obs"),
         action=cat.pop("action"),
         reward=cat.pop("reward"),
         cwnd=cat.pop("cwnd"),
-        episode=cat["episode"],
+        episode=episode,
         step=cat.pop("step"),
         episode_ids=episode_ids,
-        split=by_episode[cat.pop("episode")],
+        split=split,
         labels={k.removeprefix("label_"): v for k, v in cat.items()},
     )
 

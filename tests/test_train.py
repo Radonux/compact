@@ -296,6 +296,15 @@ def test_link_split_keeps_a_link_together_across_conditions() -> None:
     assert len({data._path_key(v) for v in variants}) == 4
 
 
+def test_row_split_scatters_an_episode_at_the_fractions() -> None:
+    split = data._row_split(42, 0.16, 0.2, 100_000)  # pyright: ignore[reportPrivateUsage]
+    share = {s: float((split == s).mean()) for s in ("train", "val", "test")}
+    assert share == pytest.approx({"train": 0.64, "val": 0.16, "test": 0.2}, abs=0.01)
+    # Neighbouring rows (one episode's consecutive steps) part ways.
+    assert (split[1:] != split[:-1]).mean() > 0.4
+    assert np.array_equal(split, data._row_split(42, 0.16, 0.2, 100_000))  # pyright: ignore[reportPrivateUsage]
+
+
 @pytest.mark.uml
 def test_exported_graph_runs_in_the_guest(build: object, tmp_path: Path) -> None:
     from expliccit_env.episode import EpisodeOk, run_episode  # noqa: PLC0415

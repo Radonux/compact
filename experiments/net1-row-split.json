@@ -1,0 +1,11 @@
+{
+  "title": "net1 on a random row split against a link split, on the expliCCit-like data",
+  "description": "expliCCit's net1 trainer splits rows at random (20% test, then 20% of the rest for validation) and reports R^2 above 0.9 on the held-out rows. Here net1 with expliCCit's settings (its inputs and LCFs, min-max scaling, batch 256, up to 500 epochs with patience 20) is trained on the expliCCit-like data (examples/campaign-expliccit-teachers.json, 360 episodes, regenerated in each cell under the frozen settings) with the same fractions, once on a random row split and once on a link split, for seeds 0, 1 and 2 (each picks the split and the initial weights). Reported: R^2 and mean absolute error per LCF on each split's test rows (experiments/net1_row_split.py). A reproduction check; nothing is chosen.",
+  "uml": true,
+  "train": true,
+  "prepare": "uv run expliccit campaign plan examples/campaign-expliccit-teachers.json \"$OUT/c-teachers\"",
+  "matrix": {"split": ["row", "link"], "seed": [0, 1, 2]},
+  "run": "D=$(mktemp -d); cp -r \"$OUT/c-teachers\" \"$D/\"; uv run expliccit campaign run \"$D/c-teachers\" --build \"$UML\" --workers \"$WORKERS\" --tables steps; uv run python experiments/net1_row_split.py \"$OUT\" --data \"$D/c-teachers\" --split \"$SPLIT\" --seed \"$SEED\"",
+  "collect": "uv run python experiments/net1_row_split.py \"$OUT\" --report",
+  "timeout_minutes": 360
+}
