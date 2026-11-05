@@ -1,0 +1,25 @@
+{
+  "title": "Round 3b: a learned residual on the share rule (PPO and TD3+BC), three seeds",
+  "description": "Every learned net2 so far started from the fixed rule and none learned to push harder against a buffer-filling competitor, which the share rule does (+0.108 over the fixed rule with Cubic from the start on the test links, exp-final-test-100) at the price of its copies (-0.43 against the fixed rule's on validation, exp-sage-v5-val-94). Here the actor's output is added to the share rule on net1's mean beliefs (u0 = 0.25, k = 0.5, its validation choice; base share, train/share.py) and starts at 0, so training starts from the share rule; with the team reward for copies, copies episodes give the residual a direct signal to back off. On the held-u graph (85de8d0), with the value network's flow counts, the competition mix (80% of the links, Cubic, BBR or 2 or 4 copies), tau = 1 s, sigma = 0.05, K = 4: PPO at learning rate 1e-3 and TD3+BC at alpha 40, seeds 1, 2 and 3, 60 iterations. The policies go to the round-3 gate (experiments/net2-gate-r3.json). Validation links only.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v5": "release:exp-net1v4-recheck-79",
+    "models": "release:model-net1v3"
+  },
+  "prepare": "N=\"$IN/v5/net1-d0.05-w512-s0/net1.pt\"; uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$N\" --models \"$IN/models\" --u 0.25",
+  "matrix": {
+    "algo": [
+      "ppo",
+      "td3bc"
+    ],
+    "seed": [
+      1,
+      2,
+      3
+    ]
+  },
+  "run": "S=\"$OUT/spec-r3share-$ALGO-s$SEED.json\"; jq --arg algo \"$ALGO\" --argjson seed \"$SEED\" '.algo = $algo | .base = \"share\" | .share_k = 0.5 | .tau_s = 1 | .noise_sigma = 0.05 | .group = 4 | .links_per_iteration = 8 | .compete = 0.8 | .copies = [2, 4] | .copies_reward = \"team\" | .critic_flows = true | (if $algo == \"ppo\" then .lr = 0.001 else .alpha = 40 end) | .seed = $seed | .iterations = 60 | .eval_every = 20' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/ppo-r3share-$ALGO-s$SEED\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ppo-*",
+  "timeout_minutes": 360
+}

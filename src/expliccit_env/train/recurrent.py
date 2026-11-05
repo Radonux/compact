@@ -134,11 +134,16 @@ class HeldPolicyGraph(PolicyGraph):
     packets), the believed BDP at the decision (log2 packets), and 1 on
     the step after a decision (when its realized u is read)."""
 
-    def __init__(self, base: PolicyGraph, actor: RecurrentActor) -> None:
+    def __init__(
+        self, base: PolicyGraph, actor: RecurrentActor, offset: nn.Module | None = None
+    ) -> None:
+        """``offset``, when given, maps net1's output to a u the actor's
+        output is added to (a residual on a rule, such as the share rule)."""
         super().__init__(base.scaler, base.net1, base.lcf_scaler, actor, base.action_max)
         if base.target is None:
             raise ValueError("a held net2 needs a window target (action 'bdp')")
         self.view, self.target = base.view, base.target
+        self.offset = offset
 
     @property
     def actor(self) -> RecurrentActor:
@@ -170,6 +175,8 @@ class HeldPolicyGraph(PolicyGraph):
         inp = torch.cat([x, (prev_u / self.action_max).unsqueeze(1)], dim=1)
         h_new = self.actor.cell(inp, h)
         u = self.actor.mean(h_new) * self.action_max
+        if self.offset is not None:
+            u = u + self.offset(z)
         h = torch.where(decide.unsqueeze(1), h_new, h)
         window = torch.where(decide, lb + u, lb + prev_u)
         a = torch.clamp(window - lc, -_A_LIMIT, _A_LIMIT).unsqueeze(1)

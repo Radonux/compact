@@ -72,6 +72,40 @@ def test_held_graph_decides_where_the_learner_reads_decisions(memory: bool) -> N
         assert np.ptp(held) < 1e-4 if len(held) > 1 else True
 
 
+def test_a_residual_on_the_share_rule_starts_as_the_share_rule() -> None:
+    from expliccit_env.train.share import ACTION_MAX, ShareRule  # noqa: PLC0415
+
+    steps, net1 = _bdp_net1()
+    spec = ppo.PPOSpec(
+        paths_from=Path("unused"),
+        net1_from=Path("unused"),
+        u_rule=0.25,
+        input_bins=4,
+        hidden=8,
+        base="share",
+        share_k=2.0,
+    )
+    actor = RecurrentActor(ppo._width(net1, spec), spec.hidden)  # pyright: ignore[reportPrivateUsage]
+    actor.clone_rule(0.0, spec.action_max)
+    graph = ppo.policy_graph(net1, actor, spec)
+    view = fit._view(net1, "means", None)  # pyright: ignore[reportPrivateUsage]
+    assert view is not None
+    rule = ShareRule(net1, 0.25, 2.0)
+    obs = steps.obs[steps.episode == 0][:40].copy()
+    obs[:, OBS_MIN_RTT] = 30.0
+    state, cwnd = torch.zeros(1, graph.state_dim), 10.0
+    with torch.no_grad():
+        for row in obs:
+            o = torch.from_numpy(row[None, :])
+            a, state = graph.step(o, state, cwnd=torch.tensor([[cwnd]]))
+            assert state is not None
+            z = graph.net1(graph.scaler(o))  # pyright: ignore[reportOptionalCall]
+            if state[0, -1] > 0.5:  # a decision
+                want = float(graph.target(z)) + float(rule(view(z))) * ACTION_MAX  # pyright: ignore[reportOptionalCall]
+                assert float(a) + np.log2(cwnd) == pytest.approx(want, abs=1e-4)
+            cwnd = cwnd * 2 ** float(a)
+
+
 def test_cloned_actor_answers_the_rule_on_any_input() -> None:
     actor = RecurrentActor(12, 8)
     actor.clone_rule(-0.4, 3.0)
@@ -171,12 +205,17 @@ def test_noise_seed_is_left_out_unless_set(tmp_path: Path) -> None:
 
 @pytest.mark.uml
 @pytest.mark.parametrize(
-    ("reward", "flows", "algo"),
-    [("own", False, "ppo"), ("team", True, "ppo"), ("team", True, "td3bc")],
+    "case",
+    [
+        ("own", False, "ppo", "fixed"),
+        ("team", True, "ppo", "share"),
+        ("team", True, "td3bc", "share"),
+    ],
 )
 def test_ppo_loop_runs_an_iteration_with_copies(
-    build: object, tmp_path: Path, reward: str, flows: bool, algo: str
+    build: object, tmp_path: Path, case: tuple[str, bool, str, str]
 ) -> None:
+    reward, flows, algo, base = case
     from expliccit_env.uml import UmlBuild  # noqa: PLC0415
 
     assert isinstance(build, UmlBuild)
@@ -212,6 +251,7 @@ def test_ppo_loop_runs_an_iteration_with_copies(
         copies_reward=reward,  # pyright: ignore[reportArgumentType]
         critic_flows=flows,
         algo=algo,  # pyright: ignore[reportArgumentType]
+        base=base,  # pyright: ignore[reportArgumentType]
         updates_per_iteration=5,
     )
     report = ppo.run_ppo(spec, tmp_path / "out", build, workers=2)

@@ -62,6 +62,8 @@ from expliccit_env.train.recurrent import (
     RecurrentActor,
     decision_steps,
 )
+from expliccit_env.train.share import ACTION_MAX as SHARE_ACTION_MAX
+from expliccit_env.train.share import ShareRule
 from expliccit_env.train.spec import LCF_UNITS, Net2Spec
 from expliccit_env.uml import UmlBuild
 
@@ -131,6 +133,13 @@ class PPOSpec(BaseModel):
     # blow up where utilities are near 0), and each iteration moves the
     # actor by about alpha sigma^2 dQ/du: small steps around the data.
     algo: Literal["ppo", "td3bc"] = "ppo"
+    # What the actor's output is added to. "fixed": nothing; the actor starts
+    # as the fixed rule, u_rule everywhere. "share": the share rule on net1's
+    # mean beliefs, u = u_rule + share_k * busy * max(0, 1 - share)
+    # (train/share.py); the actor starts at 0, so training starts from the
+    # share rule and learns a residual on it.
+    base: Literal["fixed", "share"] = "fixed"
+    share_k: Annotated[float, Field(ge=0)] = 0.5
     alpha: Annotated[float, Field(gt=0)] = 20.0
     updates_per_iteration: PositiveInt = 200
     replay_iterations: PositiveInt = 8
@@ -158,6 +167,7 @@ class Trajectory:
     u: F32  # [T] realized u of each decision
     reward: F32  # [T] the block's summed per-step reward after the decision
     gamma: F32  # [T] exp(-dt / tau) to the next decision
+    base: F32 | None = None  # [T] the rule's u the actor's output adds to (base "share")
 
 
 def _agent(policy: Path, sigma: float, noise_seed: int | None) -> AgentCC:
@@ -249,6 +259,38 @@ def _batch(
     return eps, groups, rivals
 
 
+class _ShareOffset(nn.Module):
+    """net1's output -> the share rule's u (train/share.py)."""
+
+    def __init__(self, net1: fit.Net1, spec: PPOSpec) -> None:
+        super().__init__()
+        view = fit._view(net1, "means", None)  # pyright: ignore[reportPrivateUsage]
+        if view is None:
+            raise ValueError("the share rule needs net1's means view")
+        self.view = view
+        self.rule = ShareRule(net1, spec.u_rule, spec.share_k)
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        return self.rule(self.view(z)).squeeze(1) * SHARE_ACTION_MAX
+
+
+def _offset(net1: fit.Net1, spec: PPOSpec) -> nn.Module | None:
+    return _ShareOffset(net1, spec).eval() if spec.base == "share" else None
+
+
+def _with_base(mu: torch.Tensor, trs: list[Trajectory]) -> torch.Tensor:
+    """The actor's padded output plus each trajectory's base u (if any)."""
+    if all(tr.base is None for tr in trs):
+        return mu
+    b, _ = _pad(
+        [
+            (tr.base if tr.base is not None else np.zeros(tr.u.size, np.float32))[:, None]
+            for tr in trs
+        ]
+    )
+    return mu + b.squeeze(-1)
+
+
 def _views(net1: fit.Net1, spec: PPOSpec) -> tuple[nn.Module | None, nn.Module]:
     view = fit._view(net1, spec.view, spec.input_bins if spec.view == "bins" else None)  # pyright: ignore[reportPrivateUsage]
     return view, fit.window_target(net1)
@@ -328,6 +370,8 @@ def _trajectory(
     x = (z if view is None else view(z)).numpy()
     lb = target(z).numpy()
     u = (np.log2(np.maximum(cwnd[d + 1], 1.0)) - lb).astype(np.float32)
+    off = _offset(net1, spec)
+    base = None if off is None else off(z).numpy().astype(np.float32)
     prev = np.concatenate([[0.0], u[:-1]]).astype(np.float32)
     # Each step's reward weighs 1 - exp(-10 ms / tau), so a return is a
     # discounted mean utility, of order 1 whatever tau is.
@@ -346,7 +390,7 @@ def _trajectory(
     if spec.critic_flows:
         parts.append(active(rivals, d * _STEP_S))
     critic = np.concatenate(parts, axis=1).astype(np.float32)
-    return Trajectory(group, inp, critic, u, reward, gamma)
+    return Trajectory(group, inp, critic, u, reward, gamma, base)
 
 
 def active(rivals: npt.NDArray[np.float64], times: npt.NDArray[Any]) -> npt.NDArray[np.float32]:
@@ -469,7 +513,7 @@ class _Learner:
     def __init__(self, width: int, critic_width: int, spec: PPOSpec) -> None:
         self.spec = spec
         self.actor = RecurrentActor(width, spec.hidden, memory=spec.memory)
-        self.actor.clone_rule(spec.u_rule, spec.action_max)
+        self.actor.clone_rule(spec.u_rule if spec.base == "fixed" else 0.0, spec.action_max)
         self.critic = _Critic(critic_width, spec.critic_hidden)
         self.opt_a = torch.optim.Adam(self.actor.parameters(), lr=spec.lr)
         self.opt_c = torch.optim.Adam(self.critic.parameters(), lr=spec.critic_lr)
@@ -477,7 +521,7 @@ class _Learner:
     def means(self, trs: list[Trajectory]) -> list[F32]:
         with torch.no_grad():
             x, mask = _pad([tr.inp for tr in trs])
-            mu = (self.actor.sequence(x) * self.spec.action_max).numpy()
+            mu = _with_base(self.actor.sequence(x) * self.spec.action_max, trs).numpy()
         return [mu[i, : int(mask[i].sum())] for i in range(len(trs))]
 
     def values(self, trs: list[Trajectory]) -> list[F32]:
@@ -507,7 +551,7 @@ class _Learner:
                 a, _ = _pad([adv[i][:, None] for i in idx])
                 m0, _ = _pad([mu_old[i][:, None] for i in idx])
                 u, a, m0 = u.squeeze(-1), a.squeeze(-1), m0.squeeze(-1)
-                mu = self.actor.sequence(x) * s.action_max
+                mu = _with_base(self.actor.sequence(x) * s.action_max, [trs[i] for i in idx])
                 ratio = torch.exp(((u - m0) ** 2 - (u - mu) ** 2) / var)
                 surr = torch.min(ratio * a, torch.clamp(ratio, 1 - s.clip, 1 + s.clip) * a)
                 loss = -(surr * mask).sum() / mask.sum()
@@ -553,7 +597,7 @@ class _TD3Learner:
     def __init__(self, width: int, critic_width: int, spec: PPOSpec) -> None:
         self.spec = spec
         self.actor = RecurrentActor(width, spec.hidden, memory=spec.memory)
-        self.actor.clone_rule(spec.u_rule, spec.action_max)
+        self.actor.clone_rule(spec.u_rule if spec.base == "fixed" else 0.0, spec.action_max)
         self.actor_target = copy.deepcopy(self.actor)
         self.q = nn.ModuleList(_Critic(critic_width + 1, spec.critic_hidden) for _ in range(2))
         self.q_target = copy.deepcopy(self.q)
@@ -585,7 +629,7 @@ class _TD3Learner:
             u, r, g = u.squeeze(-1), r.squeeze(-1), g.squeeze(-1)
             m = mask[:, 1:]  # the decisions with a successor
             with torch.no_grad():
-                mu_next = self.actor_target.sequence(x)[:, 1:] * s.action_max
+                mu_next = _with_base(self.actor_target.sequence(x) * s.action_max, batch)[:, 1:]
                 noise = (torch.randn_like(mu_next) * s.policy_noise).clamp(
                     -s.noise_clip, s.noise_clip
                 )
@@ -602,7 +646,7 @@ class _TD3Learner:
             self.steps += 1
             if not actor or self.steps % s.policy_delay:
                 continue
-            mu = self.actor.sequence(x) * s.action_max
+            mu = _with_base(self.actor.sequence(x) * s.action_max, batch)
             q = self._qs(self.q, c, mu)[0]
             bc = (((mu - u) ** 2) * mask).sum() / mask.sum() / (2 * s.noise_sigma**2)
             actor_loss = -s.alpha * (q * mask).sum() / mask.sum() + bc
@@ -618,7 +662,7 @@ class _TD3Learner:
             logs.setdefault("bc", []).append(bc.item())
         with torch.no_grad():
             x, mask = _pad([tr.inp for tr in trs])
-            mu_all = (self.actor.sequence(x) * s.action_max)[mask.bool()].numpy()
+            mu_all = _with_base(self.actor.sequence(x) * s.action_max, trs)[mask.bool()].numpy()
         return {k: float(np.mean(v)) for k, v in logs.items()} | {
             "u_mean": float(mu_all.mean()),
             "u_std": float(mu_all.std()),
@@ -641,7 +685,7 @@ def policy_graph(net1: fit.Net1, actor: RecurrentActor, spec: PPOSpec) -> HeldPo
         view=spec.view,
         input_bins=spec.input_bins if spec.view == "bins" else None,
     )
-    return HeldPolicyGraph(base, actor).eval()
+    return HeldPolicyGraph(base, actor, _offset(net1, spec)).eval()
 
 
 def _export(path: Path, net1: fit.Net1, actor: RecurrentActor, spec: PPOSpec) -> Path:
