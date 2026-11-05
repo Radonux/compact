@@ -334,6 +334,15 @@ design above, on links neither network has seen, in log utility:
   path, changes with their arrivals, and one sender's measurements fit
   several values of it. The result bounds what knowing the other flows is
   worth, and leaves that inference to net2.
+- A learned net2 on net1 v5 did not pass its gate (`docs/training.md`,
+  "net2 by recurrent PPO"; `exp-net2-ppo-gate-99`). Recurrent PPO from the
+  fixed rule, searched over the discount, exploration, learning rate, K and
+  the training mix, then trained on three new seeds, stays within 0.004
+  of the rule over five validation families. It does not beat the rule
+  against competition (both intervals include 0), and the kept candidate's
+  copies are worse by 0.13. It learned an offset of u, not a policy that
+  tells a copy from a competitor. net2 stays the fixed rule and the share
+  rule.
 - net2 setting the window to a fixed multiple of net1's believed BDP
   beats every kernel controller on average: by 0.079 (95% interval 0.032
   to 0.123) over BBRv3, the best of them. The average is over three

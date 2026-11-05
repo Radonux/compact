@@ -291,6 +291,11 @@ utility (log of the throughput share, minus delay and loss penalties):
   seeds by competing harder with Cubic cross traffic. That is only 0.04
   better than the fixed multiple here, 0.01 on the 158 links, and no
   better on the validation links, also after 60 iterations instead of 20.
+- **Learned by recurrent PPO, on net1 v5.** Searched on validation and
+  trained on three new seeds, it stays within 0.004 of the fixed rule and
+  does not beat it against competition, so it failed its gate
+  (`exp-net2-ppo-gate-99`). It learned an offset of the multiple, not a
+  way to tell its own copies from a buffer-filling competitor.
 - **Means against distributions.** On the validation links, a net2 that
   sees only the means of net1's distributions (arm A2) does at least as
   well as one that sees the distributions (A3). So far net2 gets no

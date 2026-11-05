@@ -2031,7 +2031,7 @@ nothing the flow measures contradicts it. The fault was found with ground
 truth (the oracle rule and net1's coverage), which a deployment would not
 have.
 
-### net2 by recurrent PPO (in progress; gate on 2026-11-11)
+### net2 by recurrent PPO (did not pass its gate)
 
 The design (`src/expliccit_env/train/ppo.py`, `recurrent.py`):
 
@@ -2120,7 +2120,44 @@ as copies, with campaign seed 21 (the search used 11).
   and not worse with copies beyond its interval.
 - **Otherwise** net2 stays the fixed rule and the share rule.
 
-Both runs are UNRUN at the time of writing.
+**The gate does not pass.** The seed stage
+([`exp-net2-ppo-seeds-98`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-ppo-seeds-98);
+policies in release `model-net2-ppo-candidates`) and the gate
+([`exp-net2-ppo-gate-99`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-ppo-gate-99))
+ran with no failed episode. The rule's own lead over BBRv3 there (+0.159
+over the five families) matches its earlier seed-21 run (+0.149). Per
+link, mean over three seeds, minus the rule, with 95% intervals over the
+21 validation links:
+
+| Candidate | five-family mean | training-60 | cubic-first | new, competition | copies |
+|---|---|---|---|---|---|
+| learning rate 1e-4, K = 4 | -0.000 | +0.027 (+0.016 to +0.040) | -0.068 (-0.099 to -0.036) | -0.030 (-0.074 to +0.007) | +0.041 (-0.098 to +0.163) |
+| learning rate 1e-3, K = 2 (kept) | +0.004 | +0.011 (+0.006 to +0.017) | -0.007 (-0.032 to +0.015) | +0.005 (-0.029 to +0.037) | -0.127 (-0.235 to -0.031) |
+| learning rate 1e-3, K = 4 | -0.001 | +0.011 (+0.005 to +0.018) | -0.020 (-0.040 to -0.000) | +0.002 (-0.032 to +0.036) | -0.121 (-0.230 to -0.028) |
+
+- **Verdict.** The rule kept the candidate with the best five-family mean
+  (+0.004). It does not beat the rule against competition: both
+  competition intervals include 0. Its copies are worse: -0.07 with 2
+  copies and -0.18 with 4, a count the competition mix never trained on.
+  net2 stays the fixed rule and the share rule, and the final test runs
+  without a learned net2.
+- **Pattern.** It is stage 1's, on a smaller scale. Every candidate
+  gains alone and ties or loses against Cubic.
+  - The candidate that drifted to a low u (learning rate 1e-4) gains most
+    alone and loses most with Cubic first. It is the only one not worse
+    with copies.
+  - The two that stayed near u = 0.25 tie the rule against competition
+    and lose with copies.
+- **Stage 2's gain against Cubic did not repeat.** Learning rate 1e-3
+  with K = 4 had +0.012 with Cubic from the start in stage 2. Its new
+  seeds had -0.016 to -0.033 at training time and -0.020 at the gate:
+  seed noise.
+- **What it says.** PPO from the rule, with this actor and reward, finds
+  the training mix's best offset of u and nothing that depends on the
+  state. It did not learn, in 40 iterations of 32 rollouts, to tell a
+  copy of itself from a buffer-filling competitor, which is the gain the
+  gate asks for. Whether longer training or another signal would is
+  UNRUN.
 
 ### Inference cost per decision
 
