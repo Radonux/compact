@@ -1,0 +1,15 @@
+{
+  "title": "Copies of the held-decision net2 graph, cloned from the fixed rule, before and after holding u",
+  "description": "Both PPO gates (exp-net2-ppo-gate-99, exp-net2-gate-team-104) found their candidates worse than the fixed rule as copies, by 0.12 to 0.16. Here the untrained clones of the fixed rule (u = 0.25 on net1 v5) run as 2 and 4 copies on the validation links (campaign seed 21, as at the gates) next to the rule and BBRv3: the held-decision graph that holds a decision's window until the next one (every earlier PPO and TD3+BC run), and the one that holds its u and aims each step's window at that step's believed BDP (85de8d0). Both decide as the rule does; any difference is the holding. Policies in release model-net2-clones. Reported: log utility against BBRv3 (experiments/rule_report.py) and the copies' fairness, utilization and queueing delay (experiments/copies_report.py). Validation links only.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "c": "release:model-net2-clones",
+    "m": "release:model-net1v5"
+  },
+  "prepare": "(cd \"$IN/c\" && sha256sum -c SHA256SUMS); (cd \"$IN/m\" && sha256sum -c SHA256SUMS); uv run python experiments/copies.py \"$OUT/copies\" --split val --duration-ms 30000 --seed 21 --n 2 4 --stock bbr3 --policy \"rule-v5=$IN/m/rule-u0.25.onnx\" --policy \"held-window-clone=$IN/c/held-window-clone.onnx\" --policy \"held-u-clone=$IN/c/held-u-clone.onnx\"; mv \"$OUT/copies/c-copies-30s\" \"$OUT/\"; cp \"$OUT/copies/aliases.json\" \"$OUT/aliases.json\"",
+  "shards": 20,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps; done; uv run python experiments/slim_steps.py \"$OUT\"",
+  "collect": "uv run python experiments/rule_report.py \"$OUT\" && uv run python experiments/copies_report.py \"$OUT\"",
+  "timeout_minutes": 120
+}
