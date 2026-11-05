@@ -1,0 +1,15 @@
+{
+  "title": "Sage, expliCCit's released policy and the rules on net1 v5, on validation links",
+  "description": "expliCCit reports that its split (net1 and net2) costs about 5% utilization and 9% queueing delay against Sage. Here expliCCit's released policy as deployed (third_party/expliccit-models, imported with the deployed clamping and rounding) runs next to Sage's released policy (release exp-sage-model-24), the fixed rule (u = 0.25) and the share rule (k = 0.5) on net1 v5 (release model-net1v5), and BBRv3, on the five validation families (seed 11) and as 2 and 4 copies for 30 s (experiments/copies.py, seed 11): the conditions of exp-sage-val-72, whose Sage rows this repeats. Nothing is chosen here: every candidate was fixed earlier, so this checks the reproduction (expliCCit's own split against Sage in this environment) before the single test. Reported: log utility against BBRv3 per family, the copies' fairness and queueing delay, and utilization and queueing delay against Sage on the conditions where the flow is alone (experiments/sage_report.py).",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "m": "release:model-net1v5",
+    "sage": "release:exp-sage-model-24"
+  },
+  "prepare": "SAGE=\"$IN/sage/sage/sage.onnx\"; echo \"fc0d6f1da45e4948ee3d96784642793954ed5e52adc1eddd0c9883d5d8fe2f9e  $SAGE\" | sha256sum -c; (cd \"$IN/m\" && sha256sum -c SHA256SUMS); uv run expliccit train import-expliccit third_party/expliccit-models \"$OUT/expliccit\" --as-deployed; P=(--policy \"sage=$SAGE\" --policy \"expliccit=$OUT/expliccit/policy.onnx\" --policy \"rule-v5=$IN/m/rule-u0.25.onnx\" --policy \"share-k0.5=$IN/m/share-u0.25-k0.5.onnx\"); experiments/rule_eval.sh \"$OUT\" val 11 11 bbr3 \"${P[@]}\"; uv run python experiments/copies.py \"$OUT/copies\" --split val --duration-ms 30000 --seed 11 --n 2 4 --stock bbr3 \"${P[@]}\"; mv \"$OUT/copies/c-copies-30s\" \"$OUT/\"; jq -s add \"$OUT/aliases.json\" \"$OUT/copies/aliases.json\" > \"$OUT/a.json\"; mv \"$OUT/a.json\" \"$OUT/aliases.json\"",
+  "shards": 20,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps; done; uv run python experiments/slim_steps.py \"$OUT\"",
+  "collect": "uv run python experiments/rule_report.py \"$OUT\" --apart copies-30s && uv run python experiments/copies_report.py \"$OUT\" && uv run python experiments/sage_report.py \"$OUT\"",
+  "timeout_minutes": 300
+}
