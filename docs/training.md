@@ -1853,6 +1853,26 @@ So alarms of this kind cover beliefs that the flow's own measurements can
 refute, and not beliefs that those measurements are consistent with; the
 latter would need the flow to probe, which is outside this work.
 
+### A small path: ccperf's default link
+
+The fixed rule on net1 v4 (u = 0.125) used 0.854 of ccperf's default link,
+16 Mbit/s with a 15 ms base RTT and a 20-packet buffer, where BBRv3 uses
+0.98 (`exp-ccperf-77`). net1 does not underestimate that path's BDP. Run
+locally (2026-11-05, seed 3, 30 s, the guest frozen at `1365f0e`), net1's
+median beliefs after the first half second, against the truth:
+
+| Rule | believed capacity (16 Mbit/s) | believed one-way delay (7.5 ms) | believed BDP (20 packets) | window | utilization |
+|---|---|---|---|---|---|
+| net1 v4, u = 0.125 | 15.4 | 7.67 | 19.7 | 22 | 0.854 |
+| net1 v5, u = 0.125 | 16.0 | 7.67 | 20.5 | 22 | 0.914 |
+| net1 v5, u = 0.25 | 16.5 | 7.75 | 21.3 | 25 | 0.998 |
+
+The shortfall is the rule's margin: a window of 1.09 times the BDP leaves
+two packets of slack on a 20-packet path, too little for whole-packet
+windows paced at the window over the smoothed RTT, and u = 0.25, the
+choice on net1 v5, fills it (0.998 in the release run too,
+`exp-ccperf-v5-87`).
+
 ### Inference cost per decision
 
 Measured outside the guest with the guest's own runtime and loading steps
