@@ -115,6 +115,41 @@ def test_the_critic_counts_the_flows_active_at_each_decision() -> None:
     assert (counts * 4).tolist() == [[1, 0, 0], [1, 0, 1], [1, 1, 1], [1, 1, 0]]
 
 
+def test_td3bc_moves_the_actor_toward_the_better_action() -> None:
+    # Reward peaks at u = 0.5; the cloned rule starts at 0.25 and its data
+    # explore around it, so the critic's gradient points up.
+    torch.manual_seed(0)
+    rng = np.random.default_rng(0)
+    spec = ppo.PPOSpec(
+        paths_from=Path("unused"),
+        net1_from=Path("unused"),
+        u_rule=0.25,
+        hidden=8,
+        critic_hidden=32,
+        algo="td3bc",
+        updates_per_iteration=150,
+        batch_trajectories=8,
+        lr=3e-3,
+        critic_lr=3e-3,
+    )
+    learner = ppo._TD3Learner(5, 4, spec)  # pyright: ignore[reportPrivateUsage]
+
+    def traj(k: int) -> ppo.Trajectory:
+        n = 40
+        u = (0.25 + spec.noise_sigma * rng.standard_normal(n)).astype(np.float32)
+        inp = rng.standard_normal((n, 6)).astype(np.float32)  # features and previous u
+        critic = rng.standard_normal((n, 4)).astype(np.float32)
+        reward = (-((u - 0.5) ** 2)).astype(np.float32)
+        return ppo.Trajectory((k, 0), inp, critic, u, reward, np.full(n, 0.5, np.float32))
+
+    logs = {}
+    for it in range(4):
+        logs = learner.update([traj(k) for k in range(16)], rng, actor=it > 0)
+    # It moves up, but stays within a few sigma of the data it learned from.
+    assert 0.26 < logs["u_mean"] < 0.25 + 2 * spec.noise_sigma
+    assert np.isfinite(logs["critic_loss"])
+
+
 def test_noise_seed_is_left_out_unless_set(tmp_path: Path) -> None:
     pol = tmp_path / "p.onnx"
     pol.write_bytes(b"x")
@@ -134,9 +169,12 @@ def test_noise_seed_is_left_out_unless_set(tmp_path: Path) -> None:
 
 
 @pytest.mark.uml
-@pytest.mark.parametrize(("reward", "flows"), [("own", False), ("team", True)])
+@pytest.mark.parametrize(
+    ("reward", "flows", "algo"),
+    [("own", False, "ppo"), ("team", True, "ppo"), ("team", True, "td3bc")],
+)
 def test_ppo_loop_runs_an_iteration_with_copies(
-    build: object, tmp_path: Path, reward: str, flows: bool
+    build: object, tmp_path: Path, reward: str, flows: bool, algo: str
 ) -> None:
     from expliccit_env.uml import UmlBuild  # noqa: PLC0415
 
@@ -172,6 +210,8 @@ def test_ppo_loop_runs_an_iteration_with_copies(
         critic_warmup=0,
         copies_reward=reward,  # pyright: ignore[reportArgumentType]
         critic_flows=flows,
+        algo=algo,  # pyright: ignore[reportArgumentType]
+        updates_per_iteration=5,
     )
     report = ppo.run_ppo(spec, tmp_path / "out", build, workers=2)
     initial, entry = report["iterations"]

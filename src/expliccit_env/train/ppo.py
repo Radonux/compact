@@ -24,6 +24,7 @@ dominates the returns, and the K rollouts of a link share it.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import math
@@ -119,6 +120,24 @@ class PPOSpec(BaseModel):
     # of the policy, stock TCP flows and UDP flows share the link then:
     # privileged, like the true LCFs, and never shown to the actor.
     critic_flows: bool = False
+    # The learner. "ppo": the clipped policy gradient on the rollouts of
+    # each iteration. "td3bc": TD3+BC (Fujimoto and Gu, 2021) off a replay
+    # of the last replay_iterations iterations' rollouts: twin Q networks
+    # on the value network's inputs and the action, and the recurrent actor
+    # following the gradient of Q at each state, weighted alpha, against its
+    # squared distance to the actions taken in units of the exploration
+    # noise, (mu - u)^2 / (2 sigma^2). A return here is a discounted mean
+    # utility, so Q needs no rescaling (TD3+BC's alpha / mean |Q| would
+    # blow up where utilities are near 0), and each iteration moves the
+    # actor by about alpha sigma^2 dQ/du: small steps around the data.
+    algo: Literal["ppo", "td3bc"] = "ppo"
+    alpha: Annotated[float, Field(gt=0)] = 20.0
+    updates_per_iteration: PositiveInt = 200
+    replay_iterations: PositiveInt = 8
+    target_tau: Annotated[float, Field(gt=0, le=1)] = 0.005
+    policy_noise: Annotated[float, Field(ge=0)] = 0.05  # target smoothing, log2 of the window
+    noise_clip: Annotated[float, Field(ge=0)] = 0.1
+    policy_delay: PositiveInt = 2
     eval_every: PositiveInt = 5
     seed: Annotated[int, Field(ge=0)] = 0
     keep_rollouts: bool = False
@@ -526,6 +545,93 @@ class _Learner:
         }
 
 
+class _TD3Learner:
+    """TD3+BC with the same interface as _Learner (``actor``, ``critic`` and
+    ``update``). A transition is one decision to the next of one flow; the
+    last decision of a flow has no successor and is not learned from."""
+
+    def __init__(self, width: int, critic_width: int, spec: PPOSpec) -> None:
+        self.spec = spec
+        self.actor = RecurrentActor(width, spec.hidden, memory=spec.memory)
+        self.actor.clone_rule(spec.u_rule, spec.action_max)
+        self.actor_target = copy.deepcopy(self.actor)
+        self.q = nn.ModuleList(_Critic(critic_width + 1, spec.critic_hidden) for _ in range(2))
+        self.q_target = copy.deepcopy(self.q)
+        self.critic = self.q  # saved as critic.pt by run_ppo
+        self.opt_a = torch.optim.Adam(self.actor.parameters(), lr=spec.lr)
+        self.opt_c = torch.optim.Adam(self.q.parameters(), lr=spec.critic_lr)
+        self.replay: list[list[Trajectory]] = []
+        self.steps = 0
+
+    def _qs(self, qs: nn.ModuleList, c: torch.Tensor, u: torch.Tensor) -> list[torch.Tensor]:
+        cu = torch.cat([c, (u / self.spec.action_max)[..., None]], dim=-1)
+        return [q(cu) for q in qs]
+
+    def update(
+        self, trs: list[Trajectory], rng: np.random.Generator, *, actor: bool = True
+    ) -> dict[str, float]:
+        s = self.spec
+        self.replay = [*self.replay, trs][-s.replay_iterations :]
+        pool = [tr for batch in self.replay for tr in batch]
+        logs: dict[str, list[float]] = {}
+        for _ in range(s.updates_per_iteration):
+            idx = rng.choice(len(pool), size=min(s.batch_trajectories, len(pool)), replace=False)
+            batch = [pool[i] for i in idx]
+            x, mask = _pad([tr.inp for tr in batch])
+            c, _ = _pad([tr.critic for tr in batch])
+            u, _ = _pad([tr.u[:, None] for tr in batch])
+            r, _ = _pad([tr.reward[:, None] for tr in batch])
+            g, _ = _pad([tr.gamma[:, None] for tr in batch])
+            u, r, g = u.squeeze(-1), r.squeeze(-1), g.squeeze(-1)
+            m = mask[:, 1:]  # the decisions with a successor
+            with torch.no_grad():
+                mu_next = self.actor_target.sequence(x)[:, 1:] * s.action_max
+                noise = (torch.randn_like(mu_next) * s.policy_noise).clamp(
+                    -s.noise_clip, s.noise_clip
+                )
+                mu_next = (mu_next + noise).clamp(-s.action_max, s.action_max)
+                q_next = torch.min(*self._qs(self.q_target, c[:, 1:], mu_next))
+                y = r[:, :-1] + g[:, :-1] * q_next
+            q1, q2 = self._qs(self.q, c[:, :-1], u[:, :-1])
+            critic_loss = ((((q1 - y) ** 2 + (q2 - y) ** 2) * m).sum()) / m.sum()
+            self.opt_c.zero_grad()
+            critic_loss.backward()
+            nn.utils.clip_grad_norm_(self.q.parameters(), s.max_grad_norm)
+            self.opt_c.step()
+            logs.setdefault("critic_loss", []).append(critic_loss.item())
+            self.steps += 1
+            if not actor or self.steps % s.policy_delay:
+                continue
+            mu = self.actor.sequence(x) * s.action_max
+            q = self._qs(self.q, c, mu)[0]
+            bc = (((mu - u) ** 2) * mask).sum() / mask.sum() / (2 * s.noise_sigma**2)
+            actor_loss = -s.alpha * (q * mask).sum() / mask.sum() + bc
+            self.opt_a.zero_grad()
+            actor_loss.backward()
+            nn.utils.clip_grad_norm_(self.actor.parameters(), s.max_grad_norm)
+            self.opt_a.step()
+            with torch.no_grad():
+                for net, target in ((self.actor, self.actor_target), (self.q, self.q_target)):
+                    for w, wt in zip(net.parameters(), target.parameters(), strict=True):
+                        wt.lerp_(w, s.target_tau)
+            logs.setdefault("actor_q", []).append(((q * mask).sum() / mask.sum()).item())
+            logs.setdefault("bc", []).append(bc.item())
+        with torch.no_grad():
+            x, mask = _pad([tr.inp for tr in trs])
+            mu_all = (self.actor.sequence(x) * s.action_max)[mask.bool()].numpy()
+        return {k: float(np.mean(v)) for k, v in logs.items()} | {
+            "u_mean": float(mu_all.mean()),
+            "u_std": float(mu_all.std()),
+            "u_saturated": float((np.abs(mu_all) >= 0.99 * s.action_max).mean()),
+            "kl_to_rule": float(np.mean((mu_all - s.u_rule) ** 2) / (2 * s.noise_sigma**2)),
+            "u_realized_std": float(np.concatenate([tr.u for tr in trs]).std()),
+            "mean_block_reward": float(np.concatenate([tr.reward for tr in trs]).mean()),
+            "decisions": int(mu_all.size),
+            "trajectories": len(trs),
+            "replay_trajectories": len(pool),
+        }
+
+
 def policy_graph(net1: fit.Net1, actor: RecurrentActor, spec: PPOSpec) -> HeldPolicyGraph:
     base = fit.policy_graph(
         net1,
@@ -611,7 +717,7 @@ def run_ppo(
         + (len(net1.lcfs) if spec.critic_truth else 0)
         + (len(_RIVALS) if spec.critic_flows else 0)
     )
-    learner = _Learner(width, critic_width, spec)
+    learner = (_Learner if spec.algo == "ppo" else _TD3Learner)(width, critic_width, spec)
     train_arms = _arms(spec.paths_from, rng)
     eval_arms = _arms(spec.eval_from, rng) if spec.eval_from else []
 
