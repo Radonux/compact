@@ -2031,6 +2031,67 @@ nothing the flow measures contradicts it. The fault was found with ground
 truth (the oracle rule and net1's coverage), which a deployment would not
 have.
 
+### Final test on net1 v5
+
+Release
+[`exp-final-test-100`](https://github.com/Radonux/palaestra/releases/tag/exp-final-test-100)
+(`experiments/final-test.json`) is the one run on the 27 test links,
+before the 2026-11-16 cutoff. Every candidate was fixed on validation:
+
+- the fixed rule (u = 0.25) and the share rule (k = 0.5) on net1 v5;
+- the fixed rule on the true BDP;
+- Sage's released policy, and expliCCit's released policy as deployed;
+- all 17 kernel controllers.
+
+They ran on the five families (campaign seeds 13 and 31, as the earlier
+test runs), the held-out competitors for 60 s, and 2 and 4 copies for
+30 s. No episode failed.
+
+Log utility minus BBRv3 per family, with 95% intervals over links where
+they matter:
+
+| Controller | training-20 | training-60 | new-20 | deep-long-20 | cubic-first-60 | five-family mean | held-out competitors | copies |
+|---|---|---|---|---|---|---|---|---|
+| fixed rule on the true BDP | +0.152 | +0.148 | +0.291 | +0.205 | -0.014 | +0.156 | +0.120 | not run |
+| share rule, k = 0.5 | +0.083 | +0.101 | +0.285 | +0.227 | +0.067 (-0.055 to +0.186) | +0.153 | +0.149 | -0.271 (-0.590 to +0.027) |
+| fixed rule, u = 0.25 | +0.098 | +0.108 | +0.262 | +0.238 | -0.041 (-0.197 to +0.106) | +0.133 | +0.105 (-0.014 to +0.216) | +0.047 (-0.202 to +0.279) |
+| BBRv1 | -0.031 | +0.020 | +0.209 | -0.027 | +0.111 | +0.057 | +0.120 | -0.261 |
+| Sage | -0.364 | -0.494 | -0.356 | -0.491 | -0.852 | -0.511 | -0.881 | +0.004 |
+| expliCCit's released policy | -1.573 | -1.433 | -1.358 | -2.200 | -1.676 | -1.648 | -1.581 | -1.288 |
+
+- **The fixed rule.** It leads BBRv3 by 0.133 over the five families,
+  and BBRv1, the best kernel controller there, by 0.076.
+  - It leads in every family but cubic-first, where it ties BBRv3.
+  - With Cubic from the start, the aggressive kernel controllers win:
+    Scalable +0.375, BIC +0.334, H-TCP +0.140, BBRv1 +0.111.
+  - The same rule on the true BDP scores 0.023 more, which is what
+    net1 v5's estimate costs.
+- **The share rule** matches the rule on the true BDP over the five
+  families. It gains on the fixed rule where competitors fill the buffer:
+  +0.108 with Cubic from the start, +0.044 with the held-out
+  competitors. Its copies still lose: -0.271 against BBRv3's copies,
+  where the fixed rule's have +0.047. This is the trade-off seen on
+  net1 v4.
+- **Copies of the fixed rule.**
+  - With 2 copies they share about as evenly as BBRv3's (Jain's index
+    0.979 against 0.984). With 4 they share less evenly (0.915 against
+    0.979).
+  - They hold 0.99 utilization against 0.96, with 22 to 29 ms of mean
+    queueing delay against 28 to 33 ms.
+- **Against Sage, with the flow alone.**
+  - On clean links the fixed rule has 7 to 8% more utilization in the
+    training families and 14% more on deep, long paths.
+  - Its queueing delay is within the noise of Sage's in the training
+    families (+5% and +15%, both intervals including 0) and 70% lower on
+    deep, long paths.
+  - Under 1% and 3% random loss it has 1.7 to 2.6 times Sage's
+    utilization.
+  - expliCCit's released policy has 41% less utilization than Sage on
+    clean links, and 66% less on deep, long paths.
+- **net2.** No learned net2 passed its gate before this run (`exp-net2-ppo-gate-99`). One that
+  passes a later gate runs once on the test links on its own, next to the
+  fixed rule, so no other controller sees them twice.
+
 ### net2 by recurrent PPO (did not pass its gate)
 
 The design (`src/expliccit_env/train/ppo.py`, `recurrent.py`):

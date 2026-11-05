@@ -270,7 +270,7 @@ for the learned net2, one for each 60-iteration run (section 6).
 | expliCCit's result | Here |
 |---|---|
 | net1 estimates every LCF with R^2 above 0.9 | Not for all: on the broad data's test links net1 v5 has 0.95 for queueing delay, 0.90 for queue, 1.00 for one-way delay and 0.99 for receive rate, but 0.81 for capacity, 0.88 for busy fraction and 0.47 for free buffer (`docs/training.md`, net1 v5). With expliCCit's settings on the expliCCit-like data, its random row split overstates new links: free buffer 0.65 on held-out rows against -0.22 on held-out links, busy fraction 0.96 against 0.75 (`exp-net1-row-split-97`) |
-| The split costs about 5% utilization and 9% queueing delay against Sage | The other way here: on clean test links the fixed rule on net1 v4 has 3 to 14% more utilization and 46 to 65% less queueing delay than Sage's released policy, and Sage falls to 0.32 to 0.62 utilization under random loss (`exp-sage-test-26`, after `exp-sage-val-25`; `docs/training.md`, section 7). expliCCit's own released policy, as deployed, has 24 to 25% less utilization than Sage on clean validation links (`exp-sage-v5-val-94`). Sage runs outside its home: Linux 7.0, pacing per step, no inference delay, links it was not trained on |
+| The split costs about 5% utilization and 9% queueing delay against Sage | The other way here: on clean test links the fixed rule on net1 v5 has 7 to 14% more utilization than Sage's released policy, with queueing delay within the noise of Sage's in the training families and 70% lower on deep, long paths, and 1.7 to 2.6 times Sage's utilization under random loss (`exp-final-test-100`; on net1 v4, `exp-sage-test-26`). expliCCit's own released policy has 41% less utilization than Sage on clean test links (`exp-final-test-100`). expliCCit's own released policy, as deployed, has 24 to 25% less utilization than Sage on clean validation links (`exp-sage-v5-val-94`). Sage runs outside its home: Linux 7.0, pacing per step, no inference delay, links it was not trained on |
 | On a 24/48 Mbit/s link (one-way delay 40 ms, 1000-packet buffer), under-utilization is traced to capacity underestimated by 25%, and replacing that belief with the truth restores utilization | Not reproduced (`exp-expliccit-case-42`). The released policy runs at 0.48 utilization (0.34 to 0.53 on the eight links around it), and its capacity belief is within 14%; replacing it with the truth gives 0.43. The wrong beliefs are busy fraction (1.0 against 0.51 true), queue (19 packets against 0), free buffer and queueing delay; replacing busy fraction alone gives 0.71 on all nine links |
 | Sage's state, as computed here, equals `sage.cc`'s | yes: every compared column of every step, on a Cubic and a BBRv1-with-loss episode (`tests/test_sage.py`, run locally with a Sage checkout; CI skips it) |
 
@@ -281,6 +281,15 @@ of the reproduction.
 
 **Results so far** (`docs/training.md`, section 7). The first run of the
 design above, on links neither network has seen, in log utility:
+
+- The final test on net1 v5 (`exp-final-test-100`, the one run on the
+  27 test links). The fixed rule leads BBRv3 by 0.133 over the five
+  families and BBRv1, the best kernel controller there, by 0.076. Its
+  estimate costs 0.023 against the same rule on the true BDP. It ties
+  BBRv3 only with Cubic from the start, where aggressive controllers
+  win. The share rule matches the rule on the true BDP (+0.153), gains
+  with Cubic from the start, and loses as copies (-0.271). Sage scores
+  -0.511 and expliCCit's released policy -1.648.
 
 - net1 is honest on new links under the training conditions: its 90%
   statements hold 88.8% to 97.1% of the time per LCF. Under competition

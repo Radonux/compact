@@ -270,6 +270,13 @@ net2 acts on that fixed net1 by setting the window to 2^u times the
 believed bandwidth-delay product. Scored once on 27 held-out links in log
 utility (log of the throughput share, minus delay and loss penalties):
 
+- **Final test, on net1 v5** (`exp-final-test-100`). The fixed multiple
+  leads BBRv3 by 0.133 over five families and BBRv1, the best kernel
+  controller there, by 0.076. The same rule on the true BDP leads by
+  0.156, so the estimate costs 0.023. It ties BBRv3 only with Cubic from
+  the start. Sage scores -0.511 and expliCCit's released policy -1.648.
+  The bullets below are the earlier runs on net1 v3 and v4.
+
 - **Fixed multiple.** A fixed multiple (u = 0.25) beats every kernel
   controller on average: it scores -0.39, against -0.47 for BBRv3, the
   best of them, and -1.21 for Cubic. The average is over three equally
