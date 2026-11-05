@@ -37,6 +37,10 @@ The passing tests show that:
 - trace generation, the `mm-th-delay` metrics and Mahak's driver equal
   Mahak's own code;
 - the same build, plan and seed give byte-identical record files;
+- the trainer loads a campaign's steps in one order (episode id, then
+  step), whatever order the workers finished in; before `be72bd7` it kept
+  the shards' order, so a net1 retrained on regenerated data could differ
+  slightly in its minibatches;
 - the closed loop applies Sage's window rule exactly, and a policy acts on
   exactly the message and the truth that its step recorded;
 - the truth a policy can read equals the host's labels at every step;
