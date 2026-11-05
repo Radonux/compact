@@ -53,8 +53,8 @@ A one-off check (M6, repeated at M7) showed that adding BBRv3 left seeded
 Cubic and BBRv1 episodes byte-identical.
 
 The main gaps, detailed under "Not run": reference runs of real Mahimahi
-against the link model have not started, and UML's virtual time is never
-checked against a real-time kernel.
+against the link model are prepared but not run, and UML's virtual time is
+never checked against a real-time kernel.
 
 ## Environment and how to rerun
 
@@ -855,7 +855,7 @@ time in a 1 GiB guest.
 
 | Item | Status |
 |---|---|
-| The link model against real Mahimahi | Not started (UNRUN): it needs a root host (any kernel). Mahimahi is vendored. Mahak's `highbdp.patch` does not apply to current Mahimahi (`configure.ac` and `linkshell.cc` changed) and must be ported first. |
+| The link model against real Mahimahi | Prepared, UNRUN. `tools/crosscheck` holds four links (expliCCit's case-study link, a 1 BDP and a 4 BDP cell, the second with 1% data loss, and a ccBench solo cell) for the team to run on the original stack (Ubuntu 16.04, Sage's Linux 4.19, ccBench's Mahimahi) with Cubic, BBRv1, Vegas, Sage and expliCCit's released policy, and `compare.py` computes the same metrics from both sides. palaestra's side is `exp-crosscheck-93` (60 episodes, none failed). The kit's commands for the original stack are read from its sources, not run. A run on current Mahimahi would first need Mahak's `highbdp.patch` ported (`configure.ac` and `linkshell.cc` changed). |
 | UML against a real-time kernel | Will not run: the native tier was dropped (`docs/architecture.md`, D19), so virtual time is never compared with real time. |
 | Mahak's failure regions (BBR, Orca, Sage) | Partial: the one-seed probes above (before M6, and M6). Maps over seeds are UNRUN. Orca's trained model is not in this repository. Sage's released policy ran on the validation and test links (`docs/training.md`, section 7), not over Mahak's regions. |
 | DeepCC pacing (Sage's patched kernel, `PACE_WITH_SRTT`, coefficient 100) | UNVERIFIED: the kernel patch's source is not public. The guest paces at cwnd * mss / srtt. |

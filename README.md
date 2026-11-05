@@ -224,7 +224,7 @@ twenty-second episodes per core-hour on Mahak's ICNP'25 space, with about
 
 | Item | State |
 |---|---|
-| Reference runs of real Mahimahi against the link model | UNRUN: needs a root host and a port of Mahak's `highbdp.patch` |
+| Reference runs of real Mahimahi against the link model | UNRUN: the team runs `tools/crosscheck` on the original stack; palaestra's side is `exp-crosscheck-93` |
 | UML's virtual time against a real-time kernel | will not run: the native tier (Linux 7.0 on Ubuntu 26.04 hosts, as root, in real time) was dropped. No environment we have can easily boot a patched kernel, so it could never run BBRv3 or later kernel changes (`docs/architecture.md`, D19) |
 | Inference latency | not modelled: a policy's inference costs no virtual time; to be measured outside and added as a delay |
 | Labels recomputed from stored shards | not yet: `link_events` and `link_opp` hold what a new label needs, but nothing reads them back, so a new label means rerunning the episodes |
