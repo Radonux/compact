@@ -2082,9 +2082,45 @@ validation links' training family stays 0.125 for sigma up to 0.2, and
 the noise hurts a low u most.
 
 No cell learned to tell competition apart, which is what the gate asks
-for. Stage 2 (`experiments/net2-ppo-search2.json`, UNRUN at the time of
-writing) varies the learning rate and K, and adds a mix with competition
-on 80% of the links (Cubic, BBR and two copies, evenly).
+for.
+
+**Stage 2** ([`exp-net2-ppo-search2-96`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-ppo-search2-96)),
+at tau = 1 s and sigma = 0.05, crosses three axes:
+
+- learning rate 1e-4, 3e-4 or 1e-3;
+- K = 2 or 4, with 32 rollouts per iteration either way;
+- the training mix: stage 1's, or competition on 80% of the links
+  (Cubic, BBR and two copies, evenly).
+
+Last evaluations ran from +0.006 to +0.017. The best three are within
+0.001 of each other, far inside the evaluation's noise, and all use the
+competition mix:
+
+| Cell | last evaluation | Cubic from 0 s | two Cubic flows | BBRv1 from 4 s | alone, ACK loss 1% | mean u |
+|---|---|---|---|---|---|---|
+| learning rate 1e-4, K = 4 | +0.017 | -0.061 | -0.079 | +0.096 | +0.062 | 0.15 |
+| learning rate 1e-3, K = 2 | +0.016 | +0.001 | -0.031 | +0.073 | +0.024 | 0.23 |
+| learning rate 1e-3, K = 4 | +0.016 | +0.012 | -0.002 | +0.077 | +0.004 | 0.26 |
+
+The first still drifts to a low u. The last is the first cell to gain
+against Cubic from the start without drifting down.
+
+**Seed stage and gate.** A 0.001 gap should not decide the gate, so all
+three candidates go to the seed stage (`experiments/net2-ppo-seeds.json`):
+each trains again on seeds 1, 2 and 3, which stage 2 did not use. The gate
+(`experiments/net2-ppo-gate.json`, rule in
+`experiments/net2_ppo_gate_report.py`, both written before those results)
+scores the nine policies against the rule on every validation family and
+as copies, with campaign seed 21 (the search used 11).
+
+- **Kept:** the candidate with the best five-family mean over its seeds.
+- **Passes** only if it beats the rule in cubic-first and in the new
+  family's competition conditions, each with its 95% interval over links
+  above 0. It must also be at or above the rule on the five-family mean,
+  and not worse with copies beyond its interval.
+- **Otherwise** net2 stays the fixed rule and the share rule.
+
+Both runs are UNRUN at the time of writing.
 
 ### Inference cost per decision
 
