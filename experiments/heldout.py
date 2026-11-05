@@ -27,12 +27,20 @@ for `expliccit score --alias`).
 import argparse
 import hashlib
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from expliccit_env.spec import STOCK_NAMES, AgentCC, CampaignSpec, EpisodeSpec
+from expliccit_env.spec import (
+    STOCK_NAMES,
+    AgentCC,
+    CampaignSpec,
+    EpisodeSpec,
+    StockCC,
+    StockName,
+)
 from expliccit_env.train import data
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -63,17 +71,27 @@ def split_links(split: str) -> dict[str, dict[str, Any]]:
     return paths
 
 
-def keep_only(eps: list[EpisodeSpec], only: str, aliases: dict[str, str]) -> list[EpisodeSpec]:
-    """The episodes whose controller is named in ``only`` (comma-separated
-    stock names and policy NAMEs; empty keeps all). Planning every
-    controller and keeping some leaves the random stream, so each kept
-    episode's seed, walk and start times, as a plan of all of them has."""
+def keep_only(
+    eps: list[EpisodeSpec],
+    only: str,
+    aliases: dict[str, str],
+    tested: Callable[[EpisodeSpec], StockName | StockCC | AgentCC] = lambda e: e.cc,
+) -> list[EpisodeSpec]:
+    """The episodes whose controller under test (``tested``; the observed
+    flow's by default) is named in ``only`` (comma-separated stock names
+    and policy NAMEs; empty keeps all). Planning every controller and
+    keeping some leaves the random stream, so each kept episode has the
+    seed, walk and start times a plan of all of them gives it."""
     names = {n for n in only.split(",") if n}
     if not names:
         return eps
-    return [
-        e for e in eps if (aliases[e.cc.label] if isinstance(e.cc, AgentCC) else e.cc.name) in names
-    ]
+
+    def name(cc: StockName | StockCC | AgentCC) -> str:
+        if isinstance(cc, AgentCC):
+            return aliases[cc.label]
+        return cc if isinstance(cc, str) else cc.name
+
+    return [e for e in eps if name(tested(e)) in names]
 
 
 def controllers(stock: str, policies: list[str]) -> tuple[list[dict[str, Any]], dict[str, str]]:

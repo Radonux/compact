@@ -30,6 +30,7 @@ Plans OUT/c-<suite> for each suite and writes OUT/aliases.json.
 import argparse
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -39,7 +40,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from heldout import controllers, keep_only
 
 from expliccit_env import campaign
-from expliccit_env.spec import EpisodeSpec
+from expliccit_env.spec import AgentCC, EpisodeSpec, StockCC, StockName, TcpCross
 
 BANDWIDTHS = (12, 24, 48, 96, 192)
 DELAYS = (5, 10, 20, 40, 80)
@@ -90,6 +91,21 @@ def constant_links(buffers: tuple[float, ...], loss: float = 0.0) -> list[dict[s
         for d in DELAYS
         for m in buffers
     ]
+
+
+def tested(suite: str) -> Callable[[EpisodeSpec], StockName | StockCC | AgentCC]:
+    """The controller a suite's episode tests: in friendly and competitors
+    the observed flow is the rival and the controller under test the cross
+    flow; elsewhere the observed flow."""
+    if suite not in ("friendly", "competitors"):
+        return lambda e: e.cc
+
+    def cross(e: EpisodeSpec) -> StockName | StockCC | AgentCC:
+        c = e.cross[0]
+        assert isinstance(c, TcpCross)
+        return c.cc
+
+    return cross
 
 
 def episodes(suite: str, ccs: list[dict[str, Any]], rng: np.random.Generator) -> list[EpisodeSpec]:
@@ -159,7 +175,7 @@ def main() -> None:
     rng = np.random.default_rng(a.seed)
     a.out.mkdir(parents=True, exist_ok=True)
     for suite in a.suite:
-        eps = keep_only(episodes(suite, ccs, rng), a.only, aliases)
+        eps = keep_only(episodes(suite, ccs, rng), a.only, aliases, tested(suite))
         campaign.write_episodes(a.out / f"c-{suite}", eps, {"name": f"c-{suite}"})
         print(f"c-{suite}: {len(eps)} episodes")
     (a.out / "aliases.json").write_text(json.dumps(aliases, indent=1) + "\n")
