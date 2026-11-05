@@ -1873,6 +1873,62 @@ windows paced at the window over the smoothed RTT, and u = 0.25, the
 choice on net1 v5, fills it (0.998 in the release run too,
 `exp-ccperf-v5-87`).
 
+### Repairing a fault in net1 alone (R3)
+
+net1 v3's fault and its repair, as a case study of fixing the estimator
+without touching net2:
+
+- **Symptom.** The fixed rule on net1 v3 lost to BBRv3 with a Cubic flow
+  from the start (-0.387 in log utility, "net2 on the fixed net1" above).
+- **Localization.** net1 v3's capacity belief there was 0.59 of the truth
+  (10th to 90th percentile 0.30 to 0.85), its 90% statements holding 26%
+  of the time: in its training the Cubic flow always came after the
+  observed flow had measured the link alone.
+- **Verification.** The same rule on the true BDP gained +0.476 there, so
+  the rule was sound and the belief was the fault.
+- **Repair.** net1 retrained on the broad data (net1 v4), net2 unchanged:
+  +0.43 on the test links with a Cubic flow from the start, +0.04 under
+  net1 v3's own conditions ("net1 on a broad set of conditions").
+
+Under the frozen settings, release
+[`exp-r3-capacity-head-val-86`](https://github.com/Radonux/palaestra/releases/tag/exp-r3-capacity-head-val-86)
+repeats it on the validation links (seed 11, each net1 at its best u):
+the rule on net1 v3 has -0.555 against BBRv3 with a Cubic flow from the
+start and -0.040 over the five families; on net1 v4, -0.037 and +0.138;
+on the true BDP, +0.058 and +0.165.
+
+**A cheaper repair: the capacity head only.** Release
+[`exp-r3-capacity-head-83`](https://github.com/Radonux/palaestra/releases/tag/exp-r3-capacity-head-83)
+(`experiments/r3_capacity_head.py`) retrains only the capacity head of
+each of net1 v3's members (one layer of 64 by 64 bins), on the same broad
+data, every other weight frozen and the other six LCFs checked
+bit-identical. It took 439 s of wall time on 2 CPU threads (268 s of it
+computing the frozen features once), against 3,571 s for net1 v4's whole
+training. Capacity's calibration is repaired, its sharpness less so, and
+its mean now runs high (validation rows; net1 v4 in parentheses):
+
+| net1 | 90% coverage | R^2 | CRPS (Mbit/s) | median belief / truth |
+|---|---|---|---|---|
+| v3 | 0.62 | 0.67 | 12.6 | 1.01 |
+| v3, capacity head retrained (bins refitted) | 0.93 (0.90) | 0.73 (0.79) | 10.3 (8.3) | 1.15 (1.04) |
+
+In closed loop it recovers little of what retraining net1 whole did: the
+rule on it has -0.392 with a Cubic flow from the start and -0.009 over the
+five families (bins refitted, u = 0.25; with net1 v3's bins kept, -0.465
+and +0.005 at u = 0.125), a gain of about +0.16 and +0.04 where net1 v4
+gained +0.52 and +0.18. A new head on net1 v3's frozen features cannot
+supply what those features never learned, the cues of competition from
+the start (the explanation is inferred, not tested): the repair has to
+reach the representation, which the full retrain does in an hour of CPU.
+
+**Would an alarm have flagged the fault first?** No. The alarms that need
+no ground truth (R2 above) detect net1 v3's wrong capacity with a Cubic
+flow from the start in 12% of the wrong episodes (AUC 0.52), chance level:
+a capacity believed too low is still above the flow's own share, so
+nothing the flow measures contradicts it. The fault was found with ground
+truth (the oracle rule and net1's coverage), which a deployment would not
+have.
+
 ### Inference cost per decision
 
 Measured outside the guest with the guest's own runtime and loading steps
