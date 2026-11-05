@@ -101,6 +101,13 @@ def test_group_mean_advantage_is_taken_off_at_each_decision() -> None:
     assert np.allclose(adv[2], ret[2], atol=1e-5) and np.all(ret[1] > ret[0])
 
 
+def test_team_utility_is_the_copies_mean_at_each_step() -> None:
+    a = np.array([1.0, 2.0, 3.0], np.float32)
+    b = np.array([3.0, 4.0], np.float32)  # this copy's episode ended a step early
+    ta, tb = ppo.team_utility([a, b])
+    assert ta.tolist() == [2.0, 3.0, 3.0] and tb.tolist() == [2.0, 3.0]
+
+
 def test_noise_seed_is_left_out_unless_set(tmp_path: Path) -> None:
     pol = tmp_path / "p.onnx"
     pol.write_bytes(b"x")
@@ -120,7 +127,8 @@ def test_noise_seed_is_left_out_unless_set(tmp_path: Path) -> None:
 
 
 @pytest.mark.uml
-def test_ppo_loop_runs_an_iteration_with_copies(build: object, tmp_path: Path) -> None:
+@pytest.mark.parametrize("reward", ["own", "team"])
+def test_ppo_loop_runs_an_iteration_with_copies(build: object, tmp_path: Path, reward: str) -> None:
     from expliccit_env.uml import UmlBuild  # noqa: PLC0415
 
     assert isinstance(build, UmlBuild)
@@ -153,6 +161,7 @@ def test_ppo_loop_runs_an_iteration_with_copies(build: object, tmp_path: Path) -
         copies=(2,),
         epochs=1,
         critic_warmup=0,
+        copies_reward=reward,  # pyright: ignore[reportArgumentType]
     )
     report = ppo.run_ppo(spec, tmp_path / "out", build, workers=2)
     initial, entry = report["iterations"]

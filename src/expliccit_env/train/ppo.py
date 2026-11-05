@@ -7,8 +7,11 @@ only and is never exported. Each iteration exports the policy, runs each
 of a few training links K times (the same seed, so the same path and loss
 draws, with different exploration noise), and updates on those rollouts.
 The reward is the per-step log utility from ground truth (score.utility),
-per flow, so copies of the policy on one bottleneck (self-play) each learn
-from their own. Returns are discounted by elapsed time, gamma =
+per flow. Copies of the policy on one bottleneck (self-play) each learn
+from their own, or, with copies_reward "team", from their mean: copies are
+scored all running the policy, and a flow that learns from its own utility
+gains by pushing harder than its copies, which lowers what they all get.
+Returns are discounted by elapsed time, gamma =
 exp(-dt / tau), and each decision's advantage has its group's mean at the
 same decision taken off, on top of the value function: link-to-link spread
 dominates the returns, and the K rollouts of a link share it.
@@ -108,6 +111,10 @@ class PPOSpec(BaseModel):
     # BBR from 0 s, or 2 to 4 copies of the policy itself.
     compete: Annotated[float, Field(ge=0, le=1)] = 0.5
     copies: tuple[int, ...] = (2, 3, 4)
+    # What a flow learns from where several flows run the policy (copies):
+    # its own utility, or the mean of theirs at each step. A flow facing
+    # other controllers always learns from its own.
+    copies_reward: Literal["own", "team"] = "own"
     eval_every: PositiveInt = 5
     seed: Annotated[int, Field(ge=0)] = 0
     keep_rollouts: bool = False
@@ -224,9 +231,33 @@ def _read(path: Path, eids: set[str], lcfs: tuple[str, ...]) -> pa.Table | None:
     return t.filter(pa.array(keep))
 
 
+def _labels(t: pa.Table) -> dict[str, npt.NDArray[np.float32]]:
+    return {
+        c.removeprefix("label_"): np.asarray(t[c].to_numpy(zero_copy_only=False), np.float32)
+        for c in t.column_names
+        if c.startswith("label_")
+    }
+
+
+def _by_step(t: pa.Table) -> pa.Table:
+    order = np.argsort(np.asarray(t["step"].to_numpy(zero_copy_only=False)), kind="stable")
+    return t.take(pa.array(order, pa.int64()))
+
+
+def team_utility(utilities: list[npt.NDArray[np.float32]]) -> list[npt.NDArray[np.float32]]:
+    """Each flow's per-step utility replaced by the flows' mean at the same
+    step (copies start together, so step k is the same instant for all);
+    a step only some flows reached averages those."""
+    n = max(u.size for u in utilities)
+    stack = np.stack([np.pad(u, (0, n - u.size), constant_values=np.nan) for u in utilities])
+    mean = np.nanmean(stack, axis=0).astype(np.float32)
+    return [mean[: u.size] for u in utilities]
+
+
 @torch.no_grad()
 def _trajectory(
     t: pa.Table,
+    utility: npt.NDArray[np.float32],
     net1: fit.Net1,
     *,
     view: nn.Module | None,
@@ -234,18 +265,14 @@ def _trajectory(
     spec: PPOSpec,
     group: tuple[int, int],
 ) -> Trajectory | None:
-    order = np.argsort(np.asarray(t["step"].to_numpy(zero_copy_only=False)))
-    t = t.take(pa.array(order, pa.int64()))
+    """One flow's decisions; ``t`` is its steps in step order and
+    ``utility`` the reward of each of those steps."""
     n = t.num_rows
     flat = cast("pa.FixedSizeListArray[Any, Any]", t["obs"].combine_chunks()).flatten()
     obs = np.asarray(flat, np.float32).reshape(n, OBS_DIM)
     cwnd = np.asarray(t["cwnd"].to_numpy(zero_copy_only=False), np.float32)
     t_s = np.asarray(t["t_ns"].to_numpy(zero_copy_only=False), np.float64) / 1e9
-    labels = {
-        c.removeprefix("label_"): np.asarray(t[c].to_numpy(zero_copy_only=False), np.float32)
-        for c in t.column_names
-        if c.startswith("label_")
-    }
+    labels = _labels(t)
     d = decision_steps(obs[:, OBS_MIN_RTT])
     d = d[d + 1 < n]  # a decision's realized window is the next step's
     if d.size < 2:
@@ -257,7 +284,7 @@ def _trajectory(
     prev = np.concatenate([[0.0], u[:-1]]).astype(np.float32)
     # Each step's reward weighs 1 - exp(-10 ms / tau), so a return is a
     # discounted mean utility, of order 1 whatever tau is.
-    r = np.nan_to_num(score.utility(labels, _REWARD)) * -math.expm1(-_STEP_S / spec.tau_s)
+    r = utility * -math.expm1(-_STEP_S / spec.tau_s)
     ends = np.append(d[1:], n - 1)
     cum = np.concatenate([[0.0], np.cumsum(r)])
     reward = (cum[ends + 1] - cum[d + 1]).astype(np.float32)  # steps d + 1 .. next decision
@@ -279,6 +306,7 @@ def _trajectories(
     """Every agent flow of every ok rollout episode."""
     view, target = _views(net1, spec)
     out: list[Trajectory] = []
+    flows_of: dict[str, list[tuple[int, pa.Table]]] = {}
     for shard in sorted(rollouts.glob("shards/*")):
         eps = pq.read_table(shard / "episodes.parquet", columns=["episode_id", "status"])
         ok = {
@@ -295,16 +323,18 @@ def _trajectories(
             for e in np.unique(eids):
                 for f in np.unique(flows[eids == e]):
                     rows = np.flatnonzero((eids == e) & (flows == f))
-                    tr = _trajectory(
-                        t.take(pa.array(rows, pa.int64())),
-                        net1,
-                        view=view,
-                        target=target,
-                        spec=spec,
-                        group=(groups[e], int(f)),
+                    flows_of.setdefault(str(e), []).append(
+                        (int(f), _by_step(t.take(pa.array(rows, pa.int64()))))
                     )
-                    if tr is not None:
-                        out.append(tr)
+    # Only agent flows record steps, so an episode with several is copies.
+    for e, fl in flows_of.items():
+        utils = [np.nan_to_num(score.utility(_labels(t), _REWARD)) for _, t in fl]
+        if spec.copies_reward == "team" and len(fl) > 1:
+            utils = team_utility(utils)
+        for (f, t), u in zip(fl, utils, strict=True):
+            tr = _trajectory(t, u, net1, view=view, target=target, spec=spec, group=(groups[e], f))
+            if tr is not None:
+                out.append(tr)
     return out
 
 

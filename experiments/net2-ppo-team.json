@@ -1,0 +1,18 @@
+{
+  "title": "PPO net2 on net1 v5 with the team reward for copies, three seeds",
+  "description": "The PPO gate (exp-net2-ppo-gate-99) failed partly on copies: its candidates were worse than the fixed rule as 2 and 4 copies (-0.07 and -0.18), while their training gave each copy its own utility. Copies are scored all running the policy, so a copy that learns from its own utility gains by pushing harder than the others, which lowers what they all get. Here, in an episode where several flows run the policy, each learns from their mean utility at each step (copies_reward team); a flow facing Cubic or BBR still learns from its own. Settings from the search (exp-net2-ppo-search1-90, -search2-96): tau = 1 s, sigma = 0.05, K = 4, the competition mix (competition on 80% of the links, split evenly over Cubic, BBR and copies), now with 2 or 4 copies; learning rate 3e-4 or 1e-3, each on seeds 1, 2 and 3, 60 iterations, evaluated noise-free every 20 on the validation links' new-conditions family. The policies go to the same gate (experiments/net2_ppo_gate_report.py, campaign seed 21). Validation links only.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v5": "release:exp-net1v4-recheck-79",
+    "models": "release:model-net1v3"
+  },
+  "prepare": "N=\"$IN/v5/net1-d0.05-w512-s0/net1.pt\"; uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$N\" --models \"$IN/models\" --u 0.25",
+  "matrix": {
+    "lr": [0.0003, 0.001],
+    "seed": [1, 2, 3]
+  },
+  "run": "S=\"$OUT/spec-team-lr$LR-s$SEED.json\"; jq --argjson lr \"$LR\" --argjson seed \"$SEED\" '.tau_s = 1 | .noise_sigma = 0.05 | .lr = $lr | .group = 4 | .links_per_iteration = 8 | .compete = 0.8 | .copies = [2, 4] | .copies_reward = \"team\" | .seed = $seed | .iterations = 60 | .eval_every = 20' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/ppo-team-lr$LR-s$SEED\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ppo-*",
+  "timeout_minutes": 360
+}
