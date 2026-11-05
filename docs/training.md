@@ -2249,18 +2249,21 @@ link, mean over three seeds, minus the rule, with 95% intervals over the
   held-decision graph kept a decision's window until the next decision,
   freezing the BDP that window was computed from; the rule re-reads its
   belief every step.
-  - As 2 and 4 copies on the gates' validation links (a local check), the
-    untrained clone of the rule lost 0.121 (-0.284 to +0.032) to the rule
-    itself, and queued 6 ms more with 2 copies.
+  - Release
+    [`exp-net2-clone-copies-107`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-clone-copies-107)
+    runs the untrained clone of the rule as 2 and 4 copies on the gates'
+    validation links (campaign seed 21), with no failed episode.
+  - Against BBRv3, the rule's copies score -0.062. The held-window clone
+    scores -0.194, 0.132 below the rule on the same links (0.123 with 2
+    copies, 0.141 with 4). With 2 copies it queues 5.6 ms more at the
+    same utilization.
   - Since `85de8d0` a decision holds its u, and each step aims the window
-    at that step's believed BDP. The clone then matches the rule as copies
-    (+0.009, -0.063 to +0.078).
-  - The copies results of both gates above are therefore about 0.12 worse
+    at that step's believed BDP. That clone scores -0.065, within 0.003
+    of the rule.
+  - The copies results of both gates above are therefore about 0.13 worse
     than the learning alone made them.
-  - `experiments/net2-clone-copies.json` repeats the check as a release
-    (UNRUN at the time of writing).
-  - Round 3 (`experiments/net2-r3-ppo.json`, `net2-r3-td3.json`, UNRUN)
-    retrains on the fixed graph.
+  - Round 3 (`experiments/net2-r3-ppo.json`, `net2-r3-td3.json`, UNRUN at
+    the time of writing) retrains on the fixed graph.
 
 ### Inference cost per decision
 
