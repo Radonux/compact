@@ -1817,6 +1817,19 @@ queue and free buffer.
   patches hurt: busy fraction from the truth drops the cloned policy to
   0.144 utilization, and with the queue group from the truth TD3+BC's
   drop fraction rises from 0 to 0.385.
+- The deployed rounding is not the fault. expliCCit's deployed
+  controller rounds net1's first six LCFs to integers, busy fraction
+  among them, a share it so turns into 0 or 1. Release
+  [`exp-expliccit-case-91`](https://github.com/Radonux/palaestra/releases/tag/exp-expliccit-case-91)
+  runs the released policy without that rounding: with no LCF rounded it
+  uses 0.416 of expliCCit's link (0.299 to 0.498 on the nine), with every
+  rounding but busy fraction's 0.300 (median 0.507 over the nine, 0.300
+  to 0.540), against 0.483 as deployed. Taking busy fraction from the
+  truth, still rounded, is what repairs it. The same release repeats
+  release 42's rows but two (busy fraction from the truth 0.708 against
+  0.707, the group of four 0.713 against 0.707): a true busy fraction of
+  0.505 sits at the rounding's edge, where the rebuilt graph's float
+  order can flip it.
 
 ### Alarms that need no ground truth (R2)
 
