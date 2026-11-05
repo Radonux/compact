@@ -15,3 +15,4 @@ Module.symvers
 .hypothesis/
 /.checkpatch-camelcase.git.
 /tools/policy-bench/target/
+/out/
