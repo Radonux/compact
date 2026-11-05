@@ -1,0 +1,13 @@
+[package]
+name = "policy-bench"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Time a sage-v1 ONNX policy's inference per decision with the guest's tract, outside the guest"
+
+[dependencies]
+tract-onnx = "0.22.5"
+
+[profile.release]
+codegen-units = 1
+lto = true

@@ -1853,6 +1853,28 @@ So alarms of this kind cover beliefs that the flow's own measurements can
 refute, and not beliefs that those measurements are consistent with; the
 latter would need the flow to probe, which is outside this work.
 
+### Inference cost per decision
+
+Measured outside the guest with the guest's own runtime and loading steps
+(`tools/policy-bench`: tract 0.22.5, inputs by name, the graph optimized
+once and then run once per decision with its state carried), on one core
+of the CI-like container (an Intel Xeon, 4 vCPUs, shared, so times are
+noisy), 20,000 calls after 1,000 warm-up calls, 2026-11-05:
+
+| Policy | median | 90th percentile | 99th percentile |
+|---|---|---|---|
+| fixed rule on net1 v5 (`model-net1v5`, `rule-u0.25.onnx`) | 1.07 ms | 1.18 ms | 1.29 ms |
+| share rule on net1 v5 (`share-u0.25-k0.5.onnx`) | 1.23 ms | 1.70 ms | 2.68 ms |
+| Sage's released policy (`exp-sage-model-24`) | 0.84 ms | 0.92 ms | 0.97 ms |
+| recurrent net2 holding its decision, on net1 v4 (GRU of 64) | 1.15 ms | 1.23 ms | 1.33 ms |
+
+net1's three members (width 512) dominate: the split costs about 0.2 ms
+more than Sage per decision, about 1.1 ms in all, a tenth of a core at one
+decision per 10 ms step. In the guest, under `time-travel=inf-cpu`,
+inference costs no virtual time, so none of this shows in the episodes'
+results (`docs/validation.md`). Reproduce with `cargo run --release
+--manifest-path tools/policy-bench/Cargo.toml -- POLICY.onnx`.
+
 ## 8. Next
 
 "net2 on the fixed net1" is the first run of the design in

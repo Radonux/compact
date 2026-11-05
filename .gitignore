@@ -14,3 +14,4 @@ Module.symvers
 .ruff_cache/
 .hypothesis/
 /.checkpatch-camelcase.git.
+/tools/policy-bench/target/
