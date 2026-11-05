@@ -1,0 +1,18 @@
+{
+  "title": "PPO net2 on net1 v5: the stage-2 candidates over three training seeds",
+  "description": "Stage 2 of the PPO net2 search (exp-net2-ppo-search2-96) ended with its three best cells within 0.001 of each other on their last evaluation (+0.017, +0.016, +0.016 against the rule on the validation links' new-conditions family), far inside that evaluation's noise, all on the competition mix (competition on 80% of the links, split evenly over Cubic, BBR and 2 copies) at tau = 1 s and sigma = 0.05: learning rate 1e-4 with K = 4, 1e-3 with K = 2, and 1e-3 with K = 4. Instead of breaking the tie on that gap, each is trained again here on three new seeds (1, 2, 3; stage 2 used seed 0), 40 iterations each, so the confirmation does not reuse the data that selected them. The nine policies are then scored on every validation family and as copies, paired by link with the fixed rule (experiments/net2-ppo-gate.json); the candidate with the highest mean over its seeds is kept and decides the gate. Validation links only.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v5": "release:exp-net1v4-recheck-79",
+    "models": "release:model-net1v3"
+  },
+  "prepare": "N=\"$IN/v5/net1-d0.05-w512-s0/net1.pt\"; uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$N\" --models \"$IN/models\" --u 0.25",
+  "matrix": {
+    "cand": ["lr0.0001-k4", "lr0.001-k2", "lr0.001-k4"],
+    "seed": [1, 2, 3]
+  },
+  "run": "LR=${CAND%-k*}; LR=${LR#lr}; K=${CAND#*-k}; S=\"$OUT/spec-$CAND-s$SEED.json\"; jq --argjson lr \"$LR\" --argjson k \"$K\" --argjson seed \"$SEED\" '.tau_s = 1 | .noise_sigma = 0.05 | .lr = $lr | .group = $k | .links_per_iteration = (32 / $k) | .compete = 0.8 | .copies = [2] | .seed = $seed | .iterations = 40 | .eval_every = 10' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/ppo-$CAND-s$SEED\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ppo-*",
+  "timeout_minutes": 360
+}
