@@ -2452,6 +2452,24 @@ link, mean over three seeds, minus the rule, with 95% intervals over the
     0.16. Against the share rule at gain 0.5 (run in the same releases),
     they keep about three quarters of its gain with Cubic from the start
     and pay about a quarter of its copies loss.
+- **An ensemble of the three does not help (round 5e).** The sharpened
+  gain-0.5 students agreed where a stock TCP flow was present (p 0.73 to
+  0.83 in training) and differed where none was (0.13 to 0.47), so one
+  policy acting on their mean belief (`recurrent.EnsembleActor`,
+  `experiments/gate_ensemble_export.py`, t = 0.5) should cross t less
+  often among copies. Its gate
+  ([`exp-net2-gate-r5e-121`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r5e-121);
+  one candidate; no episode failed) says no. Copies -0.112 (-0.233 to
+  -0.014), as the members alone. Cubic from the start +0.088 (+0.037 to
+  +0.143). Competition +0.021 (-0.032 to +0.070), no longer above 0.
+  - **Where its copies lose.** In its copies episodes, set against the
+    fixed rule's on each link, the median window is the rule's (log2
+    difference +0.01). Seven of 42 episodes are more than 0.1 above it.
+    The largest is 2 copies on a buffer of 600 packets at a 13 ms one-way
+    delay: +0.58, with 18 ms more delay.
+  - The loss is a few links where copies push one another. One copy's
+    push deepens the queue, which then looks like a buffer-filling flow
+    to the others.
 - **Round 6** (`experiments/net2-r6-gate.json`, UNRUN at the time of
   writing) aims at that separation. It keeps teacher gain 0.5 and t =
   0.5, now also in training, so DAgger's data come from the policy that
