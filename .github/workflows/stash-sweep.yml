@@ -1,0 +1,39 @@
+name: stash-sweep
+
+# Deletes stash/* branches left behind by stash.yml, whose release already
+# holds every file under stash/ at the same size. stash.yml deletes its own
+# branch once the release is made; a branch survives only when a ruleset
+# kept that deletion from happening. Run by hand once such a ruleset allows
+# deleting stash branches.
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  sweep:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$REPO/git/matching-refs/heads/stash/" -q '.[].ref' | while read -r ref; do
+            branch="${ref#refs/heads/}"
+            tag="${branch#stash/}"
+            if ! have="$(gh api "repos/$REPO/releases/tags/$tag" -q '.assets[] | "\(.name) \(.size)"' | sort)"; then
+              echo "::warning::$branch: no release $tag; kept"
+              continue
+            fi
+            want="$(gh api "repos/$REPO/contents/stash?ref=$branch" -q '.[] | "\(.name) \(.size)"' | sort)"
+            if [[ -n "$want" && "$want" == "$have" ]]; then
+              gh api -X DELETE "repos/$REPO/git/refs/heads/$branch"
+              echo "deleted $branch (release $tag holds its $(wc -l <<< "$want") files)"
+            else
+              echo "::warning::$branch: release $tag does not hold the same files; kept"
+            fi
+          done
