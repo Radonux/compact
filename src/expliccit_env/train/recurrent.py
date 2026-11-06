@@ -23,7 +23,7 @@ u the same way, so nothing beyond the steps table is needed.
 from __future__ import annotations
 
 import math
-from typing import Final, cast
+from typing import Final, Protocol, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -123,6 +123,40 @@ class RecurrentActor(nn.Module):
         return torch.tanh(self.pre(x))
 
 
+class HeldActor(Protocol):
+    """What HeldPolicyGraph needs of its actor: one GRU step and its output."""
+
+    hidden: int
+
+    def cell(self, x: torch.Tensor, h: torch.Tensor) -> torch.Tensor: ...
+
+    def mean(self, h: torch.Tensor) -> torch.Tensor: ...
+
+
+class EnsembleActor(nn.Module):
+    """Several RecurrentActors on the same inputs, each with its own part of
+    the hidden state; the output is the mean of theirs (for a "gate"
+    student, the mean of their beliefs p, since p = (a + 1) / 2)."""
+
+    def __init__(self, members: list[RecurrentActor]) -> None:
+        super().__init__()
+        if not members or any(not m.memory for m in members):
+            raise ValueError("an ensemble needs one or more actors with memory")
+        self.members = nn.ModuleList(members)
+        self.sizes = [m.hidden for m in members]
+        self.hidden = sum(self.sizes)
+
+    def _parts(self, h: torch.Tensor) -> list[tuple[RecurrentActor, torch.Tensor]]:
+        hs = torch.split(h, self.sizes, dim=-1)
+        return [(cast(RecurrentActor, m), hi) for m, hi in zip(self.members, hs, strict=True)]
+
+    def cell(self, x: torch.Tensor, h: torch.Tensor) -> torch.Tensor:
+        return torch.cat([m.cell(x, hi) for m, hi in self._parts(h)], dim=-1)
+
+    def mean(self, h: torch.Tensor) -> torch.Tensor:
+        return torch.stack([m.mean(hi) for m, hi in self._parts(h)]).mean(dim=0)
+
+
 class HeldPolicyGraph(PolicyGraph):
     """PolicyGraph with a RecurrentActor that decides once per block.
 
@@ -141,7 +175,7 @@ class HeldPolicyGraph(PolicyGraph):
     def __init__(
         self,
         base: PolicyGraph,
-        actor: RecurrentActor,
+        actor: RecurrentActor | EnsembleActor,
         offset: nn.Module | None = None,
         gate: nn.Module | None = None,
     ) -> None:
@@ -158,8 +192,8 @@ class HeldPolicyGraph(PolicyGraph):
         self.offset, self.gate = offset, gate
 
     @property
-    def actor(self) -> RecurrentActor:
-        return cast(RecurrentActor, self.net2)
+    def actor(self) -> HeldActor:
+        return cast(HeldActor, self.net2)
 
     @property
     def state_dim(self) -> int:

@@ -64,6 +64,7 @@ from expliccit_env.train.export import to_onnx
 from expliccit_env.train.online import _arms, _run  # pyright: ignore[reportPrivateUsage]
 from expliccit_env.train.recurrent import (
     OBS_MIN_RTT,
+    EnsembleActor,
     HeldPolicyGraph,
     RecurrentActor,
     decision_steps,
@@ -872,7 +873,9 @@ def _make_learner(
     return learner
 
 
-def policy_graph(net1: fit.Net1, actor: RecurrentActor, spec: PPOSpec) -> HeldPolicyGraph:
+def policy_graph(
+    net1: fit.Net1, actor: RecurrentActor | EnsembleActor, spec: PPOSpec
+) -> HeldPolicyGraph:
     base = fit.policy_graph(
         net1,
         actor,

@@ -148,6 +148,50 @@ def test_a_gate_graph_moves_u_toward_the_share_rule_by_its_belief(
             cwnd = cwnd * 2 ** float(a)
 
 
+def test_an_ensemble_gate_graph_acts_on_its_members_mean_belief() -> None:
+    from expliccit_env.train.recurrent import EnsembleActor  # noqa: PLC0415
+    from expliccit_env.train.share import ACTION_MAX, ShareRule  # noqa: PLC0415
+
+    steps, net1 = _bdp_net1()
+    spec = ppo.PPOSpec(
+        paths_from=Path("unused"),
+        net1_from=Path("unused"),
+        u_rule=0.25,
+        input_bins=4,
+        hidden=8,
+        algo="dagger",
+        student="gate",
+        share_k=2.0,
+        gate_threshold=0.5,
+    )
+    members = []
+    beliefs = (0.2, 0.9, 0.97)
+    acted = (np.mean(beliefs) - 0.5) / 0.5  # the mean belief, past t = 0.5
+    for p in beliefs:
+        actor = RecurrentActor(ppo._width(net1, spec), spec.hidden)  # pyright: ignore[reportPrivateUsage]
+        actor.clone_rule(2 * p - 1, 1.0)
+        members.append(actor)
+    graph = ppo.policy_graph(net1, EnsembleActor(members), spec)
+    assert graph.state_dim == 3 * 8 + 5
+    view = fit._view(net1, "means", None)  # pyright: ignore[reportPrivateUsage]
+    assert view is not None
+    rule = ShareRule(net1, 0.25, 2.0)
+    obs = steps.obs[steps.episode == 0][:40].copy()
+    obs[:, OBS_MIN_RTT] = 30.0
+    state, cwnd = torch.zeros(1, graph.state_dim), 10.0
+    with torch.no_grad():
+        for row in obs:
+            o = torch.from_numpy(row[None, :])
+            a, state = graph.step(o, state, cwnd=torch.tensor([[cwnd]]))
+            assert state is not None
+            z = graph.net1(graph.scaler(o))  # pyright: ignore[reportOptionalCall]
+            if state[0, -1] > 0.5:  # a decision
+                share = float(rule(view(z))) * ACTION_MAX  # pyright: ignore[reportOptionalCall]
+                want = float(graph.target(z)) + 0.25 + acted * (share - 0.25)  # pyright: ignore[reportOptionalCall]
+                assert float(a) + np.log2(cwnd) == pytest.approx(want, abs=1e-4)
+            cwnd = cwnd * 2 ** float(a)
+
+
 def test_cloned_actor_answers_the_rule_on_any_input() -> None:
     actor = RecurrentActor(12, 8)
     actor.clone_rule(-0.4, 3.0)
