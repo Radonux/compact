@@ -156,6 +156,9 @@ class PPOSpec(BaseModel):
     # p' = clamp((p - t) / (1 - t), 0, 1). 0 in training; set at export, as
     # copies lose more per unit of push than a flow against Cubic gains.
     gate_threshold: Annotated[float, Field(ge=0, lt=1)] = 0.0
+    # Start the actor from a saved state (an earlier run's actor.pt) instead
+    # of the rule; its width and hidden size must match this spec's.
+    init_actor: Path | None = None
     # What the actor's output is added to. "fixed": nothing; the actor starts
     # as the fixed rule, u_rule everywhere. "share": the share rule on net1's
     # mean beliefs, u = u_rule + share_k * busy * max(0, 1 - share)
@@ -856,6 +859,19 @@ def _field(x: F32 | None) -> F32:
 _LEARNERS: Final = {"ppo": _Learner, "td3bc": _TD3Learner, "dagger": _DAggerLearner}
 
 
+def _make_learner(
+    spec: PPOSpec, width: int, critic_width: int
+) -> _Learner | _TD3Learner | _DAggerLearner:
+    """The spec's learner, its actor loaded from spec.init_actor if set."""
+    learner = _LEARNERS[spec.algo](width, critic_width, spec)
+    if spec.init_actor is not None:
+        state = torch.load(spec.init_actor, weights_only=True)
+        learner.actor.load_state_dict(state)
+        if isinstance(learner, _TD3Learner):
+            learner.actor_target.load_state_dict(state)
+    return learner
+
+
 def policy_graph(net1: fit.Net1, actor: RecurrentActor, spec: PPOSpec) -> HeldPolicyGraph:
     base = fit.policy_graph(
         net1,
@@ -941,7 +957,7 @@ def run_ppo(
         + (len(net1.lcfs) if spec.critic_truth else 0)
         + (len(_RIVALS) if spec.critic_flows else 0)
     )
-    learner = _LEARNERS[spec.algo](width, critic_width, spec)
+    learner = _make_learner(spec, width, critic_width)
     train_arms = _arms(spec.paths_from, rng)
     eval_arms = _arms(spec.eval_from, rng) if spec.eval_from else []
 

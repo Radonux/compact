@@ -301,6 +301,25 @@ def test_a_gate_student_starts_near_the_rule_and_learns_which_flows_share() -> N
     assert logs["u_where_push_before"] > 0.6 and logs["u_where_rule_before"] < 0.4
 
 
+@pytest.mark.parametrize("algo", ["ppo", "td3bc", "dagger"])
+def test_a_learner_can_start_from_a_saved_actor(tmp_path: Path, algo: str) -> None:
+    saved = RecurrentActor(5, 8)
+    saved.clone_rule(0.6, 3.0)
+    torch.save(saved.state_dict(), tmp_path / "actor.pt")
+    spec = ppo.PPOSpec(
+        paths_from=Path("x"),
+        net1_from=Path("x"),
+        hidden=8,
+        algo=algo,  # pyright: ignore[reportArgumentType]
+        init_actor=tmp_path / "actor.pt",
+    )
+    learner = ppo._make_learner(spec, 5, 4)  # pyright: ignore[reportPrivateUsage]
+    x = torch.randn(2, 7, 6)
+    assert torch.allclose(learner.actor.sequence(x), saved.sequence(x))
+    if isinstance(learner, ppo._TD3Learner):  # pyright: ignore[reportPrivateUsage]
+        assert torch.allclose(learner.actor_target.sequence(x), saved.sequence(x))
+
+
 def test_a_gate_student_is_learned_by_dagger_only() -> None:
     with pytest.raises(ValueError, match="gate"):
         ppo.PPOSpec(paths_from=Path("x"), net1_from=Path("x"), student="gate")
