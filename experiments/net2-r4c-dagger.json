@@ -1,0 +1,25 @@
+{
+  "title": "Round 4c: DAgger regularized by more links and fewer passes, three seeds",
+  "description": "Round 4 (exp-net2-r4-dagger-110, DAgger from a teacher that is the share rule while a stock TCP flow shares the link and the fixed rule otherwise) moved the student off the rule (spread of u across states 0.16 to 0.48, against 0.02 to 0.04 for every PPO and TD3+BC run), but it overfit: its imitation loss on the replay was 0.001 to 0.016 while its mean gap to the teacher on each iteration's new rollouts was 0.15 to 0.44, and at the last iteration three of six cells set a higher u where the teacher holds the rule than where it pushes. Each iteration made about 12 passes over a replay of 8 iterations drawn from only 8 links each (64 links). Here the same 32 rollouts per iteration cover 32 links (K = 1: the group baseline is PPO's and DAgger needs none), the replay keeps 16 iterations (512 links), and each iteration makes about one pass over it (50 batches of 16 trajectories). Student GRU of 64 as in round 4; teacher gain k = 0.5 (the share rule's validation choice) or 1; learning rate 1e-3, the competition mix, sigma = 0.05, seeds 1, 2 and 3, 60 iterations. Round 4b (a GRU of 128 on round 4's data regime) was cancelled after 1.5 hours for this: a larger student on the same data would overfit more. The policies go to their own gate. Validation links only.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v5": "release:exp-net1v4-recheck-79",
+    "models": "release:model-net1v3"
+  },
+  "matrix": {
+    "k": [
+      0.5,
+      1
+    ],
+    "seed": [
+      1,
+      2,
+      3
+    ]
+  },
+  "prepare": "N=\"$IN/v5/net1-d0.05-w512-s0/net1.pt\"; uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$N\" --models \"$IN/models\" --u 0.25",
+  "run": "S=\"$OUT/spec-r4c-k$K-s$SEED.json\"; jq --argjson k \"$K\" --argjson seed \"$SEED\" '.algo = \"dagger\" | .base = \"fixed\" | .share_k = $k | .critic_warmup = 0 | .lr = 0.001 | .updates_per_iteration = 50 | .replay_iterations = 16 | .tau_s = 1 | .noise_sigma = 0.05 | .group = 1 | .links_per_iteration = 32 | .compete = 0.8 | .copies = [2, 4] | .seed = $seed | .iterations = 60 | .eval_every = 20' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/ppo-r4c-k$K-s$SEED\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ppo-*",
+  "timeout_minutes": 360
+}
