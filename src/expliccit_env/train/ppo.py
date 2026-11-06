@@ -152,6 +152,10 @@ class PPOSpec(BaseModel):
     # its u is u_rule + p (share rule's u - u_rule), the teacher's u with
     # its switch replaced by the student's belief. It starts at p = 0.02.
     student: Literal["u", "gate"] = "u"
+    # A "gate" student's policy pushes only past this belief: it acts on
+    # p' = clamp((p - t) / (1 - t), 0, 1). 0 in training; set at export, as
+    # copies lose more per unit of push than a flow against Cubic gains.
+    gate_threshold: Annotated[float, Field(ge=0, lt=1)] = 0.0
     # What the actor's output is added to. "fixed": nothing; the actor starts
     # as the fixed rule, u_rule everywhere. "share": the share rule on net1's
     # mean beliefs, u = u_rule + share_k * busy * max(0, 1 - share)
@@ -319,15 +323,18 @@ def gated_u(p: torch.Tensor, share: torch.Tensor, u_rule: float) -> torch.Tensor
 
 class _ShareGate(nn.Module):
     """net1's output and the actor's output a in [-1, 1] -> a "gate"
-    student's u, with p = (a + 1) / 2."""
+    student's u, with p = (a + 1) / 2 past spec.gate_threshold."""
 
     def __init__(self, net1: fit.Net1, spec: PPOSpec) -> None:
         super().__init__()
         self.share = _ShareOffset(net1, spec)
-        self.u_rule = spec.u_rule
+        self.u_rule, self.t = spec.u_rule, spec.gate_threshold
 
     def forward(self, z: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
-        return gated_u((a + 1) / 2, self.share(z), self.u_rule)
+        p = (a + 1) / 2
+        if self.t > 0:
+            p = torch.clamp((p - self.t) / (1 - self.t), 0.0, 1.0)
+        return gated_u(p, self.share(z), self.u_rule)
 
 
 def _gate(net1: fit.Net1, spec: PPOSpec) -> nn.Module | None:
