@@ -1,6 +1,6 @@
 """Launch one guest: a UML kernel in time-travel=inf-cpu mode.
 
-The guest has no wall-clock bound of its own (docs/m0-report.md, F1), so
+The guest has no wall-clock bound of its own (docs/validation.md, F1), so
 every run gets a timeout and the whole UML process group is killed on
 expiry. UML keeps guest memory in an unlinked file under ``TMPDIR``.
 """

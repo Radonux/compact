@@ -114,7 +114,7 @@ def test_ack_delay_line_is_exact(build: UmlBuild, tmp_path: Path) -> None:
     assert np.array_equal(seg["tcp_ack"], obs["ack_seq"])
     lag = obs["t_ns"].astype(np.int64) - seg["t_ns"].astype(np.int64) - delay_ms * 1_000_000
     # UML's clock has 256 ns ticks and process-context clock reads advance it
-    # (docs/m0-report.md, F4); the link model itself uses exact instants.
+    # (docs/validation.md, F4); the link model itself uses exact instants.
     assert lag.min() >= 0 and lag.max() < 2000
 
 

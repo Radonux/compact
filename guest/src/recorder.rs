@@ -4,7 +4,7 @@
 //! because it does not trust guest output.
 //!
 //! The ring's read() never blocks, so this thread sleeps between drains:
-//! spinning would distort UML virtual time (docs/m0-report.md, F2). The
+//! spinning would distort UML virtual time (docs/validation.md, F2). The
 //! step loop also drains, on demand, through a `Truth` handle: it needs every
 //! link record up to its own instant to compute the path's true state.
 

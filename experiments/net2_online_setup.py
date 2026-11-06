@@ -22,7 +22,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 # TD3+BC with 40-step returns: with one-step returns, online TD3+BC on net1
-# v3 drifted below its start (docs/training.md). alpha and the exploration
+# v3 drifted below its start (docs/results.md). alpha and the exploration
 # width are each cell's.
 NET2 = {
     "algo": "td3bc",

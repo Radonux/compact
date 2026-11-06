@@ -73,7 +73,7 @@ class Net1Spec(_Frozen):
     # so outliers (srtt up to 5 s in expliCCit's data) do not squeeze the rest.
     scaling: Literal["robust", "minmax"] = "robust"
     lcfs: Annotated[tuple[Lcf, ...], Field(min_length=1)] = EXPLICCIT_LCFS
-    # Report an interval per LCF (docs/methodology.md): centre, lower and
+    # Report an interval per LCF (docs/training.md): centre, lower and
     # upper bound with the given held-out coverage. net2 then sees all three.
     intervals: bool = False
     coverage: Annotated[float, Field(gt=0, lt=1)] = 0.9
