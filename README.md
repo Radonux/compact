@@ -312,6 +312,9 @@ utility (log of the throughput share, minus delay and loss penalties):
   the rule against Cubic and in the competition conditions and pays a
   third of the share rule's copies loss, but still loses 0.29 as copies.
   So net2 can partly infer the other flows from net1's output alone.
+  A student that learns only that inference, with its switch sharpened,
+  meets every condition but copies and loses 0.10 there
+  (`exp-net2-gate-r5t-117`); round 6 trains it further.
 - **Means against distributions.** On the validation links, a net2 that
   sees only the means of net1's distributions (arm A2) does at least as
   well as one that sees the distributions (A3). So far net2 gets no

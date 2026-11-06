@@ -369,7 +369,14 @@ design above, on links neither network has seen, in log utility:
   copies. Against the share rule at the teacher's gain it keeps 62% to
   77% of the gain against Cubic and pays 31% to 34% of the copies loss:
   the first evidence that net2 can infer the other flows, in part, from
-  net1's output. A regularized round 4c is UNRUN at the time of writing.
+  net1's output. A student that learns only that switch, the
+  probability of a stock TCP flow, and pushes only past a belief of 0.5
+  (`exp-net2-gate-r5t-117`) beats the rule with Cubic from the start
+  (+0.096, 0.052 to 0.143) and in the competition conditions (+0.036,
+  0.002 to 0.068) and loses 0.104 (0.048 to 0.171) as copies, a third
+  of round 4's loss; its seeds' copies losses follow how well each told
+  the cases apart in training. Round 6 trains it further (UNRUN at the
+  time of writing).
 - net2 setting the window to a fixed multiple of net1's believed BDP
   beats every kernel controller on average: by 0.079 (95% interval 0.032
   to 0.123) over BBRv3, the best of them. The average is over three

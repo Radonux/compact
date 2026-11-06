@@ -2390,15 +2390,60 @@ link, mean over three seeds, minus the rule, with 95% intervals over the
     and about one pass over it per iteration, at teacher gain 0.5 or 1.
     A round 4b with a larger student on round 4's data was cancelled
     after 1.5 hours for it.
-  - **Round 5** (`experiments/net2-r5-gate.json`, UNRUN at the time of
-    writing) changes what the student learns. A student that regresses on
-    the teacher's u learns little about the teacher's switch wherever the
-    share rule's push is small. This one learns only the switch: the
-    probability p that a stock TCP flow shares the link, by cross-entropy
-    on that label at every decision (`student` `gate`). It sets u = u_rule
-    + p (share rule's u - u_rule), starting at p = 0.02. It uses round
-    4c's data regime, so rounds 4c and 5 differ only in what the student
-    learns.
+- **Round 5 learns only the switch, and the copies loss falls to a
+  third.** A student that regresses on the teacher's u learns little
+  about the teacher's switch wherever the share rule's push is small.
+  Round 5's student (`student` `gate`) learns only the switch: the
+  probability p that a stock TCP flow shares the link, by cross-entropy
+  on that label at every decision. It sets u = u_rule + p (share rule's
+  u - u_rule), starting at p = 0.02, on round 4c's data regime.
+  - **Training**
+    ([`exp-net2-r5-gate-115`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-r5-gate-115),
+    teacher gain 0.5 or 1, seeds 1 to 3, 60 iterations). On each
+    iteration's new rollouts at the last iteration, every cell's p was
+    higher where a stock TCP flow was active (0.51 to 0.87) than
+    elsewhere (0.13 to 0.47), and the gap to the teacher's u was 0.03 to
+    0.12.
+  - **A sharpened switch (round 5t).** A copy that pushes loses more per
+    unit of push than a flow against Cubic gains, so under an uncertain
+    p the best push is below p. The same students, exported with
+    `gate_threshold` t = 0.5 (`experiments/gate_threshold_export.py`),
+    act on p' = clamp((p - t) / (1 - t), 0, 1). t was fixed before any
+    round-5 result, and these variants had their own gate, since the
+    gate keeps the best five-family mean, which leaves copies out. A
+    local export at t = 0 matched the trained policy exactly under
+    onnxruntime.
+  - **The gates**
+    ([`exp-net2-gate-r5-116`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r5-116)
+    and
+    [`exp-net2-gate-r5t-117`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r5t-117);
+    policies in releases `model-net2-r5-cands` and `model-net2-r5t-cands`;
+    same rule, campaign seed 21; no episode failed). Minus the fixed rule:
+
+    | Candidate | five-family mean | cubic-first | new, competition | copies |
+    |---|---|---|---|---|
+    | gain 0.5 | +0.025 | +0.095 (+0.044 to +0.148) | +0.043 (-0.003 to +0.085) | -0.196 (-0.276 to -0.128) |
+    | gain 1 (kept) | +0.029 | +0.146 (+0.064 to +0.229) | +0.060 (+0.011 to +0.105) | -0.378 (-0.510 to -0.261) |
+    | gain 0.5, t = 0.5 | +0.025 | +0.096 (+0.052 to +0.143) | +0.036 (+0.002 to +0.068) | -0.104 (-0.171 to -0.048) |
+    | gain 1, t = 0.5 (kept) | +0.030 | +0.119 (+0.034 to +0.204) | +0.068 (+0.009 to +0.117) | -0.329 (-0.470 to -0.212) |
+
+  - **Verdict.** Neither gate passes: each keeps the gain-1 candidate,
+    which loses 0.33 to 0.38 as copies. The gain-0.5 students sharpened
+    at t = 0.5 meet every other condition and lose 0.104 as copies, a
+    third of round 4's 0.291.
+  - **The copies loss follows how well a seed tells the cases apart.**
+    Of the sharpened gain-0.5 students, the seed whose p in training was
+    0.78 with a stock TCP flow and 0.13 elsewhere loses 0.02 to the rule
+    as copies; the two whose p elsewhere was 0.44 and 0.47 lose 0.13 to
+    0.16. Against the share rule at gain 0.5 (run in the same releases),
+    they keep about three quarters of its gain with Cubic from the start
+    and pay about a quarter of its copies loss.
+- **Round 6** (`experiments/net2-r6-gate.json`, UNRUN at the time of
+  writing) aims at that separation. It keeps teacher gain 0.5 and t =
+  0.5, now also in training, so DAgger's data come from the policy that
+  would be deployed. It continues each round-5 student for 60 more
+  iterations at learning rate 3e-4 (`init_actor`, release
+  `model-net2-r5-actors`), and trains new students from the rule.
 
 ### Inference cost per decision
 
