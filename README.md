@@ -302,9 +302,13 @@ utility (log of the throughput share, minus delay and loss penalties):
   trained on three new seeds, it stays within 0.004 of the fixed rule and
   does not beat it against competition, so it failed its gate
   (`exp-net2-ppo-gate-99`). It learned an offset of the multiple, not a
-  way to tell its own copies from a buffer-filling competitor. A second
-  round, with a team reward for copies, failed too
-  (`exp-net2-gate-team-104`).
+  way to tell its own copies from a buffer-filling competitor. Later
+  rounds failed too: a team reward for copies (`exp-net2-gate-team-104`),
+  TD3+BC (`exp-net2-gate-td3-108`), and the same learners on a corrected
+  graph or as a residual on the share rule (`exp-net2-gate-r3-111`). The
+  residuals beat the rule against Cubic but kept most of the share
+  rule's loss as copies (-0.32). Round 4, DAgger from a teacher that
+  knows the other flows, is UNRUN at the time of writing.
 - **Means against distributions.** On the validation links, a net2 that
   sees only the means of net1's distributions (arm A2) does at least as
   well as one that sees the distributions (A3). So far net2 gets no

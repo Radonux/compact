@@ -352,8 +352,17 @@ design above, on links neither network has seen, in log utility:
   copies are worse by 0.13. It learned an offset of u, not a policy that
   tells a copy from a competitor. A second round, with a team reward for
   copies and a value network that counts the other flows, did not pass
-  either (`exp-net2-gate-team-104`). net2 stays the fixed rule and the
-  share rule.
+  either (`exp-net2-gate-team-104`), nor did TD3+BC
+  (`exp-net2-gate-td3-108`). Most of those rounds' copies loss came from
+  the exported graph, which froze a decision's window (fixed in
+  `85de8d0`, `exp-net2-clone-copies-107`). Round 3 retrained on the fixed
+  graph and as a residual on the share rule (`exp-net2-gate-r3-111`).
+  Learners that start from the rule end level with it, copies included.
+  Residuals that start from the share rule beat the rule with Cubic from
+  the start (+0.10 to +0.11) but lose 0.32 to 0.34 as copies. Each kept
+  its start's trade-off. net2 stays the fixed rule and the share rule.
+  Round 4 learns by DAgger from a privileged teacher instead
+  (`experiments/net2-r4-dagger.json`, UNRUN at the time of writing).
 - net2 setting the window to a fixed multiple of net1's believed BDP
   beats every kernel controller on average: by 0.079 (95% interval 0.032
   to 0.123) over BBRv3, the best of them. The average is over three

@@ -2276,12 +2276,57 @@ link, mean over three seeds, minus the rule, with 95% intervals over the
     of the rule.
   - The copies results of both gates above are therefore about 0.13 worse
     than the learning alone made them.
-  - Round 3 (`experiments/net2-r3-ppo.json`, `net2-r3-td3.json`, UNRUN at
-    the time of writing) retrains on the fixed graph. Round 3b
-    (`net2-r3-share.json`, UNRUN) learns a residual on the share rule.
-- **Why a round 4.** In every round-2 run the policy stayed at the rule:
-  after 60 iterations the spread of its u across states was 0.02 to 0.03
-  (`exp-net2-ppo-team-101`, `-flows-102`, `exp-net2-td3bc-103`). A return
+- **Round 3 did not pass either.** It retrained on the fixed graph and
+  added a residual on the share rule. No episode failed.
+  - **Training.** Three sets of three seeds each:
+    - PPO with the team reward and the flow counts
+      ([`exp-net2-r3-ppo-105`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-r3-ppo-105),
+      learning rate 3e-4 or 1e-3);
+    - TD3+BC
+      ([`exp-net2-r3-td3-106`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-r3-td3-106),
+      alpha 10 or 40). Three of its cells stopped at iterations 45 to 48
+      on the training's 5 h 15 min budget, with their last policy kept;
+    - a residual on the share rule, k = 0.5
+      ([`exp-net2-r3-share-109`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-r3-share-109),
+      PPO at learning rate 1e-3 or TD3+BC at alpha 40), which starts as
+      the share rule.
+  - **What training learned.** PPO and TD3+BC again ended with a spread
+    of u across states of 0.02 to 0.04, at the rule. The residuals ended
+    where they started: +0.023 to +0.036 over the rule at the training
+    evaluation, against +0.030 for the share rule itself.
+  - **The gate**
+    ([`exp-net2-gate-r3-111`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r3-111);
+    policies in release `model-net2-r3-cands`; same rule, campaign seed
+    21). Minus the rule, with 95% intervals over the 21 validation links:
+
+    | Candidate | five-family mean | cubic-first | new, competition | copies |
+    |---|---|---|---|---|
+    | PPO, learning rate 3e-4 | +0.008 | -0.029 (-0.050 to -0.006) | -0.028 (-0.064 to +0.002) | +0.060 (-0.001 to +0.125) |
+    | PPO, learning rate 1e-3 | +0.004 | +0.007 (-0.005 to +0.020) | -0.005 (-0.040 to +0.025) | +0.023 (-0.035 to +0.083) |
+    | TD3+BC, alpha 10 | +0.002 | -0.007 (-0.023 to +0.008) | +0.010 (-0.022 to +0.035) | -0.013 (-0.054 to +0.029) |
+    | TD3+BC, alpha 40 | +0.004 | -0.002 (-0.018 to +0.014) | +0.006 (-0.034 to +0.043) | +0.028 (-0.038 to +0.105) |
+    | residual on share, PPO | +0.027 | +0.100 (+0.054 to +0.151) | +0.057 (+0.011 to +0.096) | -0.336 (-0.421 to -0.253) |
+    | residual on share, TD3+BC (kept) | +0.028 | +0.109 (+0.048 to +0.176) | +0.044 (-0.009 to +0.090) | -0.315 (-0.399 to -0.234) |
+
+  - **Verdict.** The kept candidate beats the rule with Cubic from the
+    start, but its interval in the competition conditions includes 0 and
+    its copies lose 0.32. The PPO residual meets every condition but
+    copies. net2 stays the fixed rule and the share rule.
+  - **The fixed graph works.** With the held u, the learners that start
+    from the rule are level with it as copies (-0.013 to +0.060, every
+    interval including 0), where rounds 1 and 2 lost 0.12 to 0.16.
+  - **The residuals keep most of the share rule's copies loss.** The
+    share rule loses about 0.46 to the fixed rule as copies (release
+    `exp-share-net1v5-val-85`); its residuals lose 0.32 to 0.34. The team
+    reward moved them a little, not enough.
+  - **What it says.** Three learners on two starts each kept their start's
+    behaviour and its trade-off: none learned to push against a
+    buffer-filling flow and hold back among copies.
+- **Why a round 4.** In every run of rounds 2 and 3 the policy stayed at
+  its start: after 60 iterations the spread of its u across states was
+  0.02 to 0.04 from the rule (`exp-net2-ppo-team-101`, `-flows-102`,
+  `exp-net2-td3bc-103`, `exp-net2-r3-ppo-105`, `exp-net2-r3-td3-106`),
+  and the residuals did not move from the share rule. A return
   over thousands of decisions, each nudged by noise of sigma 0.05, carries
   too little about any one of them. Round 4
   (`experiments/net2-r4-dagger.json`, UNRUN) gives a label at every
