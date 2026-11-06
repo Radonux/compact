@@ -14,6 +14,8 @@
                              (episodes that record steps)
         cross_steps.parquet  the same for every cross flow a policy drives,
                              with its index in the spec's cross list (flow)
+        flow_seconds.parquet bytes and queueing delays per flow and second,
+                             all episodes
         DONE                 written last; a shard without it is incomplete
 
 Tables share ``episode_id``. Files are written as ``*.tmp`` and renamed on
