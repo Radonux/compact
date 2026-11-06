@@ -92,6 +92,15 @@ class RecurrentActor(nn.Module):
     def mean(self, h: torch.Tensor) -> torch.Tensor:
         return torch.tanh(self.head(h)).squeeze(-1)
 
+    def pre(self, x: torch.Tensor) -> torch.Tensor:
+        """``sequence`` before its tanh: [B, T] head outputs."""
+        if not self.memory:
+            b, t, f = x.shape
+            h, _ = self.gru(x.reshape(b * t, 1, f))
+            return self.head(h).reshape(b, t)
+        h, _ = self.gru(x)
+        return self.head(h).squeeze(-1)
+
     def cell(self, x: torch.Tensor, h: torch.Tensor) -> torch.Tensor:
         if not self.memory:
             h = torch.zeros_like(h)
@@ -111,12 +120,7 @@ class RecurrentActor(nn.Module):
     def sequence(self, x: torch.Tensor) -> torch.Tensor:
         """[B, T, width + 1] decisions' inputs -> [B, T] mean u / max, from a
         zero hidden state."""
-        if not self.memory:
-            b, t, f = x.shape
-            h, _ = self.gru(x.reshape(b * t, 1, f))
-            return self.mean(h).reshape(b, t)
-        h, _ = self.gru(x)
-        return self.mean(h)
+        return torch.tanh(self.pre(x))
 
 
 class HeldPolicyGraph(PolicyGraph):
@@ -135,15 +139,23 @@ class HeldPolicyGraph(PolicyGraph):
     the step after a decision (when its realized u is read)."""
 
     def __init__(
-        self, base: PolicyGraph, actor: RecurrentActor, offset: nn.Module | None = None
+        self,
+        base: PolicyGraph,
+        actor: RecurrentActor,
+        offset: nn.Module | None = None,
+        gate: nn.Module | None = None,
     ) -> None:
         """``offset``, when given, maps net1's output to a u the actor's
-        output is added to (a residual on a rule, such as the share rule)."""
+        output is added to (a residual on a rule, such as the share rule).
+        ``gate``, when given, maps net1's output and the actor's output in
+        [-1, 1] to u in place of both (a learned switch between rules)."""
         super().__init__(base.scaler, base.net1, base.lcf_scaler, actor, base.action_max)
         if base.target is None:
             raise ValueError("a held net2 needs a window target (action 'bdp')")
+        if offset is not None and gate is not None:
+            raise ValueError("a held net2 takes an offset or a gate, not both")
         self.view, self.target = base.view, base.target
-        self.offset = offset
+        self.offset, self.gate = offset, gate
 
     @property
     def actor(self) -> RecurrentActor:
@@ -174,7 +186,8 @@ class HeldPolicyGraph(PolicyGraph):
         decide = left < 0.5
         inp = torch.cat([x, (prev_u / self.action_max).unsqueeze(1)], dim=1)
         h_new = self.actor.cell(inp, h)
-        u = self.actor.mean(h_new) * self.action_max
+        a_new = self.actor.mean(h_new)
+        u = a_new * self.action_max if self.gate is None else self.gate(z, a_new)
         if self.offset is not None:
             u = u + self.offset(z)
         h = torch.where(decide.unsqueeze(1), h_new, h)

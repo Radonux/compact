@@ -146,6 +146,12 @@ class PPOSpec(BaseModel):
     # flow shares the link and the fixed rule (u_rule) otherwise: it knows
     # the other flows, which the actor must infer from net1's output.
     algo: Literal["ppo", "td3bc", "dagger"] = "ppo"
+    # What a "dagger" student learns. "u": u itself, by squared error on the
+    # teacher's u. "gate": only the probability p that a stock TCP flow
+    # shares the link, by cross-entropy on that label at every decision;
+    # its u is u_rule + p (share rule's u - u_rule), the teacher's u with
+    # its switch replaced by the student's belief. It starts at p = 0.02.
+    student: Literal["u", "gate"] = "u"
     # What the actor's output is added to. "fixed": nothing; the actor starts
     # as the fixed rule, u_rule everywhere. "share": the share rule on net1's
     # mean beliefs, u = u_rule + share_k * busy * max(0, 1 - share)
@@ -169,6 +175,8 @@ class PPOSpec(BaseModel):
     def _dagger_from_the_rule(self) -> PPOSpec:
         if self.algo == "dagger" and self.base != "fixed":
             raise ValueError('algo "dagger" learns the whole u: base must be "fixed"')
+        if self.student == "gate" and self.algo != "dagger":
+            raise ValueError('student "gate" is learned by algo "dagger" only')
         return self
 
     @classmethod
@@ -188,6 +196,8 @@ class Trajectory:
     gamma: F32  # [T] exp(-dt / tau) to the next decision
     base: F32 | None = None  # [T] the rule's u the actor's output adds to (base "share")
     teacher: F32 | None = None  # [T] the privileged teacher's u (algo "dagger")
+    tcp: F32 | None = None  # [T] 1 while a stock TCP flow is active (algo "dagger")
+    share: F32 | None = None  # [T] the share rule's u (algo "dagger")
 
 
 def _agent(policy: Path, sigma: float, noise_seed: int | None) -> AgentCC:
@@ -296,6 +306,32 @@ class _ShareOffset(nn.Module):
 
 def _offset(net1: fit.Net1, spec: PPOSpec) -> nn.Module | None:
     return _ShareOffset(net1, spec).eval() if spec.base == "share" else None
+
+
+P0: Final = 0.02  # a "gate" student's p at the start
+
+
+def gated_u(p: torch.Tensor, share: torch.Tensor, u_rule: float) -> torch.Tensor:
+    """A "gate" student's u: the fixed rule's, moved toward the share
+    rule's by the believed probability p of a stock TCP flow."""
+    return u_rule + p * (share - u_rule)
+
+
+class _ShareGate(nn.Module):
+    """net1's output and the actor's output a in [-1, 1] -> a "gate"
+    student's u, with p = (a + 1) / 2."""
+
+    def __init__(self, net1: fit.Net1, spec: PPOSpec) -> None:
+        super().__init__()
+        self.share = _ShareOffset(net1, spec)
+        self.u_rule = spec.u_rule
+
+    def forward(self, z: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
+        return gated_u((a + 1) / 2, self.share(z), self.u_rule)
+
+
+def _gate(net1: fit.Net1, spec: PPOSpec) -> nn.Module | None:
+    return _ShareGate(net1, spec).eval() if spec.student == "gate" else None
 
 
 def teacher_u(share_u: F32, counts: F32, u_rule: float) -> F32:
@@ -418,11 +454,12 @@ def _trajectory(
     if spec.critic_flows:
         parts.append(counts)
     critic = np.concatenate(parts, axis=1).astype(np.float32)
-    teacher = None
-    if spec.algo == "dagger":
-        share_u = _ShareOffset(net1, spec).eval()(z).numpy()
-        teacher = teacher_u(share_u, counts, spec.u_rule)
-    return Trajectory(group, inp, critic, u, reward, gamma, base, teacher)
+    if spec.algo != "dagger":
+        return Trajectory(group, inp, critic, u, reward, gamma, base)
+    share_u = _ShareOffset(net1, spec).eval()(z).numpy().astype(np.float32)
+    tcp = (counts[:, 1] > 0).astype(np.float32)
+    teacher = teacher_u(share_u, counts, spec.u_rule)
+    return Trajectory(group, inp, critic, u, reward, gamma, base, teacher, tcp, share_u)
 
 
 def active(rivals: npt.NDArray[np.float64], times: npt.NDArray[Any]) -> npt.NDArray[np.float32]:
@@ -716,18 +753,32 @@ class _DAggerLearner:
         del critic_width
         self.spec = spec
         self.actor = RecurrentActor(width, spec.hidden, memory=spec.memory)
-        self.actor.clone_rule(spec.u_rule, spec.action_max)
+        if spec.student == "gate":  # p = (tanh(head) + 1) / 2 = P0 everywhere
+            self.actor.clone_rule(2 * P0 - 1, 1.0)
+        else:
+            self.actor.clone_rule(spec.u_rule, spec.action_max)
         self.critic = nn.Module()
         self.opt_a = torch.optim.Adam(self.actor.parameters(), lr=spec.lr)
         self.replay: list[list[Trajectory]] = []
 
+    def _u(self, trs: list[Trajectory], pre: torch.Tensor) -> torch.Tensor:
+        """The student's u, padded like ``pre`` (the actor's head outputs)."""
+        if self.spec.student == "u":
+            return torch.tanh(pre) * self.spec.action_max
+        share, _ = _pad([_field(tr.share)[:, None] for tr in trs])
+        return gated_u(torch.sigmoid(2 * pre), share.squeeze(-1), self.spec.u_rule)
+
     def _gaps(self, trs: list[Trajectory]) -> dict[str, float]:
         """The actor against the teacher on ``trs``: mean |u - teacher|,
-        and the actor's mean u where the teacher pushes and where not."""
+        the actor's mean u where the teacher pushes and where not, and its
+        mean p of a stock TCP flow where there is one and where not."""
         with torch.no_grad():
             x, mask = _pad([tr.inp for tr in trs])
-            mu = (self.actor.sequence(x) * self.spec.action_max)[mask.bool()].numpy()
-        y = np.concatenate([_label(tr) for tr in trs])
+            pre = self.actor.pre(x)
+            w = mask.bool()
+            mu, p = self._u(trs, pre)[w].numpy(), torch.sigmoid(2 * pre)[w].numpy()
+        y = np.concatenate([_field(tr.teacher) for tr in trs])
+        tcp = np.concatenate([_field(tr.tcp) for tr in trs]) > 0.5
         push = y != np.float32(self.spec.u_rule)
         return {
             "teacher_gap": float(np.abs(mu - y).mean()),
@@ -735,7 +786,19 @@ class _DAggerLearner:
             "u_where_rule": float(mu[~push].mean()) if (~push).any() else math.nan,
             "teacher_push": float(push.mean()),
             "teacher_u_where_push": float(y[push].mean()) if push.any() else math.nan,
+            "p_where_tcp": float(p[tcp].mean()) if tcp.any() else math.nan,
+            "p_elsewhere": float(p[~tcp].mean()) if (~tcp).any() else math.nan,
         }
+
+    def _loss(self, batch: list[Trajectory], pre: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        if self.spec.student == "gate":
+            tcp, _ = _pad([_field(tr.tcp)[:, None] for tr in batch])
+            ce = nn.functional.binary_cross_entropy_with_logits(
+                2 * pre, tcp.squeeze(-1), reduction="none"
+            )
+            return (ce * mask).sum() / mask.sum()
+        y, _ = _pad([_field(tr.teacher)[:, None] for tr in batch])
+        return (((self._u(batch, pre) - y.squeeze(-1)) ** 2) * mask).sum() / mask.sum()
 
     def update(
         self, trs: list[Trajectory], rng: np.random.Generator, *, actor: bool = True
@@ -749,9 +812,7 @@ class _DAggerLearner:
             idx = rng.choice(len(pool), size=min(s.batch_trajectories, len(pool)), replace=False)
             batch = [pool[i] for i in idx]
             x, mask = _pad([tr.inp for tr in batch])
-            y, _ = _pad([_label(tr)[:, None] for tr in batch])
-            mu = self.actor.sequence(x) * s.action_max
-            loss = (((mu - y.squeeze(-1)) ** 2) * mask).sum() / mask.sum()
+            loss = self._loss(batch, self.actor.pre(x), mask)
             self.opt_a.zero_grad()
             loss.backward()
             nn.utils.clip_grad_norm_(self.actor.parameters(), s.max_grad_norm)
@@ -760,7 +821,7 @@ class _DAggerLearner:
         after = self._gaps(trs)
         with torch.no_grad():
             x, mask = _pad([tr.inp for tr in trs])
-            mu_all = (self.actor.sequence(x) * s.action_max)[mask.bool()].numpy()
+            mu_all = self._u(trs, self.actor.pre(x))[mask.bool()].numpy()
         return (
             {f"{k}_before": v for k, v in before.items()}
             | after
@@ -779,10 +840,10 @@ class _DAggerLearner:
         )
 
 
-def _label(tr: Trajectory) -> F32:
-    if tr.teacher is None:
-        raise ValueError("algo dagger needs the teacher's u on every trajectory")
-    return tr.teacher
+def _field(x: F32 | None) -> F32:
+    if x is None:
+        raise ValueError("algo dagger needs the teacher's labels on every trajectory")
+    return x
 
 
 _LEARNERS: Final = {"ppo": _Learner, "td3bc": _TD3Learner, "dagger": _DAggerLearner}
@@ -797,7 +858,7 @@ def policy_graph(net1: fit.Net1, actor: RecurrentActor, spec: PPOSpec) -> HeldPo
         view=spec.view,
         input_bins=spec.input_bins if spec.view == "bins" else None,
     )
-    return HeldPolicyGraph(base, actor, _offset(net1, spec)).eval()
+    return HeldPolicyGraph(base, actor, _offset(net1, spec), _gate(net1, spec)).eval()
 
 
 def _export(path: Path, net1: fit.Net1, actor: RecurrentActor, spec: PPOSpec) -> Path:

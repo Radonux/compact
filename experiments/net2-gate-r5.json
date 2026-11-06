@@ -1,0 +1,15 @@
+{
+  "title": "net2 gate, round 5: DAgger with a gated student",
+  "description": "The gate for round 5 of learned net2s on net1 v5: exp-net2-r5-gate (DAgger with a student that learns only the probability of a stock TCP flow and sets u between the fixed rule and the share rule by it, round 4c's data regime, teacher gain k = 0.5 or 1), seeds 1, 2 and 3 each, their policies stashed in release model-net2-r5-cands. They run next to the fixed rule on net1 v5 (u = 0.25, release model-net1v5) and BBRv3 on the five validation families and as 2 and 4 copies for 30 s, with campaign seed 21. The share rule at k = 1 and 2 on net1 v5 also runs, as a reference and not a candidate: it is what the teacher does wherever a stock TCP flow is active, so with the fixed rule it bounds what the student can reach. The rule is unchanged (experiments/net2_ppo_gate_report.py): per link, the mean over a candidate's seeds of its log utility minus the rule's; the candidate kept has the highest five-family mean; the gate passes if it beats the rule in cubic-first-60 and in new-20's competition conditions, each with its 95% interval over links above 0, is at or above the rule on the five-family mean, and is not worse with copies beyond its interval. A candidate that passes runs once on the test links. Validation links only.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "c": "release:model-net2-r5-cands",
+    "m": "release:model-net1v5"
+  },
+  "prepare": "(cd \"$IN/c\" && sha256sum -c SHA256SUMS); (cd \"$IN/m\" && sha256sum -c SHA256SUMS); uv run python experiments/share_rule_export.py \"$OUT/share\" \"$IN/m/net1v5.pt\" --u0 0.25 --k 0.5 1; P=(--policy \"rule-v5=$IN/m/rule-u0.25.onnx\" --policy \"share-k0.5=$OUT/share/share-u0.25-k0.5.onnx\" --policy \"share-k1=$OUT/share/share-u0.25-k1.onnx\"); for f in \"$IN\"/c/ppo-*.onnx; do P+=(--policy \"$(basename \"$f\" .onnx)=$f\"); done; experiments/rule_eval.sh \"$OUT\" val 21 21 bbr3 \"${P[@]}\"; uv run python experiments/copies.py \"$OUT/copies\" --split val --duration-ms 30000 --seed 21 --n 2 4 --stock bbr3 \"${P[@]}\"; mv \"$OUT/copies/c-copies-30s\" \"$OUT/\"; jq -s add \"$OUT/aliases.json\" \"$OUT/copies/aliases.json\" > \"$OUT/a.json\"; mv \"$OUT/a.json\" \"$OUT/aliases.json\"",
+  "shards": 40,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps; done; uv run python experiments/slim_steps.py \"$OUT\"",
+  "collect": "uv run python experiments/rule_report.py \"$OUT\" --apart copies-30s && mv \"$OUT/summary.md\" \"$OUT/against-bbr3.md\" && uv run python experiments/net2_ppo_gate_report.py \"$OUT\"",
+  "timeout_minutes": 300
+}

@@ -33,6 +33,8 @@ DAGGER = (
     ("u_where_push_before", "u there"),
     ("u_where_rule_before", "u elsewhere"),
     ("teacher_gap_before", "gap to teacher"),
+    ("p_where_tcp_before", "p where TCP"),
+    ("p_elsewhere_before", "p elsewhere"),
     ("imitation_loss", "imitation loss"),
     ("mean_block_reward", "block reward"),
 )

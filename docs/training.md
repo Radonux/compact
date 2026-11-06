@@ -2390,6 +2390,15 @@ link, mean over three seeds, minus the rule, with 95% intervals over the
     and about one pass over it per iteration, at teacher gain 0.5 or 1.
     A round 4b with a larger student on round 4's data was cancelled
     after 1.5 hours for it.
+  - **Round 5** (`experiments/net2-r5-gate.json`, UNRUN at the time of
+    writing) changes what the student learns. A student that regresses on
+    the teacher's u learns little about the teacher's switch wherever the
+    share rule's push is small. This one learns only the switch: the
+    probability p that a stock TCP flow shares the link, by cross-entropy
+    on that label at every decision (`student` `gate`). It sets u = u_rule
+    + p (share rule's u - u_rule), starting at p = 0.02. It uses round
+    4c's data regime, so rounds 4c and 5 differ only in what the student
+    learns.
 
 ### Inference cost per decision
 

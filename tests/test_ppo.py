@@ -213,21 +213,55 @@ def test_dagger_learns_to_push_where_the_teacher_does() -> None:
         lr=3e-3,
     )
     learner = ppo._DAggerLearner(5, 0, spec)  # pyright: ignore[reportPrivateUsage]
-
-    def traj(k: int) -> ppo.Trajectory:
-        n = 40
-        inp = rng.standard_normal((n, 6)).astype(np.float32)
-        teacher = np.where(inp[:, 0] > 0, 0.75, 0.25).astype(np.float32)
-        z = np.zeros(n, np.float32)
-        return ppo.Trajectory((k, 0), inp, inp[:, :0], z, z, z, None, teacher)
-
-    first = learner.update([traj(k) for k in range(16)], rng)
+    first = learner.update([_dagger_traj(k, rng) for k in range(16)], rng)
     logs = first
     for _ in range(3):
-        logs = learner.update([traj(k) for k in range(16)], rng)
+        logs = learner.update([_dagger_traj(k, rng) for k in range(16)], rng)
     assert first["teacher_gap_before"] > 0.2  # the clone: 0.25 everywhere
     assert logs["teacher_gap_before"] < 0.1  # on rollouts it has not learned from
     assert logs["u_where_push"] > 0.6 and logs["u_where_rule"] < 0.4
+
+
+def _dagger_traj(k: int, rng: np.random.Generator) -> ppo.Trajectory:
+    """A stock TCP flow is active where input 0 is positive; there the
+    teacher pushes to the share rule's 0.75, elsewhere it holds 0.25."""
+    n = 40
+    inp = rng.standard_normal((n, 6)).astype(np.float32)
+    tcp = (inp[:, 0] > 0).astype(np.float32)
+    share = np.full(n, 0.75, np.float32)
+    teacher = np.where(tcp > 0, share, 0.25).astype(np.float32)
+    z = np.zeros(n, np.float32)
+    return ppo.Trajectory((k, 0), inp, inp[:, :0], z, z, z, None, teacher, tcp, share)
+
+
+def test_a_gate_student_starts_near_the_rule_and_learns_which_flows_share() -> None:
+    torch.manual_seed(0)
+    rng = np.random.default_rng(0)
+    spec = ppo.PPOSpec(
+        paths_from=Path("unused"),
+        net1_from=Path("unused"),
+        u_rule=0.25,
+        hidden=8,
+        algo="dagger",
+        student="gate",
+        updates_per_iteration=100,
+        batch_trajectories=8,
+        lr=3e-3,
+    )
+    learner = ppo._DAggerLearner(5, 0, spec)  # pyright: ignore[reportPrivateUsage]
+    first = learner.update([_dagger_traj(k, rng) for k in range(16)], rng)
+    assert abs(first["p_where_tcp_before"] - ppo.P0) < 1e-4
+    assert abs(first["u_where_rule_before"] - (0.25 + ppo.P0 * 0.5)) < 1e-4
+    logs = first
+    for _ in range(3):
+        logs = learner.update([_dagger_traj(k, rng) for k in range(16)], rng)
+    assert logs["p_where_tcp_before"] > 0.8 and logs["p_elsewhere_before"] < 0.2
+    assert logs["u_where_push_before"] > 0.6 and logs["u_where_rule_before"] < 0.4
+
+
+def test_a_gate_student_is_learned_by_dagger_only() -> None:
+    with pytest.raises(ValueError, match="gate"):
+        ppo.PPOSpec(paths_from=Path("x"), net1_from=Path("x"), student="gate")
 
 
 def test_noise_seed_is_left_out_unless_set(tmp_path: Path) -> None:
@@ -252,16 +286,17 @@ def test_noise_seed_is_left_out_unless_set(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "case",
     [
-        ("own", False, "ppo", "fixed"),
-        ("team", True, "ppo", "share"),
-        ("team", True, "td3bc", "share"),
-        ("team", False, "dagger", "fixed"),
+        ("own", False, "ppo", "fixed", "u"),
+        ("team", True, "ppo", "share", "u"),
+        ("team", True, "td3bc", "share", "u"),
+        ("team", False, "dagger", "fixed", "u"),
+        ("team", False, "dagger", "fixed", "gate"),
     ],
 )
 def test_ppo_loop_runs_an_iteration_with_copies(
-    build: object, tmp_path: Path, case: tuple[str, bool, str, str]
+    build: object, tmp_path: Path, case: tuple[str, bool, str, str, str]
 ) -> None:
-    reward, flows, algo, base = case
+    reward, flows, algo, base, student = case
     from expliccit_env.uml import UmlBuild  # noqa: PLC0415
 
     assert isinstance(build, UmlBuild)
@@ -298,6 +333,7 @@ def test_ppo_loop_runs_an_iteration_with_copies(
         critic_flows=flows,
         algo=algo,  # pyright: ignore[reportArgumentType]
         base=base,  # pyright: ignore[reportArgumentType]
+        student=student,  # pyright: ignore[reportArgumentType]
         updates_per_iteration=5,
     )
     report = ppo.run_ppo(spec, tmp_path / "out", build, workers=2)

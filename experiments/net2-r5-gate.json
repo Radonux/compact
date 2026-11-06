@@ -1,0 +1,25 @@
+{
+  "title": "Round 5: DAgger with a gated student that learns only which flows share the link, three seeds",
+  "description": "Round 4 (exp-net2-gate-r4-114) came closest: its DAgger student, on net1's output alone, beat the fixed rule with Cubic from the start and in the competition conditions, but lost 0.29 as copies. Against the share rule at the teacher's gain it kept 62% to 77% of the gain against Cubic and paid 31% to 34% of the copies loss, so it tells copies from a buffer-filling flow only in part. That student regressed on the teacher's u, whose squared error carries little about the switch wherever the share rule's push is small. Here the student learns only the switch (student gate in train/ppo.py): the probability p that a stock TCP flow shares the link, by cross-entropy on that privileged label at every decision, and sets u = u_rule + p (share rule's u - u_rule), starting at p = 0.02. The data regime is round 4c's (32 links of one rollout per iteration, a replay of 16 iterations, about one pass per iteration), so rounds 4c and 5 differ only in what the student learns. Teacher gain k = 0.5 or 1, GRU of 64, learning rate 1e-3, the competition mix, sigma = 0.05, seeds 1, 2 and 3, 60 iterations. The policies go to their own gate. Validation links only.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v5": "release:exp-net1v4-recheck-79",
+    "models": "release:model-net1v3"
+  },
+  "matrix": {
+    "k": [
+      0.5,
+      1
+    ],
+    "seed": [
+      1,
+      2,
+      3
+    ]
+  },
+  "prepare": "N=\"$IN/v5/net1-d0.05-w512-s0/net1.pt\"; uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$N\" --models \"$IN/models\" --u 0.25",
+  "run": "S=\"$OUT/spec-r5gate-k$K-s$SEED.json\"; jq --argjson k \"$K\" --argjson seed \"$SEED\" '.algo = \"dagger\" | .student = \"gate\" | .base = \"fixed\" | .share_k = $k | .critic_warmup = 0 | .lr = 0.001 | .updates_per_iteration = 50 | .replay_iterations = 16 | .tau_s = 1 | .noise_sigma = 0.05 | .group = 1 | .links_per_iteration = 32 | .compete = 0.8 | .copies = [2, 4] | .seed = $seed | .iterations = 60 | .eval_every = 20' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/ppo-r5gate-k$K-s$SEED\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ppo-*",
+  "timeout_minutes": 360
+}
