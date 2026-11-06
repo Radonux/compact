@@ -1,0 +1,26 @@
+{
+  "title": "Round 6b: round 6 with more copies in the training mix",
+  "description": "Round 6 (experiments/net2-r6-gate.json) with 2, 3 or 4 copies in the competition mix instead of 2 or 4, so copies are three of the five competitors drawn (Cubic, BBR, 2, 3 or 4 copies) rather than two of four. Copies are the one gate condition every DAgger candidate has failed (round 5t's best lost 0.104 there, round 4c's 0.129), so the student sees more of them. Otherwise as round 6: gated students at teacher gain 0.5, sharpened at t = 0.5 in training and at export; start r5 continues round 5's students at learning rate 3e-4, start new trains from the rule at 1e-3; seeds 1, 2 and 3. The policies go to their own gate. Validation links only.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v5": "release:exp-net1v4-recheck-79",
+    "models": "release:model-net1v3",
+    "a": "release:model-net2-r5-actors"
+  },
+  "matrix": {
+    "start": [
+      "r5",
+      "new"
+    ],
+    "seed": [
+      1,
+      2,
+      3
+    ]
+  },
+  "prepare": "(cd \"$IN/a\" && sha256sum -c SHA256SUMS); N=\"$IN/v5/net1-d0.05-w512-s0/net1.pt\"; uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$N\" --models \"$IN/models\" --u 0.25",
+  "run": "S=\"$OUT/spec-r6b-$START-s$SEED.json\"; jq --arg start \"$START\" --argjson seed \"$SEED\" --arg init \"$IN/a/ppo-r5gate-k0.5-s$SEED.actor.pt\" '.algo = \"dagger\" | .student = \"gate\" | .base = \"fixed\" | .share_k = 0.5 | .gate_threshold = 0.5 | .critic_warmup = 0 | .updates_per_iteration = 50 | .replay_iterations = 16 | .tau_s = 1 | .noise_sigma = 0.05 | .group = 1 | .links_per_iteration = 32 | .compete = 0.8 | .copies = [2, 3, 4] | .seed = $seed | .iterations = 60 | .eval_every = 20 | (if $start == \"r5\" then .init_actor = $init | .lr = 0.0003 else .lr = 0.001 end)' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/ppo-r6b-$START-s$SEED\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ppo-*",
+  "timeout_minutes": 360
+}
