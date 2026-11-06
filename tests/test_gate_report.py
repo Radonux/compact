@@ -1,4 +1,4 @@
-"""The PPO net2 gate's decision rule (experiments/net2_ppo_gate_report.py),
+"""The learned net2 gate's decision rule (experiments/net2_ppo_gate_report.py),
 on synthetic per-link scores."""
 
 from __future__ import annotations

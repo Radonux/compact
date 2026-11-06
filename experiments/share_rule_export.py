@@ -9,7 +9,7 @@ capacity). With k = 0 it is the fixed rule. It acts on net1's output
 alone, like any net2, and has two numbers to choose, so it can be searched
 directly in closed loop on the validation links.
 
-Usage: python experiments/share_rule_export.py OUT NET1.pt --u0 0.125 --k 0 0.5 1 2 [--oracle]
+Usage: python experiments/share_rule_export.py OUT NET1.pt --u0 0.25 --k 0 0.5 1 2 [--oracle]
 Writes OUT/share-u{u0}-k{k}.onnx for each k; --oracle writes
 OUT/share-u{u0}-k{k}-oracle.onnx instead: the same rule on the true LCFs,
 read from the guest's live truth into net1's bins (each mean is then the

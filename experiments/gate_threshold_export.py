@@ -2,8 +2,8 @@
 switch sharpened: the policy pushes toward the share rule only past a
 belief t in a stock TCP flow, p' = clamp((p - t) / (1 - t), 0, 1). Copies
 lose more per unit of push than a flow against Cubic gains, so the best
-push under an uncertain belief is below p. Threshold 0 is the trained
-policy itself.
+push under an uncertain belief is below p. Threshold 0 is the policy
+without sharpening.
 
 Usage: python experiments/gate_threshold_export.py OUT RUN_DIR... --t 0.3 0.5
 Each RUN_DIR is an `expliccit train ppo` output (ppo_spec.json, net1.pt,

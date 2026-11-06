@@ -73,14 +73,13 @@ class Net1Spec(_Frozen):
     # so outliers (srtt up to 5 s in expliCCit's data) do not squeeze the rest.
     scaling: Literal["robust", "minmax"] = "robust"
     lcfs: Annotated[tuple[Lcf, ...], Field(min_length=1)] = EXPLICCIT_LCFS
-    # Report an interval per LCF (docs/methodology.md, section 2): centre,
-    # lower and upper bound with the given held-out coverage. net2 then sees
-    # all three.
+    # Report an interval per LCF (docs/methodology.md): centre, lower and
+    # upper bound with the given held-out coverage. net2 then sees all three.
     intervals: bool = False
     coverage: Annotated[float, Field(gt=0, lt=1)] = 0.9
     # Report a probability distribution over this many fixed bins per LCF,
-    # trained with the log score (docs/methodology.md, section 3). net2
-    # then sees every bin's probability.
+    # trained with the log score (docs/methodology.md). net2 then sees every
+    # bin's probability.
     bins: Annotated[int, Field(ge=4, le=256)] | None = None
     # Distributions only: train this many net1s on their own (different
     # initial weights and batch order) and average their distributions.

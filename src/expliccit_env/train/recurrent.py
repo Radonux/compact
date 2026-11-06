@@ -1,18 +1,20 @@
 """A recurrent net2 that decides once per interval and holds its decision.
 
-net2 reads net1's output (pooled bins) and its own previous action through
-a GRU, and answers u: the next window as 2^u times the believed BDP. It
-decides once per clamp(min RTT, 10 ms, 50 ms) and holds the window in
-between, all inside the policy graph's state, so the frozen guest runs it
-as any stateful policy (contract sage-v1, guest/src/step.rs).
+net2 reads net1's output (pooled bins, or means) and its own previous u
+through a GRU, and answers u: the window is 2^u times the believed BDP. It
+decides once per clamp(min RTT, 10 ms, 50 ms) and holds u in between,
+aiming each step's window at that step's believed BDP. All of this lives
+in the policy graph's state, so the guest runs it as any stateful policy
+(contract sage-v1, guest/src/step.rs).
 
 The guest adds exploration noise to every step's action. The graph takes
-the window the decision step's noise produced as the decision it made (it
-reads it from the next step's cwnd), and keeps the window there for the
-rest of the block, so later steps' noise only jitters the window around it
-and never accumulates. The learner (ppo.py) replays the same counter from
-the recorded steps (``decision_steps``) and reads each decision's realized
-u the same way, so nothing beyond the steps table is needed.
+the u that the decision step's noise produced as the decision it made (it
+reads it from the next step's cwnd) and holds that u for the rest of the
+block. Every step's action is computed from the sender's actual window, so
+later steps' noise only jitters the window and never accumulates. The
+learner (ppo.py) replays the same counter from the recorded steps
+(``decision_steps``) and reads each decision's realized u the same way, so
+nothing beyond the steps table is needed.
 """
 
 # torch's own annotations leave many signatures partly unknown; every other
@@ -71,8 +73,9 @@ def decision_steps(min_rtt_ms: npt.NDArray[np.float32]) -> npt.NDArray[np.int64]
 
 class RecurrentActor(nn.Module):
     """GRU over [net1's view, previous u / action_max] -> mean u / action_max
-    in [-1, 1]. ``cell`` is one step of the same GRU, written out so the
-    exported graph needs only matrix products and activations."""
+    in [-1, 1] (for a gate student, 2p - 1 for each belief p). ``cell`` is
+    one step of the same GRU, written out so the exported graph needs only
+    matrix products and activations."""
 
     def __init__(
         self, width: int, hidden: int = 64, *, memory: bool = True, outputs: int = 1
@@ -141,8 +144,8 @@ class HeldActor(Protocol):
 
 class EnsembleActor(nn.Module):
     """Several RecurrentActors on the same inputs, each with its own part of
-    the hidden state; the output is the mean of theirs (for a "gate"
-    student, the mean of their beliefs p, since p = (a + 1) / 2)."""
+    the hidden state; the output is the mean of theirs (for a gate
+    student, the mean of their beliefs, since p = (a + 1) / 2)."""
 
     def __init__(self, members: list[RecurrentActor]) -> None:
         super().__init__()
@@ -169,9 +172,9 @@ class HeldPolicyGraph(PolicyGraph):
     A decision holds its realized u (the u it asked for, plus the guest's
     exploration noise on that step) for the block, and every step aims the
     window at 2^u times the believed BDP of that step, as the fixed rule
-    does. Holding the window instead froze the BDP the window was computed
-    from: copies of the cloned rule then queued more than copies of the
-    rule and lost 0.12 in log utility to them.
+    does. Holding the window itself would freeze the BDP it was computed
+    from: copies of the rule cloned that way queued more than copies of the
+    rule and lost 0.12 in log utility to them (exp-net2-clone-copies-107).
 
     State, [1, hidden + 5]: the GRU's hidden state, the previous decision's
     realized u, the steps left in the block, the window of this step (log2

@@ -15,7 +15,7 @@ DIAGNOSTICS = ("critic", "q", "actor", "bc", "pi_mean", "pi_std", "sat", "ood")
 
 def main(out: Path, runs: list[Path]) -> None:
     lines = [
-        "Online net2 on net1 v4. Evaluation: mean log utility of the noise-free",
+        "Online net2 on a frozen net1. Evaluation: mean log utility of the noise-free",
         "policy on the validation links' new-conditions family, at each checkpoint.",
         "Diagnostics: the learner's last-iteration means (q and actor are the",
         "critic's value scale; pi_mean and pi_std the actions taken; sat the",

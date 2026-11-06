@@ -1,17 +1,17 @@
 """Write a campaign on the held-out links of examples/campaign-net1-varied.json.
 
-The links are split as net1 v3 and every net2 run on it were: by link
-(the path without its loss), seed 1, 15% validation, 15% test. The campaign
-runs the given policies and stock controllers on one split's links under
-one family of conditions, in one campaign. Episode seeds are drawn in order
-from the campaign seed, so changing the controller list changes every
-episode's seed; the pairing is by link and condition.
+The links are split by link (the path without its loss), seed 1, 15%
+validation and 15% test, as net1 v3's training data was. The campaign runs
+the given policies and stock controllers on one split's links under one
+family of conditions. Episode seeds are drawn in order from the campaign
+seed, so changing the controller list changes every episode's seed; the
+pairing is by link and condition.
 
 Families: "training" is that campaign's three conditions (clean, 1% loss,
 3 Mbit/s UDP plus a Cubic flow from 8 s). The others are conditions it never
 had: "new" (a Cubic flow from 0 s, a BBRv1 flow from 4 s, Cubic flows from
 2 s and 10 s, 0.1% and 3% random loss, 1% loss on the ACK path),
-"cubic-first" (a Cubic flow from 0 s alone), and "deep-long" (the training
+"cubic-first" (a Cubic flow from 0 s alone), "deep-long" (the training
 conditions on the same links with a 2.5 times longer one-way delay, at most
 80 ms, and a buffer of 4 to 16 BDP drawn with seed 31), and
 "held-competitors" (a BBRv3 flow from 0 s, a Westwood flow from 0 s: the

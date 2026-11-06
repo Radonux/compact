@@ -1,26 +1,40 @@
-"""Recurrent PPO for net2 on a frozen net1, starting from the fixed rule.
+"""A recurrent net2 trained in closed loop on a frozen net1, by PPO,
+TD3+BC or DAgger (PPOSpec.algo).
 
-The actor (recurrent.py) reads net1's pooled bins and its own previous
-action through a GRU and holds each decision for clamp(min RTT, 10, 50 ms).
-The value network sees the true LCFs with net1's output during training
-only and is never exported. Each iteration exports the policy, runs each
+The actor (recurrent.py) reads net1's output (pooled bins, or means) and
+its own previous u through a GRU, and holds each decision for
+clamp(min RTT, 10 ms, 50 ms). It answers u, the window's log2 ratio to the
+believed BDP, and starts as the fixed rule (u_rule everywhere) unless the
+spec sets base or init_actor. Each iteration exports the policy, runs each
 of a few training links K times (the same seed, so the same path and loss
-draws, with different exploration noise), and updates on those rollouts.
-The reward is the per-step log utility from ground truth (score.utility),
-per flow. Copies of the policy on one bottleneck (self-play) each learn
-from their own, or, with copies_reward "team", from their mean: copies are
-scored all running the policy, and a flow that learns from its own utility
-gains by pushing harder than its copies, which lowers what they all get.
-Returns are discounted by elapsed time, gamma =
-exp(-dt / tau), and each decision's advantage has its group's mean at the
-same decision taken off, on top of the value function: link-to-link spread
-dominates the returns, and the K rollouts of a link share it.
+draws, with different exploration noise), and learns from those rollouts.
+A share of the links (compete) gets competition in place of its
+condition: Cubic or BBRv1 from 0 s, or copies of the policy itself.
 
-The same loop also runs two other learners on the same rollouts (spec
-algo): TD3+BC off a replay, and DAgger from a privileged teacher, which
-labels every decision with the u a rule that knows the other flows would
-set, so the actor learns from a label at each decision rather than a
-return.
+- "ppo": the clipped policy gradient on each iteration's rollouts. The
+  reward is the per-step log utility from ground truth (score.utility),
+  per flow. Copies of the policy each learn from their own utility or,
+  with copies_reward "team", from the copies' mean: a copy that learns
+  from its own gains by pushing harder than the others, which lowers what
+  they all get. Returns are discounted by elapsed time, gamma =
+  exp(-dt / tau), and each decision's advantage has its group's mean at the
+  same decision taken off, on top of the value function: the spread
+  between links dominates the returns, and the K rollouts of a link share
+  it.
+- "td3bc": TD3+BC off a replay of the last few iterations' rollouts, with
+  the same reward.
+- "dagger": DAgger from a privileged teacher, a rule that knows which
+  other flows share the link. Every decision the actor makes is labelled
+  with the teacher's u, so it learns from a label at each decision rather
+  than from a return. The student (PPOSpec.student) learns u itself ("u"),
+  its belief that a stock TCP flow shares the link ("gate"), or that
+  belief and its belief that copies do ("gate3"); a gate student's u moves
+  from the fixed rule toward the teacher's rules by its beliefs.
+
+The critics (PPO's value network, TD3+BC's Q networks) see the actor's
+inputs, the true LCFs (critic_truth) and, with critic_flows, how many
+flows of each kind share the link. They are used in training only and
+never exported.
 """
 
 # torch's own annotations leave many signatures partly unknown (from_numpy,
@@ -93,7 +107,9 @@ class PPOSpec(BaseModel):
     # The fixed rule's exported policy, run once on the evaluation arms so
     # every evaluation is paired with it by link and condition.
     rule_policy: Path | None = None
-    u_rule: float = 0.125  # the start: the actor answers this u
+    # The fixed rule's u: where the actor starts, and what the teachers and
+    # gate students fall back to.
+    u_rule: float = 0.125
     view: Literal["bins", "means"] = "bins"  # "means": the ablation without distributions
     input_bins: Annotated[int, Field(ge=2, le=256)] | None = 32
     action_max: Annotated[float, Field(gt=0, le=8)] = 3.0
@@ -101,8 +117,8 @@ class PPOSpec(BaseModel):
     memory: bool = True  # False: the ablation without memory
     critic_hidden: PositiveInt = 256
     critic_truth: bool = True  # False: the ablation with a plain critic
-    # Iterations that update only the value network, so the actor does not
-    # follow a blank critic.
+    # Iterations before the actor's first update, so it does not follow a
+    # blank critic; the critics learn alone ("dagger" only gathers labels).
     critic_warmup: Annotated[int, Field(ge=0)] = 3
     iterations: PositiveInt = 40
     links_per_iteration: PositiveInt = 8
@@ -118,7 +134,7 @@ class PPOSpec(BaseModel):
     batch_trajectories: PositiveInt = 16
     max_grad_norm: Annotated[float, Field(gt=0)] = 0.5
     # Share of links whose condition is replaced by competition: Cubic or
-    # BBR from 0 s, or 2 to 4 copies of the policy itself.
+    # BBRv1 from 0 s, or n copies of the policy in all, n drawn from copies.
     compete: Annotated[float, Field(ge=0, le=1)] = 0.5
     copies: tuple[int, ...] = (2, 3, 4)
     # What a flow learns from where several flows run the policy (copies):
@@ -141,11 +157,12 @@ class PPOSpec(BaseModel):
     # actor by about alpha sigma^2 dQ/du: small steps around the data.
     # "dagger": DAgger (Ross, Gordon and Bagnell, 2011) with a privileged
     # teacher. The actor acts in every rollout; each of its decisions is
-    # labelled with the teacher's u, and the actor regresses on the labels
+    # labelled with the teacher's u, and the actor learns from the labels
     # of the last replay_iterations iterations (updates_per_iteration
-    # batches). The teacher is the share rule (share_k) while a stock TCP
-    # flow shares the link and the fixed rule (u_rule) otherwise: it knows
-    # the other flows, which the actor must infer from net1's output.
+    # batches). For students "u" and "gate" the teacher is the share rule
+    # (share_k) while a stock TCP flow shares the link and the fixed rule
+    # (u_rule) otherwise; "gate3" has its own teacher (below). The teacher
+    # knows the other flows, which the actor must infer from net1's output.
     algo: Literal["ppo", "td3bc", "dagger"] = "ppo"
     # What a "dagger" student learns. "u": u itself, by squared error on the
     # teacher's u. "gate": only the probability p that a stock TCP flow
@@ -156,12 +173,15 @@ class PPOSpec(BaseModel):
     # policy, each by cross-entropy on its label; the teacher is the share
     # rule with stock TCP, the mode rule's cooperative window with copies
     # only (train/share.py CoopRule), and the fixed rule otherwise. Its u
-    # is u_rule + p (share - u_rule) + (1 - p) q (coop - u_rule), p and q
-    # past gate_threshold as for "gate".
+    # is u_rule + p (share - u_rule) + (1 - p) q (coop - u_rule); both
+    # beliefs start at 0.02.
     student: Literal["u", "gate", "gate3"] = "u"
-    # A "gate" student's policy pushes only past this belief: it acts on
-    # p' = clamp((p - t) / (1 - t), 0, 1). 0 in training; set at export, as
-    # copies lose more per unit of push than a flow against Cubic gains.
+    # A gate student's policy ("gate" or "gate3") acts on each belief p
+    # only past this threshold t: p' = clamp((p - t) / (1 - t), 0, 1), as
+    # copies lose more per unit of push than a flow against Cubic gains. Set
+    # at export (experiments/gate_threshold_export.py), or here so that the
+    # rollouts DAgger labels come from the policy that would be deployed;
+    # the beliefs themselves are learned without it.
     gate_threshold: Annotated[float, Field(ge=0, lt=1)] = 0.0
     # Start the actor from a saved state (an earlier run's actor.pt) instead
     # of the rule; its width and hidden size must match this spec's.
@@ -339,7 +359,7 @@ class _CoopOffset(nn.Module):
         return self.rule(self.view(z)).squeeze(1) * SHARE_ACTION_MAX
 
 
-P0: Final = 0.02  # a "gate" student's p at the start
+P0: Final = 0.02  # a gate student's beliefs at the start
 
 
 def gated_u(p: torch.Tensor, share: torch.Tensor, u_rule: float) -> torch.Tensor:
@@ -398,7 +418,7 @@ def _gate(net1: fit.Net1, spec: PPOSpec) -> nn.Module | None:
 
 
 def teacher3_u(share_u: F32, coop_u: F32, counts: F32, u_rule: float) -> F32:
-    """student "gate3"'s teacher: the share rule's u while a stock TCP flow
+    """Student "gate3"'s teacher: the share rule's u while a stock TCP flow
     is active, else the cooperative window's while a copy is, else the
     fixed rule's."""
     rest = np.where(counts[:, 0] > 0, coop_u, np.float32(u_rule))
@@ -406,9 +426,9 @@ def teacher3_u(share_u: F32, coop_u: F32, counts: F32, u_rule: float) -> F32:
 
 
 def teacher_u(share_u: F32, counts: F32, u_rule: float) -> F32:
-    """algo "dagger"'s teacher at each decision: the share rule's u while a
-    stock TCP flow is active (counts from ``active``), the fixed rule's
-    otherwise."""
+    """The teacher of students "u" and "gate" at each decision: the share
+    rule's u while a stock TCP flow is active (counts from ``active``), the
+    fixed rule's otherwise."""
     return np.where(counts[:, 1] > 0, share_u, np.float32(u_rule)).astype(np.float32)
 
 
@@ -855,8 +875,10 @@ class _DAggerLearner:
 
     def _gaps(self, trs: list[Trajectory]) -> dict[str, float]:
         """The actor against the teacher on ``trs``: mean |u - teacher|,
-        the actor's mean u where the teacher pushes and where not, and its
-        mean p of a stock TCP flow where there is one and where not."""
+        the actor's mean u where the teacher pushes and where not, its mean
+        belief p of a stock TCP flow where there is one and where not, and
+        for "gate3" its mean belief q of copies (and p) where only copies
+        share the link, and q elsewhere."""
         with torch.no_grad():
             x, mask = _pad([tr.inp for tr in trs])
             pre = self.actor.pre(x)

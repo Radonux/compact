@@ -1,7 +1,7 @@
 [project]
 name = "expliccit-env"
 version = "0.1.0"
-description = "Real-kernel TCP experiment environment for expliCCit: labeled training data and Mahak-style performance maps"
+description = "Real Linux TCP in User-Mode Linux with the true path state at every instant: data, training and closed-loop tests of expliCCit's net1 and net2, and Mahak-style performance maps"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

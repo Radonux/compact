@@ -1,7 +1,11 @@
-"""The share rule on a net1's beliefs: the fixed rule's window, 2^u times
-the believed BDP, with u raised when net1 believes the link is busy and
-this flow gets a small share of it (experiments/share_rule_export.py
-documents its variants). A net2 that acts on net1's mean beliefs only.
+"""Two rules on a net1's mean beliefs, each a net2 that acts on net1's
+output alone.
+
+ShareRule, the share rule: the fixed rule's window, 2^u times the believed
+BDP, with u raised when net1 believes the link is busy and this flow gets
+a small share of it (experiments/share_rule_export.py documents its
+variants). CoopRule: the mode rule's cooperative window, which yields to
+copies of itself.
 """
 
 import math

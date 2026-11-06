@@ -1,9 +1,10 @@
-"""Summarize PPO net2 runs (one `expliccit train ppo` output each): at each
-evaluation, the noise-free policy's mean log utility and its difference
-from the fixed rule paired by link and condition (iteration -1 is the
-cloned start, which should match the rule); and per iteration the
-learner's diagnostics. A diagnostic, not the choice between runs, which is
-made on all validation families afterwards.
+"""Summarize net2 training runs (one `expliccit train ppo` output each, by
+PPO, TD3+BC or DAgger): at each evaluation, the noise-free policy's mean
+log utility and its difference from the fixed rule paired by link and
+condition (iteration -1 is the starting policy); and per iteration the
+learner's diagnostics, a DAgger student's against its teacher. A
+diagnostic, not the choice between runs, which the gate makes on all
+validation families afterwards (experiments/net2_ppo_gate_report.py).
 
 Usage: python experiments/net2_ppo_report.py OUT RUN_DIR...
 """
@@ -47,7 +48,7 @@ def main(out: Path, runs: list[Path]) -> None:
     lines = [
         "net2 by a learner of train/ppo.py. Evaluation: the noise-free policy on",
         "the validation links' new-conditions family, mean log utility and minus the fixed rule",
-        "(paired by link and condition; iteration -1 is the cloned start).",
+        "(paired by link and condition; iteration -1 is the starting policy).",
         "",
     ]
     for r in runs:

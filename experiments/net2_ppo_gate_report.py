@@ -1,8 +1,10 @@
-"""The PPO net2 gate on validation: each candidate's policies (one per
-training seed) against the fixed rule on net1 v5, paired by link, on every
-validation family and as copies (experiments/net2-ppo-gate.json).
+"""The gate a learned net2 must pass on validation before its one run on
+the test links: each candidate's policies (one per training seed, named
+ppo-CANDIDATE-sSEED, from `expliccit train ppo` by PPO, TD3+BC or DAgger)
+against the fixed rule on net1 v5, paired by link, on every validation
+family and as copies.
 
-The rule, fixed before the run:
+The rule, fixed before the first gate ran (experiments/net2-ppo-gate.json):
 
 - A controller's score on a link is the mean, over the link's conditions
   in a campaign, of each episode's mean log utility per 10 ms step. A
@@ -147,7 +149,7 @@ def load(out: Path) -> tuple[Scores, set[str]]:
 def markdown(cands: dict[str, Candidate], kept: str | None) -> str:
     head = [*FAMILIES, "five-family mean", "new-20, competition", "copies", "per seed"]
     lines = [
-        "PPO net2 against the fixed rule on net1 v5, validation links: per link the mean over",
+        "Learned net2 against the fixed rule on net1 v5, validation links: per link the mean over",
         "seeds of policy minus rule, then the mean over links with its 95% interval.",
         "A * marks a candidate with a failed episode.",
         "",

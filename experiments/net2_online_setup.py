@@ -1,6 +1,7 @@
-"""Everything the online net2 cells share: the fixed rule's actor on net1 v4
-as the starting point, the training paths, the validation set evaluated
-during training, and a base OnlineSpec each cell edits.
+"""Everything the cells of an `expliccit train online` experiment share:
+the fixed rule's actor on a net1 as the starting point, the training paths,
+the validation set evaluated during training, and a base OnlineSpec each
+cell edits.
 
 Usage: python experiments/net2_online_setup.py OUT --net1 NET1.pt --models DIR --u 0.125
 
@@ -20,8 +21,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# TD3+BC with 40-step returns, as the online net2 on net1 v3 (docs/training.md,
-# "Online training needs multi-step returns"); alpha and the exploration
+# TD3+BC with 40-step returns: with one-step returns, online TD3+BC on net1
+# v3 drifted below its start (docs/training.md). alpha and the exploration
 # width are each cell's.
 NET2 = {
     "algo": "td3bc",

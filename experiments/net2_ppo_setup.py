@@ -1,9 +1,9 @@
-"""Everything the PPO net2 cells share: the fixed rule on a net1 (the start,
-and the baseline every evaluation is paired with), the training paths, the
-validation set evaluated during training, and a base PPOSpec each cell
-edits.
+"""Everything the cells of an `expliccit train ppo` experiment share (PPO,
+TD3+BC or DAgger): the fixed rule on a net1 (the start, and the baseline
+every evaluation is paired with), the training paths, the validation set
+evaluated during training, and a base PPOSpec each cell edits.
 
-Usage: python experiments/net2_ppo_setup.py OUT --net1 NET1.pt --models DIR --u 0.125
+Usage: python experiments/net2_ppo_setup.py OUT --net1 NET1.pt --models DIR --u 0.25
 
 Training paths: examples/net1_broad.py's net2-train set (600 links of their
 own under 64 broad conditions); the learner over-weights competition on top

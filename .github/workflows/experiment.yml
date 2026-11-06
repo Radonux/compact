@@ -3,7 +3,7 @@ name: experiment
 # Runs one experiment file (experiments/*.json, format in tools/ci/experiment.py):
 # plan -> uml build (if needed) -> one job per cell -> collect -> publish.
 # Every successful run ends as a release, the long-term record of its result.
-# Artifacts only carry data between jobs and expire after 7 days.
+# Artifacts only carry data between jobs and expire within 7 days.
 on:
   workflow_dispatch:
     inputs:

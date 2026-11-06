@@ -1,4 +1,4 @@
-"""Command line: ``expliccit {episode,campaign,mahak-query,mahak,train} ...``."""
+"""Command line: ``expliccit {episode,campaign,mahak-query,mahak,score,train} ...``."""
 
 from __future__ import annotations
 
@@ -209,7 +209,7 @@ def _common(q: argparse.ArgumentParser) -> None:
     q.add_argument(
         "--build",
         required=True,
-        help="build-uml.sh + build-guest.sh dir",
+        help="the directory scripts/build-uml.sh and build-guest.sh wrote",
     )
     q.add_argument("--timeout", type=float, default=1800.0, help="wall-clock seconds per episode")
 
@@ -277,7 +277,7 @@ def _campaign_args(c: argparse._SubParsersAction[argparse.ArgumentParser]) -> No
     cs.add_argument("--account")
     cs.add_argument("--build", required=True)
     cs.set_defaults(fn=_slurm)
-    st = c.add_parser("status")
+    st = c.add_parser("status", help="episodes planned, and shards and episodes done")
     st.add_argument("out")
     st.set_defaults(fn=_status)
     su = c.add_parser("summary", help="per-controller metrics with bootstrap intervals over paths")
@@ -296,7 +296,8 @@ def main(argv: list[str] | None = None) -> int:
     _common(e)
     e.set_defaults(fn=_episode)
 
-    _campaign_args(sub.add_parser("campaign").add_subparsers(required=True))
+    c = sub.add_parser("campaign", help="plan a campaign once, run its shards anywhere")
+    _campaign_args(c.add_subparsers(required=True))
 
     m = sub.add_parser("mahak-query", help="Mahak oracle_query in UML: print one metric")
     _mahak_query_args(m)
@@ -315,20 +316,24 @@ def main(argv: list[str] | None = None) -> int:
     sc.add_argument("--markdown", help="also write the comparison as a Markdown table here")
     sc.set_defaults(fn=_score)
 
-    t = sub.add_parser("train", help="net1 and net2 from step data (needs the train extra)")
+    t = sub.add_parser("train", help="train net1 and net2 (needs the train extra)")
     tc = t.add_subparsers(required=True)
-    tr = tc.add_parser("run", help="train net1, net2 on it, export policy.onnx")
+    tr = tc.add_parser("run", help="net1, then net2 on it offline from step data, then policy.onnx")
     tr.add_argument("spec", help="TrainSpec JSON")
     tr.add_argument("out")
     tr.set_defaults(fn=_train)
-    to = tc.add_parser("online", help="train net2 in closed loop on a frozen net1")
+    to = tc.add_parser(
+        "online", help="net2 in closed loop on a frozen net1, off-policy from a replay buffer"
+    )
     to.add_argument("spec", help="OnlineSpec JSON")
     to.add_argument("out")
     to.add_argument("--workers", type=int, default=1, help="parallel UML guests")
     to.add_argument("--scratch", help="node-local scratch for raw records")
     _common(to)
     to.set_defaults(fn=_online)
-    tp = tc.add_parser("ppo", help="recurrent PPO for net2 on a frozen net1, from the fixed rule")
+    tp = tc.add_parser(
+        "ppo", help="recurrent net2 in closed loop on a frozen net1: PPO, TD3+BC or DAgger"
+    )
     tp.add_argument("spec", help="PPOSpec JSON")
     tp.add_argument("out")
     tp.add_argument("--workers", type=int, default=1, help="parallel UML guests")

@@ -1,4 +1,4 @@
-"""Train one net1 on campaign data and report it, as net1 v3 was trained.
+"""Train one net1 on campaign data and report it, as net1 v4 and v5 were trained.
 
 Usage: python experiments/net1_train.py OUT --spec SPEC.json --data DIR... \
            [--set KEY=VALUE ...] [--ood NAME=DIR ...] [--compare NET1.pt] [--seed 0]

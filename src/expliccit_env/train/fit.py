@@ -1,4 +1,5 @@
-"""Fitting net1 (supervised) and net2 (offline RL on frozen net1), the
+"""Fitting net1 (supervised) and net2 offline on a frozen net1 (cloning,
+TD3+BC, IQL or expliCCit's objective; online.py reuses the learner), the
 held-out report, and expliCCit's released checkpoints as our modules."""
 
 # torch's own annotations leave many signatures partly unknown (from_numpy,
@@ -542,7 +543,7 @@ def _policy_stats(pi: torch.Tensor) -> dict[str, float]:
 
 class Learner:
     """Actor, critics and their targets, updated one batch at a time. Each
-    update returns its losses and diagnostics (docs/training.md, "Tuning")."""
+    update returns its losses and diagnostics (docs/training.md)."""
 
     def __init__(self, spec: Net2Spec, k: int) -> None:
         self.spec = spec

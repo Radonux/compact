@@ -7,7 +7,8 @@
 # under stash/ (made with git plumbing, so the working tree and index are
 # untouched). .github/workflows/stash.yml then publishes the files as release
 # TAG, tagged at origin/main's commit, and deletes the branch, so the files
-# live only in the release. A file named NOTES.md becomes the release notes,
+# live only in the release (stash-sweep.yml deletes a branch that a ruleset
+# kept). A file named NOTES.md becomes the release notes,
 # and its first line (without a heading mark) the release title.
 # Each file must be under 100 MB, git's limit on GitHub; experiments read the
 # release back with "inputs": {"name": "release:TAG"}.
