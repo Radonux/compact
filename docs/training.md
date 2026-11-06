@@ -2322,26 +2322,74 @@ link, mean over three seeds, minus the rule, with 95% intervals over the
   - **What it says.** Three learners on two starts each kept their start's
     behaviour and its trade-off: none learned to push against a
     buffer-filling flow and hold back among copies.
-- **Why a round 4.** In every run of rounds 2 and 3 the policy stayed at
-  its start: after 60 iterations the spread of its u across states was
-  0.02 to 0.04 from the rule (`exp-net2-ppo-team-101`, `-flows-102`,
-  `exp-net2-td3bc-103`, `exp-net2-r3-ppo-105`, `exp-net2-r3-td3-106`),
-  and the residuals did not move from the share rule. A return
-  over thousands of decisions, each nudged by noise of sigma 0.05, carries
-  too little about any one of them. Round 4
-  (`experiments/net2-r4-dagger.json`, UNRUN) gives a label at every
-  decision instead: DAgger (Ross, Gordon and Bagnell, 2011) from a
+- **Round 4 learns from a teacher, and comes closest.** In every run of
+  rounds 2 and 3 the policy stayed at its start: after 60 iterations the
+  spread of its u across states was 0.02 to 0.04 from the rule
+  (`exp-net2-ppo-team-101`, `-flows-102`, `exp-net2-td3bc-103`,
+  `exp-net2-r3-ppo-105`, `exp-net2-r3-td3-106`), and the residuals did
+  not move from the share rule. A return over thousands of decisions,
+  each nudged by noise of sigma 0.05, carries too little about any one
+  of them. Round 4 gives a label at every decision instead: DAgger (Ross,
+  Gordon and Bagnell, 2011; `algo` `dagger` in `train/ppo.py`) from a
   teacher that knows the other flows.
   - **The teacher** is the share rule (gain k = 1 or 2) while a stock TCP
     flow shares the link, and the fixed rule otherwise: alone, with UDP,
     or among copies.
   - **The student** is the same recurrent actor on net1's output alone.
     It acts in every rollout, and it regresses on the teacher's u at
-    each decision over the last 8 iterations.
-  - **What it tests:** whether net2 can infer from net1's output what the
-    teacher is told. The training report shows the student's u where the
-    teacher pushes and where it does not, on rollouts it has not yet
-    learned from.
+    each decision over the last 8 iterations (200 batches of 16
+    trajectories per iteration; 8 links of 4 rollouts each).
+  - **Training**
+    ([`exp-net2-r4-dagger-110`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-r4-dagger-110),
+    seeds 1 to 3, 60 iterations; two cells stopped at 56 and 58 on the
+    time budget). The student left the rule: the spread of its u across
+    states was 0.16 to 0.48. It fit the teacher on its replay (imitation
+    loss 0.001 to 0.016, in u squared) but missed it by 0.15 to 0.44 on
+    average on each iteration's new rollouts. At the last iteration three
+    of six cells set a higher u where the teacher holds the rule than
+    where it pushes. Each iteration made about 12 passes over a replay
+    drawn from 64 links, so it overfit.
+  - **The gate**
+    ([`exp-net2-gate-r4-114`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r4-114);
+    policies in release `model-net2-r4-cands`; same rule, campaign seed
+    21; no episode failed). Minus the fixed rule, 95% intervals over the
+    21 validation links:
+
+    | Candidate | five-family mean | cubic-first | new, competition | copies |
+    |---|---|---|---|---|
+    | teacher gain 1 (kept) | +0.018 | +0.106 (+0.054 to +0.164) | +0.058 (+0.004 to +0.102) | -0.291 (-0.383 to -0.196) |
+    | teacher gain 2 | +0.010 | +0.179 (+0.045 to +0.325) | +0.080 (-0.005 to +0.159) | -0.542 (-0.684 to -0.407) |
+
+  - **Verdict.** The kept candidate meets three of the four conditions:
+    it beats the rule with Cubic from the start and in the competition
+    conditions, each interval above 0, and its five-family mean is
+    above the rule's. It loses 0.29 as copies, so it does not pass.
+    net2 stays the fixed rule and the share rule.
+  - **It tells copies from Cubic in part.** The same release runs the
+    share rule at the teacher's gains, which is what the teacher does
+    wherever a stock TCP flow is active. Minus BBRv3:
+
+    | Controller | Cubic from the start | copies |
+    |---|---|---|
+    | fixed rule | +0.055 | -0.101 |
+    | share rule, k = 1 | +0.227 | -0.949 |
+    | students, k = 1 (mean of 3 seeds) | +0.161 | -0.392 |
+    | share rule, k = 2 | +0.287 | -1.830 |
+    | students, k = 2 (mean of 3 seeds) | +0.234 | -0.644 |
+
+    Against Cubic the students keep 62% (k = 1) and 77% (k = 2) of the
+    share rule's gain over the fixed rule. As copies they pay 34% and
+    31% of its loss. A student that told the two apart perfectly would
+    keep all of the gain and pay none of the loss; one that could not
+    tell them apart at all would have to trade one for the other. This
+    is the first learned net2 that does both in part, from net1's output
+    alone.
+  - **Round 4c** (`experiments/net2-r4c-dagger.json`, UNRUN at the time
+    of writing) attacks the overfitting: the same 32 rollouts per
+    iteration on 32 links (K = 1), a replay of 16 iterations (512 links)
+    and about one pass over it per iteration, at teacher gain 0.5 or 1.
+    A round 4b with a larger student on round 4's data was cancelled
+    after 1.5 hours for it.
 
 ### Inference cost per decision
 

@@ -308,7 +308,10 @@ utility (log of the throughput share, minus delay and loss penalties):
   graph or as a residual on the share rule (`exp-net2-gate-r3-111`). The
   residuals beat the rule against Cubic but kept most of the share
   rule's loss as copies (-0.32). Round 4, DAgger from a teacher that
-  knows the other flows, is UNRUN at the time of writing.
+  knows the other flows, comes closest (`exp-net2-gate-r4-114`): it beats
+  the rule against Cubic and in the competition conditions and pays a
+  third of the share rule's copies loss, but still loses 0.29 as copies.
+  So net2 can partly infer the other flows from net1's output alone.
 - **Means against distributions.** On the validation links, a net2 that
   sees only the means of net1's distributions (arm A2) does at least as
   well as one that sees the distributions (A3). So far net2 gets no

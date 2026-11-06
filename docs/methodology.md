@@ -361,8 +361,15 @@ design above, on links neither network has seen, in log utility:
   Residuals that start from the share rule beat the rule with Cubic from
   the start (+0.10 to +0.11) but lose 0.32 to 0.34 as copies. Each kept
   its start's trade-off. net2 stays the fixed rule and the share rule.
-  Round 4 learns by DAgger from a privileged teacher instead
-  (`experiments/net2-r4-dagger.json`, UNRUN at the time of writing).
+  Round 4 learns by DAgger from a privileged teacher instead: the share
+  rule while a stock TCP flow is present, the fixed rule otherwise
+  (`exp-net2-gate-r4-114`). Its student, on net1's output alone, beats
+  the rule with Cubic from the start (+0.106, 0.054 to 0.164) and in the
+  competition conditions (+0.058, 0.004 to 0.102), but loses 0.29 as
+  copies. Against the share rule at the teacher's gain it keeps 62% to
+  77% of the gain against Cubic and pays 31% to 34% of the copies loss:
+  the first evidence that net2 can infer the other flows, in part, from
+  net1's output. A regularized round 4c is UNRUN at the time of writing.
 - net2 setting the window to a fixed multiple of net1's believed BDP
   beats every kernel controller on average: by 0.079 (95% interval 0.032
   to 0.123) over BBRv3, the best of them. The average is over three
