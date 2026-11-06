@@ -35,6 +35,9 @@ DAGGER = (
     ("teacher_gap_before", "gap to teacher"),
     ("p_where_tcp_before", "p where TCP"),
     ("p_elsewhere_before", "p elsewhere"),
+    ("q_where_copies_before", "q where copies"),
+    ("q_elsewhere_before", "q elsewhere"),
+    ("p_where_copies_before", "p where copies"),
     ("imitation_loss", "imitation loss"),
     ("mean_block_reward", "block reward"),
 )

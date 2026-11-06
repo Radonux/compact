@@ -1,0 +1,25 @@
+{
+  "title": "Round 7: a DAgger student that pushes against stock TCP and cooperates with its copies",
+  "description": "Every DAgger candidate so far (rounds 4 to 6) failed its gate on copies alone, losing 0.10 to 0.14 to the fixed rule there however its training changed: a student that pushes only when it believes a stock TCP flow is present still pushes among copies on a few links, and matching the rule among copies has a floor. Round 7 aims to beat the rule among copies instead. Its teacher knows the other flows: the share rule (gain k) while a stock TCP flow is active, the mode rule's cooperative window (train/share.py CoopRule: u = u0 + log2 of this flow's share plus 0.3 of the idle capacity; its copies led the fixed rule's copies by 0.44 on validation, exp-mode-val-19) while only copies of the policy are, and the fixed rule otherwise. The student (student gate3) learns two beliefs by cross-entropy, p of a stock TCP flow and q of copies, and sets u = u_rule + p (share - u_rule) + (1 - p) q (coop - u_rule), each belief past t = 0.5 in training and at export. Teacher gain k = 0.5 or 1 (k = 1 did better in the competition conditions in rounds 4 and 5 and lost more as copies, which cooperation may now pay for), the round-5 data regime (32 links of one rollout per iteration, a replay of 16 iterations, about one pass per iteration), learning rate 1e-3, the competition mix with 2 or 4 copies, sigma = 0.05, seeds 1, 2 and 3, 60 iterations, from the rule. The policies go to the round-7 gate. Validation links only.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v5": "release:exp-net1v4-recheck-79",
+    "models": "release:model-net1v3"
+  },
+  "matrix": {
+    "k": [
+      0.5,
+      1
+    ],
+    "seed": [
+      1,
+      2,
+      3
+    ]
+  },
+  "prepare": "N=\"$IN/v5/net1-d0.05-w512-s0/net1.pt\"; uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$N\" --models \"$IN/models\" --u 0.25",
+  "run": "S=\"$OUT/spec-r7-k$K-s$SEED.json\"; jq --argjson k \"$K\" --argjson seed \"$SEED\" '.algo = \"dagger\" | .student = \"gate3\" | .base = \"fixed\" | .share_k = $k | .gate_threshold = 0.5 | .critic_warmup = 0 | .lr = 0.001 | .updates_per_iteration = 50 | .replay_iterations = 16 | .tau_s = 1 | .noise_sigma = 0.05 | .group = 1 | .links_per_iteration = 32 | .compete = 0.8 | .copies = [2, 4] | .seed = $seed | .iterations = 60 | .eval_every = 20' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/ppo-r7-k$K-s$SEED\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ppo-*",
+  "timeout_minutes": 360
+}

@@ -192,6 +192,53 @@ def test_an_ensemble_gate_graph_acts_on_its_members_mean_belief() -> None:
             cwnd = cwnd * 2 ** float(a)
 
 
+@pytest.mark.parametrize(("p", "q", "t"), [(0.9, 0.2, 0.5), (0.2, 0.9, 0.5), (0.7, 0.8, 0.0)])
+def test_a_gate3_graph_mixes_the_rules_by_its_beliefs(p: float, q: float, t: float) -> None:
+    from expliccit_env.train.share import ACTION_MAX, CoopRule, ShareRule  # noqa: PLC0415
+
+    steps, net1 = _bdp_net1()
+    spec = ppo.PPOSpec(
+        paths_from=Path("unused"),
+        net1_from=Path("unused"),
+        u_rule=0.25,
+        input_bins=4,
+        hidden=8,
+        algo="dagger",
+        student="gate3",
+        share_k=2.0,
+        gate_threshold=t,
+    )
+    actor = RecurrentActor(ppo._width(net1, spec), spec.hidden, outputs=2)  # pyright: ignore[reportPrivateUsage]
+    with torch.no_grad():
+        actor.head.weight.zero_()
+        actor.head.bias.copy_(torch.tensor([np.arctanh(2 * p - 1), np.arctanh(2 * q - 1)]))
+    graph = ppo.policy_graph(net1, actor, spec)
+
+    def sharp(x: float) -> float:
+        return min(max((x - t) / (1 - t), 0.0), 1.0) if t > 0 else x
+
+    ps, qs = sharp(p), sharp(q)
+    view = fit._view(net1, "means", None)  # pyright: ignore[reportPrivateUsage]
+    assert view is not None
+    share_rule, coop_rule = ShareRule(net1, 0.25, 2.0), CoopRule(net1, 0.25)
+    obs = steps.obs[steps.episode == 0][:40].copy()
+    obs[:, OBS_MIN_RTT] = 30.0
+    state, cwnd = torch.zeros(1, graph.state_dim), 10.0
+    with torch.no_grad():
+        for row in obs:
+            o = torch.from_numpy(row[None, :])
+            a, state = graph.step(o, state, cwnd=torch.tensor([[cwnd]]))
+            assert state is not None
+            z = graph.net1(graph.scaler(o))  # pyright: ignore[reportOptionalCall]
+            if state[0, -1] > 0.5:  # a decision
+                sh = float(share_rule(view(z))) * ACTION_MAX  # pyright: ignore[reportOptionalCall]
+                co = float(coop_rule(view(z))) * ACTION_MAX  # pyright: ignore[reportOptionalCall]
+                u = 0.25 + ps * (sh - 0.25) + (1 - ps) * qs * (co - 0.25)
+                want = float(graph.target(z)) + u  # pyright: ignore[reportOptionalCall]
+                assert float(a) + np.log2(cwnd) == pytest.approx(want, abs=1e-4)
+            cwnd = cwnd * 2 ** float(a)
+
+
 def test_cloned_actor_answers_the_rule_on_any_input() -> None:
     actor = RecurrentActor(12, 8)
     actor.clone_rule(-0.4, 3.0)
@@ -364,6 +411,54 @@ def test_a_learner_can_start_from_a_saved_actor(tmp_path: Path, algo: str) -> No
         assert torch.allclose(learner.actor_target.sequence(x), saved.sequence(x))
 
 
+def test_the_gate3_teacher_pushes_with_tcp_and_cooperates_with_copies_only() -> None:
+    share = np.array([0.6, 0.6, 0.6, 0.6], np.float32)
+    coop = np.array([-0.5, -0.5, -0.5, -0.5], np.float32)
+    # copies only, Cubic and a copy, UDP only, nothing (counts over 4)
+    counts = np.array([[1, 0, 0], [1, 1, 0], [0, 0, 1], [0, 0, 0]], np.float32) / 4
+    got = ppo.teacher3_u(share, coop, counts, 0.25)
+    assert np.allclose(got, [-0.5, 0.6, 0.25, 0.25])
+
+
+def test_a_gate3_student_learns_both_beliefs() -> None:
+    torch.manual_seed(0)
+    rng = np.random.default_rng(0)
+    spec = ppo.PPOSpec(
+        paths_from=Path("unused"),
+        net1_from=Path("unused"),
+        u_rule=0.25,
+        hidden=8,
+        algo="dagger",
+        student="gate3",
+        updates_per_iteration=100,
+        batch_trajectories=8,
+        lr=3e-3,
+    )
+    learner = ppo._DAggerLearner(5, 0, spec)  # pyright: ignore[reportPrivateUsage]
+
+    def traj(k: int) -> ppo.Trajectory:
+        n = 40
+        inp = rng.standard_normal((n, 6)).astype(np.float32)
+        tcp = (inp[:, 0] > 0).astype(np.float32)
+        copies = (inp[:, 1] > 0).astype(np.float32)
+        share, coop = np.full(n, 0.75, np.float32), np.full(n, -0.25, np.float32)
+        counts = np.stack([copies, tcp, 0 * tcp], axis=1) / 4
+        teacher = ppo.teacher3_u(share, coop, counts, 0.25)
+        z = np.zeros(n, np.float32)
+        return ppo.Trajectory(
+            (k, 0), inp, inp[:, :0], z, z, z, None, teacher, tcp, share, copies, coop
+        )
+
+    first = learner.update([traj(k) for k in range(16)], rng)
+    assert abs(first["q_where_copies_before"] - ppo.P0) < 1e-4
+    logs = first
+    for _ in range(4):
+        logs = learner.update([traj(k) for k in range(16)], rng)
+    assert logs["p_where_tcp_before"] > 0.8 and logs["p_elsewhere_before"] < 0.2
+    assert logs["q_where_copies_before"] > 0.8 and logs["q_elsewhere_before"] < 0.5
+    assert logs["teacher_gap_before"] < 0.15
+
+
 def test_a_gate_student_is_learned_by_dagger_only() -> None:
     with pytest.raises(ValueError, match="gate"):
         ppo.PPOSpec(paths_from=Path("x"), net1_from=Path("x"), student="gate")
@@ -396,6 +491,7 @@ def test_noise_seed_is_left_out_unless_set(tmp_path: Path) -> None:
         ("team", True, "td3bc", "share", "u"),
         ("team", False, "dagger", "fixed", "u"),
         ("team", False, "dagger", "fixed", "gate"),
+        ("team", False, "dagger", "fixed", "gate3"),
     ],
 )
 def test_ppo_loop_runs_an_iteration_with_copies(

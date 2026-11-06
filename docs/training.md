@@ -2491,6 +2491,17 @@ link, mean over three seeds, minus the rule, with 95% intervals over the
     candidates lose 0.10 to 0.14 to the fixed rule as copies, whatever
     the student's training. Matching the rule among copies, by pushing
     only when sure, has a floor this way.
+- **Round 7** (`experiments/net2-r7-gate3.json`, UNRUN at the time of
+  writing) aims to beat the rule among copies instead of matching it.
+  - **Its teacher has three cases.** The share rule while a stock TCP
+    flow is active. The mode rule's cooperative window while only copies
+    are (`train/share.py` `CoopRule`): its copies led the fixed rule's by
+    0.44 on validation, `exp-mode-val-19`. The fixed rule otherwise.
+  - **Its student holds two beliefs** (`student` `gate3`): p of a stock TCP
+    flow and q of copies, each past t = 0.5. It sets u = u_rule +
+    p (share - u_rule) + (1 - p) q (coop - u_rule).
+  - **Its settings.** Teacher gain 0.5 or 1, the round-5 data regime,
+    seeds 1 to 3.
 
 ### Inference cost per decision
 

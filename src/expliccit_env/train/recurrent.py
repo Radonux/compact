@@ -74,13 +74,16 @@ class RecurrentActor(nn.Module):
     in [-1, 1]. ``cell`` is one step of the same GRU, written out so the
     exported graph needs only matrix products and activations."""
 
-    def __init__(self, width: int, hidden: int = 64, *, memory: bool = True) -> None:
+    def __init__(
+        self, width: int, hidden: int = 64, *, memory: bool = True, outputs: int = 1
+    ) -> None:
         super().__init__()
         # memory False: every decision starts from a zero hidden state, the
-        # same network without memory (an ablation).
-        self.width, self.hidden, self.memory = width, hidden, memory
+        # same network without memory (an ablation). outputs > 1: a vector
+        # per decision (a "gate3" student's two beliefs), [..., outputs].
+        self.width, self.hidden, self.memory, self.outputs = width, hidden, memory, outputs
         self.gru = nn.GRU(width + 1, hidden, batch_first=True)
-        self.head = nn.Linear(hidden, 1)
+        self.head = nn.Linear(hidden, outputs)
 
     def clone_rule(self, u: float, action_max: float) -> None:
         """Answer u whatever the input: a zero head with bias atanh(u / max),
@@ -89,17 +92,20 @@ class RecurrentActor(nn.Module):
             self.head.weight.zero_()
             self.head.bias.fill_(math.atanh(u / action_max))
 
+    def _out(self, y: torch.Tensor) -> torch.Tensor:
+        return y.squeeze(-1) if self.outputs == 1 else y
+
     def mean(self, h: torch.Tensor) -> torch.Tensor:
-        return torch.tanh(self.head(h)).squeeze(-1)
+        return self._out(torch.tanh(self.head(h)))
 
     def pre(self, x: torch.Tensor) -> torch.Tensor:
-        """``sequence`` before its tanh: [B, T] head outputs."""
+        """``sequence`` before its tanh: [B, T] head outputs ([B, T, outputs])."""
         if not self.memory:
             b, t, f = x.shape
             h, _ = self.gru(x.reshape(b * t, 1, f))
-            return self.head(h).reshape(b, t)
+            return self._out(self.head(h).reshape(b, t, self.outputs))
         h, _ = self.gru(x)
-        return self.head(h).squeeze(-1)
+        return self._out(self.head(h))
 
     def cell(self, x: torch.Tensor, h: torch.Tensor) -> torch.Tensor:
         if not self.memory:
