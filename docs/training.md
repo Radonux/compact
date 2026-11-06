@@ -2384,12 +2384,26 @@ link, mean over three seeds, minus the rule, with 95% intervals over the
     tell them apart at all would have to trade one for the other. This
     is the first learned net2 that does both in part, from net1's output
     alone.
-  - **Round 4c** (`experiments/net2-r4c-dagger.json`, UNRUN at the time
-    of writing) attacks the overfitting: the same 32 rollouts per
-    iteration on 32 links (K = 1), a replay of 16 iterations (512 links)
-    and about one pass over it per iteration, at teacher gain 0.5 or 1.
-    A round 4b with a larger student on round 4's data was cancelled
-    after 1.5 hours for it.
+  - **Round 4c fixes the overfitting.**
+    ([`exp-net2-r4c-dagger-113`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-r4c-dagger-113)):
+    the same 32 rollouts per iteration on 32 links (K = 1), a replay of
+    16 iterations (512 links) and about one pass over it per iteration,
+    at teacher gain 0.5 or 1. A round 4b with a larger student on round
+    4's data was cancelled after 1.5 hours for it.
+    - **Training.** At the last iteration no cell was inverted. The gap
+      to the teacher on new rollouts was 0.04 to 0.15, and the imitation
+      loss on the replay 0.003 to 0.013.
+    - **The gate**
+      ([`exp-net2-gate-r4c-118`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r4c-118);
+      policies in release `model-net2-r4c-cands`; no episode failed).
+      The kept candidate (gain 0.5) beats the rule with Cubic from the
+      start, +0.087 (+0.042 to +0.137), and in the competition
+      conditions, +0.055 (+0.011 to +0.094). Its five-family mean is
+      +0.020. It loses 0.129 (0.076 to 0.189) as copies, so it does not
+      pass. Gain 1 loses 0.234 there.
+    - **What it says.** With the overfitting gone, the copies loss falls
+      from round 4's 0.291 to 0.129.
+
 - **Round 5 learns only the switch, and the copies loss falls to a
   third.** A student that regresses on the teacher's u learns little
   about the teacher's switch wherever the share rule's push is small.
