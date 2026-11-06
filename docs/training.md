@@ -2470,12 +2470,27 @@ link, mean over three seeds, minus the rule, with 95% intervals over the
   - The loss is a few links where copies push one another. One copy's
     push deepens the queue, which then looks like a buffer-filling flow
     to the others.
-- **Round 6** (`experiments/net2-r6-gate.json`, UNRUN at the time of
-  writing) aims at that separation. It keeps teacher gain 0.5 and t =
-  0.5, now also in training, so DAgger's data come from the policy that
-  would be deployed. It continues each round-5 student for 60 more
-  iterations at learning rate 3e-4 (`init_actor`, release
-  `model-net2-r5-actors`), and trains new students from the rule.
+- **Round 6 does not move the copies loss.** It kept teacher gain 0.5 and
+  t = 0.5, now also in training, so DAgger's data come from the policy
+  that would be deployed.
+  - **Two kinds of cell, seeds 1 to 3, 60 iterations.** It continued each
+    round-5 student at learning rate 3e-4 (`init_actor`, release
+    `model-net2-r5-actors`), and trained new students from the rule
+    ([`exp-net2-r6-gate-119`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-r6-gate-119)).
+  - **Training.** Continuing lowered p where no stock TCP flow was active
+    for the two weaker round-5 seeds (0.44 to 0.31, 0.47 to 0.38).
+  - **The gate**
+    ([`exp-net2-gate-r6-122`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r6-122);
+    no episode failed). Neither candidate passes.
+    - **The kept candidate, continued from round 5:** Cubic from the
+      start +0.095 (+0.046 to +0.143). Competition conditions +0.034
+      (-0.011 to +0.072). Copies -0.135 (-0.204 to -0.078).
+    - **The new students:** copies -0.111. Competition +0.021 (-0.021 to
+      +0.059).
+  - **What it says.** Across rounds 4c, 5t, 5e and 6, the best
+    candidates lose 0.10 to 0.14 to the fixed rule as copies, whatever
+    the student's training. Matching the rule among copies, by pushing
+    only when sure, has a floor this way.
 
 ### Inference cost per decision
 
