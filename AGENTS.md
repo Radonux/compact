@@ -24,12 +24,17 @@ must keep. Implementation detail is in `docs/architecture.md`.
 - Do not edit `.github/workflows/sync-skills.yml` or the `.github/skills`
   submodule by hand: the file is the verbatim updater from BTreeMap/SKILLs,
   and the workflow bumps the submodule itself.
+- `scripts/stash.sh TAG FILE...` pushes a `stash/TAG` branch;
+  `.github/workflows/stash.yml` publishes release TAG from it and deletes
+  the branch. Delete no stash branch whose release is incomplete. If one
+  is left over, dispatch `.github/workflows/stash-sweep.yml`, which deletes
+  each stash branch whose release holds all its files.
 
 ## Before pushing
 
 Run what the change touches, and report only what actually ran:
 
-    uv run ruff format --check src tests && uv run ruff check src tests && uv run pyright
+    uv run ruff format --check src tests experiments && uv run ruff check src tests experiments && uv run pyright
     uv sync --extra train                                  # the trainer's tests need PyTorch
     uv run pytest -q                                       # unit tests
     scripts/build-uml.sh build/uml && scripts/build-guest.sh build/uml
