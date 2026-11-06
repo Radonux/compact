@@ -2245,6 +2245,20 @@ link, mean over three seeds, minus the rule, with 95% intervals over the
     to +0.020) as copies.
   - **Spread of u across states.** It stayed at 0.014 to 0.035 in training,
     as in round 1.
+- **TD3+BC on the same graph did not pass either**
+  ([`exp-net2-gate-td3-108`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-td3-108),
+  same rule).
+  - **Training** (`exp-net2-td3bc-103`): the recurrent TD3+BC learner with
+    the team reward and the flow counts, alpha 10 or 40, seeds 1 to 3. No
+    episode failed.
+  - **Five families:** within 0.006 of the rule.
+  - **Against Cubic from the start:** below the rule, -0.021 (-0.040 to
+    -0.001) for the kept candidate (alpha 40).
+  - **Competition conditions:** -0.008 (-0.043 to +0.030).
+  - **Copies:** -0.121 (-0.254 to -0.022), the size of the graph's own
+    loss (next bullet).
+  - **What it learned:** like PPO, it stayed near the rule, with no gain
+    against competition.
 - **Most of the copies loss was the graph, not the learning.** The
   held-decision graph kept a decision's window until the next decision,
   freezing the BDP that window was computed from; the rule re-reads its
