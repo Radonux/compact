@@ -1,0 +1,25 @@
+{
+  "title": "Round 4: net2 by DAgger from a privileged teacher, three seeds",
+  "description": "Every learned net2 so far stayed at the fixed rule: after 60 iterations the spread of its u across states was 0.02 to 0.03 (exp-net2-ppo-team-101, exp-net2-ppo-flows-102, exp-net2-td3bc-103), so the policy gradient from exploration noise of sigma 0.05 never found the state dependence the gate asks for. Here the signal is a label at every decision instead of a return: DAgger (Ross, Gordon and Bagnell, 2011; algo dagger in train/ppo.py). The teacher knows which flows share the link: it is the share rule on net1's mean beliefs (u0 = 0.25, push gain k) while a stock TCP flow is active, and the fixed rule (u = 0.25) otherwise, alone, with UDP or among copies. The student is the recurrent actor on net1's binned beliefs alone, as before; it acts in every rollout, each of its decisions is labelled with the teacher's u, and it regresses on the last 8 iterations' labels. It must infer from net1's output what the teacher is told. Teacher gain k = 1 or 2 (on validation the share rule gained 0.24 and 0.36 with Cubic from the start at these k, on net1 v4, and lost elsewhere, which the teacher's switch removes), learning rate 1e-3, the competition mix (80% of the links, Cubic, BBR or 2 or 4 copies), sigma = 0.05, seeds 1, 2 and 3, 60 iterations, on the held-u graph. The policies go to the round-4 gate. Validation links only.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v5": "release:exp-net1v4-recheck-79",
+    "models": "release:model-net1v3"
+  },
+  "matrix": {
+    "k": [
+      1,
+      2
+    ],
+    "seed": [
+      1,
+      2,
+      3
+    ]
+  },
+  "prepare": "N=\"$IN/v5/net1-d0.05-w512-s0/net1.pt\"; uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$N\" --models \"$IN/models\" --u 0.25",
+  "run": "S=\"$OUT/spec-r4dagger-k$K-s$SEED.json\"; jq --argjson k \"$K\" --argjson seed \"$SEED\" '.algo = \"dagger\" | .base = \"fixed\" | .share_k = $k | .critic_warmup = 0 | .lr = 0.001 | .updates_per_iteration = 200 | .replay_iterations = 8 | .tau_s = 1 | .noise_sigma = 0.05 | .group = 4 | .links_per_iteration = 8 | .compete = 0.8 | .copies = [2, 4] | .seed = $seed | .iterations = 60 | .eval_every = 20' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/ppo-r4dagger-k$K-s$SEED\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ppo-*",
+  "timeout_minutes": 360
+}

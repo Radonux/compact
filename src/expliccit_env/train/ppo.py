@@ -15,6 +15,12 @@ Returns are discounted by elapsed time, gamma =
 exp(-dt / tau), and each decision's advantage has its group's mean at the
 same decision taken off, on top of the value function: link-to-link spread
 dominates the returns, and the K rollouts of a link share it.
+
+The same loop also runs two other learners on the same rollouts (spec
+algo): TD3+BC off a replay, and DAgger from a privileged teacher, which
+labels every decision with the u a rule that knows the other flows would
+set, so the actor learns from a label at each decision rather than a
+return.
 """
 
 # torch's own annotations leave many signatures partly unknown (from_numpy,
@@ -39,7 +45,7 @@ import numpy.typing as npt
 import pyarrow as pa
 import pyarrow.parquet as pq
 import torch
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt, model_validator
 from torch import nn
 
 from expliccit_env.policy import OBS_DIM
@@ -132,7 +138,14 @@ class PPOSpec(BaseModel):
     # utility, so Q needs no rescaling (TD3+BC's alpha / mean |Q| would
     # blow up where utilities are near 0), and each iteration moves the
     # actor by about alpha sigma^2 dQ/du: small steps around the data.
-    algo: Literal["ppo", "td3bc"] = "ppo"
+    # "dagger": DAgger (Ross, Gordon and Bagnell, 2011) with a privileged
+    # teacher. The actor acts in every rollout; each of its decisions is
+    # labelled with the teacher's u, and the actor regresses on the labels
+    # of the last replay_iterations iterations (updates_per_iteration
+    # batches). The teacher is the share rule (share_k) while a stock TCP
+    # flow shares the link and the fixed rule (u_rule) otherwise: it knows
+    # the other flows, which the actor must infer from net1's output.
+    algo: Literal["ppo", "td3bc", "dagger"] = "ppo"
     # What the actor's output is added to. "fixed": nothing; the actor starts
     # as the fixed rule, u_rule everywhere. "share": the share rule on net1's
     # mean beliefs, u = u_rule + share_k * busy * max(0, 1 - share)
@@ -152,6 +165,12 @@ class PPOSpec(BaseModel):
     keep_rollouts: bool = False
     time_budget_s: PositiveInt | None = None
 
+    @model_validator(mode="after")
+    def _dagger_from_the_rule(self) -> PPOSpec:
+        if self.algo == "dagger" and self.base != "fixed":
+            raise ValueError('algo "dagger" learns the whole u: base must be "fixed"')
+        return self
+
     @classmethod
     def parse(cls, text: str) -> PPOSpec:
         return cls.model_validate_json(text)
@@ -168,6 +187,7 @@ class Trajectory:
     reward: F32  # [T] the block's summed per-step reward after the decision
     gamma: F32  # [T] exp(-dt / tau) to the next decision
     base: F32 | None = None  # [T] the rule's u the actor's output adds to (base "share")
+    teacher: F32 | None = None  # [T] the privileged teacher's u (algo "dagger")
 
 
 def _agent(policy: Path, sigma: float, noise_seed: int | None) -> AgentCC:
@@ -276,6 +296,13 @@ class _ShareOffset(nn.Module):
 
 def _offset(net1: fit.Net1, spec: PPOSpec) -> nn.Module | None:
     return _ShareOffset(net1, spec).eval() if spec.base == "share" else None
+
+
+def teacher_u(share_u: F32, counts: F32, u_rule: float) -> F32:
+    """algo "dagger"'s teacher at each decision: the share rule's u while a
+    stock TCP flow is active (counts from ``active``), the fixed rule's
+    otherwise."""
+    return np.where(counts[:, 1] > 0, share_u, np.float32(u_rule)).astype(np.float32)
 
 
 def _with_base(mu: torch.Tensor, trs: list[Trajectory]) -> torch.Tensor:
@@ -387,10 +414,15 @@ def _trajectory(
         y = np.stack([labels[k][d] * np.float32(LCF_UNITS[k][0]) for k in net1.lcfs], axis=1)
         ys = net1.lcf_scaler(torch.from_numpy(y)).numpy()
         parts.insert(0, np.where(np.isfinite(ys), ys, 0.0).astype(np.float32))
+    counts = active(rivals, d * _STEP_S)
     if spec.critic_flows:
-        parts.append(active(rivals, d * _STEP_S))
+        parts.append(counts)
     critic = np.concatenate(parts, axis=1).astype(np.float32)
-    return Trajectory(group, inp, critic, u, reward, gamma, base)
+    teacher = None
+    if spec.algo == "dagger":
+        share_u = _ShareOffset(net1, spec).eval()(z).numpy()
+        teacher = teacher_u(share_u, counts, spec.u_rule)
+    return Trajectory(group, inp, critic, u, reward, gamma, base, teacher)
 
 
 def active(rivals: npt.NDArray[np.float64], times: npt.NDArray[Any]) -> npt.NDArray[np.float32]:
@@ -676,6 +708,86 @@ class _TD3Learner:
         }
 
 
+class _DAggerLearner:
+    """algo "dagger" with the same interface as _Learner. No value network:
+    ``critic`` is empty, for run_ppo to save."""
+
+    def __init__(self, width: int, critic_width: int, spec: PPOSpec) -> None:
+        del critic_width
+        self.spec = spec
+        self.actor = RecurrentActor(width, spec.hidden, memory=spec.memory)
+        self.actor.clone_rule(spec.u_rule, spec.action_max)
+        self.critic = nn.Module()
+        self.opt_a = torch.optim.Adam(self.actor.parameters(), lr=spec.lr)
+        self.replay: list[list[Trajectory]] = []
+
+    def _gaps(self, trs: list[Trajectory]) -> dict[str, float]:
+        """The actor against the teacher on ``trs``: mean |u - teacher|,
+        and the actor's mean u where the teacher pushes and where not."""
+        with torch.no_grad():
+            x, mask = _pad([tr.inp for tr in trs])
+            mu = (self.actor.sequence(x) * self.spec.action_max)[mask.bool()].numpy()
+        y = np.concatenate([_label(tr) for tr in trs])
+        push = y != np.float32(self.spec.u_rule)
+        return {
+            "teacher_gap": float(np.abs(mu - y).mean()),
+            "u_where_push": float(mu[push].mean()) if push.any() else math.nan,
+            "u_where_rule": float(mu[~push].mean()) if (~push).any() else math.nan,
+            "teacher_push": float(push.mean()),
+            "teacher_u_where_push": float(y[push].mean()) if push.any() else math.nan,
+        }
+
+    def update(
+        self, trs: list[Trajectory], rng: np.random.Generator, *, actor: bool = True
+    ) -> dict[str, float]:
+        s = self.spec
+        before = self._gaps(trs)  # on this iteration's rollouts, before learning from them
+        self.replay = [*self.replay, trs][-s.replay_iterations :]
+        pool = [tr for batch in self.replay for tr in batch]
+        losses: list[float] = []
+        for _ in range(s.updates_per_iteration if actor else 0):
+            idx = rng.choice(len(pool), size=min(s.batch_trajectories, len(pool)), replace=False)
+            batch = [pool[i] for i in idx]
+            x, mask = _pad([tr.inp for tr in batch])
+            y, _ = _pad([_label(tr)[:, None] for tr in batch])
+            mu = self.actor.sequence(x) * s.action_max
+            loss = (((mu - y.squeeze(-1)) ** 2) * mask).sum() / mask.sum()
+            self.opt_a.zero_grad()
+            loss.backward()
+            nn.utils.clip_grad_norm_(self.actor.parameters(), s.max_grad_norm)
+            self.opt_a.step()
+            losses.append(loss.item())
+        after = self._gaps(trs)
+        with torch.no_grad():
+            x, mask = _pad([tr.inp for tr in trs])
+            mu_all = (self.actor.sequence(x) * s.action_max)[mask.bool()].numpy()
+        return (
+            {f"{k}_before": v for k, v in before.items()}
+            | after
+            | {
+                "imitation_loss": float(np.mean(losses)) if losses else math.nan,
+                "u_mean": float(mu_all.mean()),
+                "u_std": float(mu_all.std()),
+                "u_saturated": float((np.abs(mu_all) >= 0.99 * s.action_max).mean()),
+                "kl_to_rule": float(np.mean((mu_all - s.u_rule) ** 2) / (2 * s.noise_sigma**2)),
+                "u_realized_std": float(np.concatenate([tr.u for tr in trs]).std()),
+                "mean_block_reward": float(np.concatenate([tr.reward for tr in trs]).mean()),
+                "decisions": int(mu_all.size),
+                "trajectories": len(trs),
+                "replay_trajectories": len(pool),
+            }
+        )
+
+
+def _label(tr: Trajectory) -> F32:
+    if tr.teacher is None:
+        raise ValueError("algo dagger needs the teacher's u on every trajectory")
+    return tr.teacher
+
+
+_LEARNERS: Final = {"ppo": _Learner, "td3bc": _TD3Learner, "dagger": _DAggerLearner}
+
+
 def policy_graph(net1: fit.Net1, actor: RecurrentActor, spec: PPOSpec) -> HeldPolicyGraph:
     base = fit.policy_graph(
         net1,
@@ -761,7 +873,7 @@ def run_ppo(
         + (len(net1.lcfs) if spec.critic_truth else 0)
         + (len(_RIVALS) if spec.critic_flows else 0)
     )
-    learner = (_Learner if spec.algo == "ppo" else _TD3Learner)(width, critic_width, spec)
+    learner = _LEARNERS[spec.algo](width, critic_width, spec)
     train_arms = _arms(spec.paths_from, rng)
     eval_arms = _arms(spec.eval_from, rng) if spec.eval_from else []
 

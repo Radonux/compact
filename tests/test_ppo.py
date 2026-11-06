@@ -185,6 +185,51 @@ def test_td3bc_moves_the_actor_toward_the_better_action() -> None:
     assert np.isfinite(logs["critic_loss"])
 
 
+def test_the_dagger_teacher_pushes_only_while_stock_tcp_is_active() -> None:
+    share_u = np.array([0.5, 0.6, 0.7, 0.8], np.float32)
+    # copies only, Cubic and a copy, UDP only, Cubic alone (counts over 4)
+    counts = np.array([[2, 0, 0], [1, 1, 0], [0, 0, 1], [0, 1, 0]], np.float32) / 4
+    assert np.allclose(ppo.teacher_u(share_u, counts, 0.25), [0.25, 0.6, 0.25, 0.8])
+
+
+def test_dagger_needs_the_fixed_base() -> None:
+    with pytest.raises(ValueError, match="base"):
+        ppo.PPOSpec(paths_from=Path("x"), net1_from=Path("x"), algo="dagger", base="share")
+
+
+def test_dagger_learns_to_push_where_the_teacher_does() -> None:
+    # The teacher pushes to 0.75 where input 0 is positive and holds the
+    # rule's 0.25 elsewhere; the cloned actor starts at 0.25 everywhere.
+    torch.manual_seed(0)
+    rng = np.random.default_rng(0)
+    spec = ppo.PPOSpec(
+        paths_from=Path("unused"),
+        net1_from=Path("unused"),
+        u_rule=0.25,
+        hidden=8,
+        algo="dagger",
+        updates_per_iteration=100,
+        batch_trajectories=8,
+        lr=3e-3,
+    )
+    learner = ppo._DAggerLearner(5, 0, spec)  # pyright: ignore[reportPrivateUsage]
+
+    def traj(k: int) -> ppo.Trajectory:
+        n = 40
+        inp = rng.standard_normal((n, 6)).astype(np.float32)
+        teacher = np.where(inp[:, 0] > 0, 0.75, 0.25).astype(np.float32)
+        z = np.zeros(n, np.float32)
+        return ppo.Trajectory((k, 0), inp, inp[:, :0], z, z, z, None, teacher)
+
+    first = learner.update([traj(k) for k in range(16)], rng)
+    logs = first
+    for _ in range(3):
+        logs = learner.update([traj(k) for k in range(16)], rng)
+    assert first["teacher_gap_before"] > 0.2  # the clone: 0.25 everywhere
+    assert logs["teacher_gap_before"] < 0.1  # on rollouts it has not learned from
+    assert logs["u_where_push"] > 0.6 and logs["u_where_rule"] < 0.4
+
+
 def test_noise_seed_is_left_out_unless_set(tmp_path: Path) -> None:
     pol = tmp_path / "p.onnx"
     pol.write_bytes(b"x")
@@ -210,6 +255,7 @@ def test_noise_seed_is_left_out_unless_set(tmp_path: Path) -> None:
         ("own", False, "ppo", "fixed"),
         ("team", True, "ppo", "share"),
         ("team", True, "td3bc", "share"),
+        ("team", False, "dagger", "fixed"),
     ],
 )
 def test_ppo_loop_runs_an_iteration_with_copies(

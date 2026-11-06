@@ -2277,7 +2277,26 @@ link, mean over three seeds, minus the rule, with 95% intervals over the
   - The copies results of both gates above are therefore about 0.13 worse
     than the learning alone made them.
   - Round 3 (`experiments/net2-r3-ppo.json`, `net2-r3-td3.json`, UNRUN at
-    the time of writing) retrains on the fixed graph.
+    the time of writing) retrains on the fixed graph. Round 3b
+    (`net2-r3-share.json`, UNRUN) learns a residual on the share rule.
+- **Why a round 4.** In every round-2 run the policy stayed at the rule:
+  after 60 iterations the spread of its u across states was 0.02 to 0.03
+  (`exp-net2-ppo-team-101`, `-flows-102`, `exp-net2-td3bc-103`). A return
+  over thousands of decisions, each nudged by noise of sigma 0.05, carries
+  too little about any one of them. Round 4
+  (`experiments/net2-r4-dagger.json`, UNRUN) gives a label at every
+  decision instead: DAgger (Ross, Gordon and Bagnell, 2011) from a
+  teacher that knows the other flows.
+  - **The teacher** is the share rule (gain k = 1 or 2) while a stock TCP
+    flow shares the link, and the fixed rule otherwise: alone, with UDP,
+    or among copies.
+  - **The student** is the same recurrent actor on net1's output alone.
+    It acts in every rollout, and it regresses on the teacher's u at
+    each decision over the last 8 iterations.
+  - **What it tests:** whether net2 can infer from net1's output what the
+    teacher is told. The training report shows the student's u where the
+    teacher pushes and where it does not, on rollouts it has not yet
+    learned from.
 
 ### Inference cost per decision
 
