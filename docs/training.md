@@ -2491,6 +2491,17 @@ link, mean over three seeds, minus the rule, with 95% intervals over the
     candidates lose 0.10 to 0.14 to the fixed rule as copies, whatever
     the student's training. Matching the rule among copies, by pushing
     only when sure, has a floor this way.
+- **More copies in training (round 6b) does not move it either.**
+  Round 6b is round 6 with 2, 3 or 4 copies in the training mix: three
+  of five competitors, instead of two of four
+  ([`exp-net2-r6b-gate-120`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-r6b-gate-120)).
+  Its gate
+  ([`exp-net2-gate-r6b-123`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r6b-123);
+  no episode failed) does not pass.
+  - **The kept candidate (continued):** copies -0.134 (-0.227 to
+    -0.051). Competition +0.038 (-0.004 to +0.081).
+  - **The new students:** copies -0.081 (-0.161 to -0.010), the smallest
+    loss yet but still below 0. Competition +0.032 (-0.013 to +0.072).
 - **Round 7** (`experiments/net2-r7-gate3.json`, UNRUN at the time of
   writing) aims to beat the rule among copies instead of matching it.
   - **Its teacher has three cases.** The share rule while a stock TCP
