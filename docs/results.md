@@ -220,12 +220,13 @@ One learned net2 passed its gate, and on the test links it matched the
 fixed rule in every family and beat it with Cubic from the start, by
 0.042 (0.004 to 0.083). The gains are small, and the gain in the
 competition conditions shrank from +0.054 on validation to +0.019 on
-test, with an interval spanning zero: it was one of 19 gates on the same
-validation links. Reinforcement learning from the rule never moved off
-the rule. What worked is imitation of a privileged teacher (DAgger), a
-student that learns from net1's output alone two beliefs, p that a stock
-TCP flow shares the link and q that copies of itself do, a policy in
-which q vetoes the push, and the mean belief of three seeds.
+test, with an interval spanning zero. It was one of 19 gates on the same
+validation links, but it passed again, unchanged, on new validation
+episodes. Reinforcement learning from the rule never moved off the rule.
+What worked is imitation of a privileged teacher (DAgger), a student
+that learns from net1's output alone two beliefs, p that a stock TCP
+flow shares the link and q that copies of itself do, a policy in which q
+vetoes the push, and the mean belief of three seeds.
 
 Every round on net1 v5, minus the fixed rule on the 21 validation links
 (campaign seed 21); the kept candidate unless named. "Competition" is
@@ -249,6 +250,7 @@ new-20's three competition conditions.
 | 7v | Round 7's students with q vetoing the push instead of cooperating | [`exp-net2-gate-r7v-128`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r7v-128) | +0.147 (+0.069 to +0.227) | +0.059 (+0.017 to +0.099) | -0.145 (-0.211 to -0.077) |
 | 7vq | The veto with q's threshold at 0.3 or 0 (named: 0) | [`exp-net2-gate-r7vq03-130`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r7vq03-130), [`-r7vq0-131`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r7vq0-131) | +0.140 (+0.060 to +0.220) | +0.056 (+0.010 to +0.099) | -0.142 (-0.221 to -0.064) |
 | 7e | Round 7's three seeds as one policy on their mean beliefs, with the veto and q's threshold at 0 (named: gain 0.5, which passes; gain 1 lost 0.113 as copies) | [`exp-net2-gate-r7e05-133`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r7e05-133), [`-r7e1-132`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r7e1-132) | +0.086 (+0.040 to +0.139) | +0.054 (+0.004 to +0.107) | -0.005 (-0.064 to +0.049) |
+| 7e, again | Round 7e's passing candidate unchanged, on new validation episodes (campaign seed 11) | [`exp-net2-gate-r7e05-s11-137`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r7e05-s11-137) | +0.086 (+0.039 to +0.140) | +0.057 (+0.009 to +0.107) | -0.027 (-0.083 to +0.024) |
 | 8e | Round 7's students trained 60 more iterations under the veto, as 7e (named: gain 0.5; gain 1 lost 0.106 as copies) | [`exp-net2-gate-r8e05-136`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r8e05-136), [`-r8e1-135`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r8e1-135) | +0.073 (+0.020 to +0.134) | +0.029 (-0.027 to +0.082) | -0.042 (-0.082 to -0.003) |
 
 The test of round 7e's candidate
@@ -360,7 +362,10 @@ copies and 0.12 to 0.18 elsewhere; p 0.73 to 0.81 with a stock TCP flow
 and 0.14 to 0.28 with copies), but the same ensembles did worse at the
 gate: at gain 0.5 the competition interval reached -0.027 and copies
 lost 0.042. Sharper beliefs in training did not carry over to the
-validation links, which suggests that part of round 7e's pass was luck.
+validation links. Round 7e's pass was not luck of the episodes: run
+again unchanged on new validation episodes (campaign seed 11), it passed
+with nearly the same numbers. That its competition gain shrank on test
+then more likely reflects the test links than the episodes (inferred).
 
 Before the gate existed, learning from other controllers' logs failed
 (cloning and IQL on net1 v3: -0.97 to -1.61 on validation, against -0.48

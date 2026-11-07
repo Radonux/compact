@@ -178,5 +178,5 @@ links; the claim rests on that measurement. The plan:
 | H4 | UNRUN | |
 | H5 | One case: a capacity fault repaired by retraining net1 alone, net2 unchanged; alarms without ground truth missed it | [results](results.md#alarms-and-repair) |
 | H6 | The simplest net2 on net1 beats every Linux controller and Sage on test links; against a black box with the same inputs (A4) UNRUN | [results](results.md#the-split-costs-little) |
-| Learned net2 | One candidate (round 7e) passed, of 19 gates; on test it matched the fixed rule in every family and beat it with Cubic from the start (+0.042, interval +0.004 to +0.083); five-family mean +0.014 | [results](results.md#a-learned-net2-matches-the-rule-and-beats-it-against-cubic) |
+| Learned net2 | One candidate (round 7e) passed, of 19 gates, and passed again on new validation episodes; on test it matched the fixed rule in every family and beat it with Cubic from the start (+0.042, interval +0.004 to +0.083); five-family mean +0.014 | [results](results.md#a-learned-net2-matches-the-rule-and-beats-it-against-cubic) |
 | Stated uncertainty | No measurable value to net2 so far (A2 against A3) | [results](results.md#stated-uncertainty-has-not-helped-net2-yet) |
