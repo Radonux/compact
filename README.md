@@ -39,7 +39,7 @@ the claims and defines every term used below.
 4. Learned net2 has not passed its gate. Reinforcement learning from the
    rule (recurrent PPO, TD3+BC) never moved off it. Imitation of a teacher
    that knows the other flows (DAgger) partly tells copies from Cubic from
-   net1's output alone, but its candidates either lose 0.08 to 0.14 among
+   net1's output alone, but its candidates either lose 0.08 to 0.15 among
    copies or, taught to cooperate with them, give up their gain on Cubic.
 5. None of expliCCit's three checked results reproduced as stated: R^2
    above 0.9 for every LCF, the split's cost against Sage, and its

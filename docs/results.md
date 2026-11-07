@@ -219,7 +219,7 @@ is net2's to infer from how the others respond.
 No learned net2 has passed the gate. Reinforcement learning from the rule
 never moved off the rule. Imitation of a privileged teacher learns to
 tell copies from Cubic in part, but its candidates either lose 0.08 to
-0.14 to the fixed rule as copies (rounds 4c to 6b) or, taught to
+0.15 to the fixed rule as copies (rounds 4c to 6b, 7v) or, taught to
 cooperate with copies, give up their gain against Cubic (round 7).
 
 Every round on net1 v5, minus the fixed rule on the 21 validation links
@@ -240,8 +240,10 @@ new-20's three competition conditions.
 | 6 | The threshold also in training; round 5's students continued | [`exp-net2-gate-r6-122`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r6-122) | +0.095 (+0.046 to +0.143) | +0.034 (-0.011 to +0.072) | -0.135 (-0.204 to -0.078) |
 | 6b | Round 6 with more copies in training (named: new students) | [`exp-net2-gate-r6b-123`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r6b-123) | +0.079 (+0.040 to +0.123) | +0.032 (-0.013 to +0.072) | -0.081 (-0.161 to -0.010) |
 | 7 | A teacher that also cooperates with copies; the student learns p and q, its belief that copies are present | [`exp-net2-gate-r7-125`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r7-125) | +0.051 (-0.086 to +0.184) | +0.006 (-0.065 to +0.069) | -0.012 (-0.256 to +0.234) |
+| 7t | Round 7's students acting on p past 0.3 (named) or 0.4 instead of 0.5 | [`exp-net2-gate-r7t03-126`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r7t03-126), [`-r7t04-127`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r7t04-127) | +0.062 (-0.077 to +0.199) | +0.009 (-0.058 to +0.068) | -0.070 (-0.329 to +0.180) |
+| 7v | Round 7's students with q vetoing the push instead of cooperating | [`exp-net2-gate-r7v-128`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r7v-128) | +0.147 (+0.069 to +0.227) | +0.059 (+0.017 to +0.099) | -0.145 (-0.211 to -0.077) |
 
-Every candidate's five-family mean is within 0.03 of the rule's. Each
+Every candidate's five-family mean is within 0.04 of the rule's. Each
 gate's notes name its candidates' policy release (`model-net2-...`). The
 training runs: round 1 `exp-net2-ppo-search1-90`, `-search2-96`,
 `-seeds-98`; round 2 `exp-net2-ppo-team-101`, `-flows-102`,
@@ -297,6 +299,19 @@ candidate, +0.054 for the other), but so did most of the gain against
 Cubic (+0.051, against +0.079 to +0.146 in rounds 4 to 6b), and its
 copies interval (-0.256 to +0.234) is the widest of any round: among
 copies the outcome depends strongly on the link.
+
+Per link (from the round-7 gate's episodes), the cooperative window was
+the cost. With Cubic from the start, on buffers of 20 to 112 packets
+some seeds took Cubic for copies and yielded: their receive share fell
+to 0.15 to 0.5 where the rule's was 0.39 to 0.87, losing 0.4 to 1.1 on
+those links, while on deeper buffers every seed gained 0.3 to 0.6.
+Lowering the threshold on p changed little (round 7t). The beliefs are
+trained on their labels whatever the policy does, so the same students
+can act differently: with q vetoing the push instead, u = u_rule + p'(1
+- q')(share - u_rule) (round 7v), taking Cubic for copies costs at most
+the push. The gain-1 candidate then meets every gate condition but
+copies, the closest any round has come, and loses 0.145 as copies: at a
+threshold of 0.5 the veto among copies is weak.
 
 Before the gate existed, learning from other controllers' logs failed
 (cloning and IQL on net1 v3: -0.97 to -1.61 on validation, against -0.48

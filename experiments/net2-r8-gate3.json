@@ -1,0 +1,26 @@
+{
+  "title": "Round 8: round 7's students trained further with q vetoing the push",
+  "description": "Round 7's gate3 students (exp-net2-r7-gate3-124) exported with q, their belief in copies, vetoing the push (PPOSpec gate3_copies \"rule\": u = u_rule + p' (1 - q') (share - u_rule)) met every gate condition but copies at teacher gain 1 (exp-net2-gate-r7v-128): +0.147 (+0.069 to +0.227) with Cubic from the start, +0.059 (+0.017 to +0.099) in the competition conditions, five-family mean +0.037, copies -0.145 (-0.211 to -0.077). Both thresholds were 0.5 there, so among copies, where q was 0.55 to 0.72 in training, the veto q' was only 0.1 to 0.44, while q elsewhere was 0.21 to 0.26. Round 8 continues each round-7 student (release model-net2-r7-actors, PPOSpec init_actor) for 60 more iterations at learning rate 3e-4 under that veto policy (gate3_copies \"rule\", gate_threshold 0.5), so DAgger's rollouts come from the policy that would be deployed and give the beliefs more of the states where copies push and look like a buffer-filling flow. Otherwise as round 7: teacher gain k = 0.5 or 1, 32 links of one rollout per iteration, a replay of 16 iterations, about one pass per iteration, the competition mix, sigma = 0.05, seeds 1, 2 and 3. The thresholds can be set again at export. The policies go to their own gate. Validation links only.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v5": "release:exp-net1v4-recheck-79",
+    "models": "release:model-net1v3",
+    "a": "release:model-net2-r7-actors"
+  },
+  "matrix": {
+    "k": [
+      0.5,
+      1
+    ],
+    "seed": [
+      1,
+      2,
+      3
+    ]
+  },
+  "prepare": "(cd \"$IN/a\" && sha256sum -c SHA256SUMS); N=\"$IN/v5/net1-d0.05-w512-s0/net1.pt\"; uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$N\" --models \"$IN/models\" --u 0.25",
+  "run": "S=\"$OUT/spec-r8-k$K-s$SEED.json\"; jq --argjson k \"$K\" --argjson seed \"$SEED\" --arg init \"$IN/a/ppo-r7-k$K-s$SEED.actor.pt\" '.algo = \"dagger\" | .student = \"gate3\" | .gate3_copies = \"rule\" | .base = \"fixed\" | .share_k = $k | .gate_threshold = 0.5 | .init_actor = $init | .critic_warmup = 0 | .lr = 0.0003 | .updates_per_iteration = 50 | .replay_iterations = 16 | .tau_s = 1 | .noise_sigma = 0.05 | .group = 1 | .links_per_iteration = 32 | .compete = 0.8 | .copies = [2, 4] | .seed = $seed | .iterations = 60 | .eval_every = 20' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/ppo-r8-k$K-s$SEED\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ppo-*",
+  "timeout_minutes": 360
+}
