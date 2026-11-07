@@ -4,14 +4,15 @@ every evaluation is paired with), the training paths, the validation set
 evaluated during training, and a base PPOSpec each cell edits.
 
 Usage: python experiments/net2_ppo_setup.py OUT --net1 NET1.pt --models DIR --u 0.25
+       [--paths net2-train-xl]
 
 Training paths: examples/net1_broad.py's net2-train set (600 links of their
-own under 64 broad conditions); the learner over-weights competition on top
-(PPOSpec.compete). Evaluation during training: the "new" family of
-experiments/heldout.py on the validation links (Cubic from 0 s, BBRv1 from
-4 s, two Cubic flows, 0.1% and 3% loss, ACK-path loss), paired by link and
-condition with the rule; the choice between runs is made afterwards on all
-validation families.
+own under 64 broad conditions), or with --paths net2-train-xl 9,600; the
+learner over-weights competition on top (PPOSpec.compete). Evaluation
+during training: the "new" family of experiments/heldout.py on the
+validation links (Cubic from 0 s, BBRv1 from 4 s, two Cubic flows, 0.1% and
+3% loss, ACK-path loss), paired by link and condition with the rule; the
+choice between runs is made afterwards on all validation families.
 """
 
 import argparse
@@ -33,6 +34,7 @@ def main() -> None:
     p.add_argument("--net1", type=Path, required=True)
     p.add_argument("--models", type=Path, required=True, help="release model-net1v3")
     p.add_argument("--u", type=float, required=True, help="the rule's u, the starting point")
+    p.add_argument("--paths", choices=["net2-train", "net2-train-xl"], default="net2-train")
     a = p.parse_args()
     out = a.out.resolve()
     run("experiments/rule_export.py", str(out / "rule"), str(a.net1), "--u", f"{a.u:g}")
@@ -40,7 +42,7 @@ def main() -> None:
         "examples/net1_broad.py",
         str(out / "paths"),
         "--set",
-        "net2-train",
+        a.paths,
         "--models",
         str(a.models),
     )

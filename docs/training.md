@@ -117,7 +117,8 @@ share rule (`share-u0.25-k0.5.onnx`).
     uv run expliccit train ppo ppo.json out/ppo --build build/uml --workers 4
 
 The setup writes what every run shares: the fixed rule (the start and
-the baseline), the training paths (600 broad links of their own; MODELS
+the baseline), the training paths (600 broad links of their own, 9,600 with
+`--paths net2-train-xl`; MODELS
 is release `model-net1v3`, whose rule some of their episodes run), the
 validation set scored during training, and `ppo-base.json`, which each
 run edits. `train ppo` takes a `PPOSpec` (`train/ppo.py`). The actor is a
@@ -135,7 +136,7 @@ LCFs.
 | `gate_threshold`, `gate_threshold_q` | 0, none | act on a belief only past t: p' = clamp((p - t) / (1 - t), 0, 1); `gate3`'s q uses `gate_threshold_q` when set |
 | `gate3_copies` | `coop` | `gate3` where it believes copies: `coop` moves toward the cooperative window by q; `rule` lets q veto the push, u = u_rule + p (1 - q) (share - u_rule) |
 | `init_actor` | none | start from a saved `actor.pt` |
-| `compete`, `copies` | 0.5, (2, 3, 4) | share of training links with competition, and the copies drawn there |
+| `compete`, `copies`, `competition` | 0.5, (2, 3, 4), `at-start` | share of training links with competition, the copies drawn there, and when stock competitors start (`broad`: within the first 10 s, a second one half the time) |
 | `copies_reward`, `critic_flows` | `own`, false | `team`: copies learn from their mean utility; the critic also counts the flows on the link |
 | `iterations`, `links_per_iteration`, `group` | 40, 8, 4 | rollouts per iteration are links times group (K rollouts per link) |
 | `noise_sigma`, `tau_s`, `lr` | 0.1, 3.0, 3e-4 | exploration (log2 of the window), the reward's time constant, the actor's learning rate |

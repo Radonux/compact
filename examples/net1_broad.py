@@ -14,6 +14,8 @@ SET is one of:
   net2-train        net2's online rollouts on net1 v4: training links and
                     conditions, on links of their own (its controllers are
                     ignored there)
+  net2-train-xl     the same with 16 times the links, so that nearly every
+                    rollout of a learned net2 runs on a link it has not seen
 
 The held-out sets use training conditions or training links except in the
 one family they change. Training links: base capacity 4 to 150 Mbit/s,
@@ -51,6 +53,7 @@ SETS = {  # name: (links, conditions, duration s, campaign seed)
     "ood-rtt": (150, 64, 30, 4005),
     "ood-buffer": (150, 64, 30, 4006),
     "net2-train": (600, 64, 30, 4011),
+    "net2-train-xl": (9600, 64, 30, 4012),
 }
 
 

@@ -9,7 +9,8 @@ spec sets base or init_actor. Each iteration exports the policy, runs each
 of a few training links K times (the same seed, so the same path and loss
 draws, with different exploration noise), and learns from those rollouts.
 A share of the links (compete) gets competition in place of its
-condition: Cubic or BBRv1 from 0 s, or copies of the policy itself.
+condition: Cubic or BBRv1, or copies of the policy itself (PPOSpec
+competition sets when the stock flows start and how many there are).
 
 - "ppo": the clipped policy gradient on each iteration's rollouts. The
   reward is the per-step log utility from ground truth (score.utility),
@@ -137,6 +138,12 @@ class PPOSpec(BaseModel):
     # BBRv1 from 0 s, or n copies of the policy in all, n drawn from copies.
     compete: Annotated[float, Field(ge=0, le=1)] = 0.5
     copies: tuple[int, ...] = (2, 3, 4)
+    # When the competing stock flows start. "at-start": one Cubic or BBRv1
+    # flow from 0 s. "broad": that flow starts at a uniform time in the
+    # first 10 s, and half the time a second one (Cubic, BBRv1 or Reno)
+    # joins at its own such time, as the evaluation's competition does
+    # (BBRv1 from 4 s, Cubic from 2 s and 10 s). Copies start at 0 s in both.
+    competition: Literal["at-start", "broad"] = "at-start"
     # What a flow learns from where several flows run the policy (copies):
     # its own utility, or the mean of theirs at each step. A flow facing
     # other controllers always learns from its own.
@@ -257,15 +264,32 @@ def _agent(policy: Path, sigma: float, noise_seed: int | None) -> AgentCC:
     )
 
 
+BROAD_START_MS: Final = 10_000
+BROAD_SECOND: Final[tuple[StockName, ...]] = ("cubic", "bbr", "reno")
+
+
 def _competition(
-    rng: np.random.Generator, copies: tuple[int, ...], copy: AgentCC | None
+    rng: np.random.Generator,
+    copies: tuple[int, ...],
+    copy: AgentCC | None,
+    competition: Literal["at-start", "broad"] = "at-start",
 ) -> list[TcpCross | UdpCross]:
-    """Cubic or BBR from 0 s, or n - 1 copies of the policy (n in copies)."""
+    """Cubic or BBR, or n - 1 copies of the policy (n in copies) from 0 s;
+    with competition "broad", stock flows start within BROAD_START_MS and a
+    second one joins half the time."""
     choices = ["cubic", "bbr", *(f"copies{n}" for n in copies if copy is not None)]
     pick = choices[int(rng.integers(len(choices)))]
     if not pick.startswith("copies"):
         stock: StockName = "cubic" if pick == "cubic" else "bbr"
-        return [TcpCross(cc=stock, start_ms=0)]
+        if competition == "at-start":
+            return [TcpCross(cc=stock, start_ms=0)]
+        flows: list[TcpCross | UdpCross] = [
+            TcpCross(cc=stock, start_ms=int(rng.integers(0, BROAD_START_MS + 1)))
+        ]
+        if rng.random() < 0.5:
+            second = BROAD_SECOND[int(rng.integers(len(BROAD_SECOND)))]
+            flows.append(TcpCross(cc=second, start_ms=int(rng.integers(0, BROAD_START_MS + 1))))
+        return flows
     assert copy is not None
     n = int(pick.removeprefix("copies"))
     return [TcpCross(cc=copy, start_ms=0) for _ in range(n - 1)]
@@ -282,7 +306,11 @@ def _group_episodes(
     path, cond = arm
     seed, base = int(rng.integers(0, 2**63)), int(rng.integers(0, 2**62))
     template = _agent(policy, spec.noise_sigma, None)
-    cross = _competition(rng, spec.copies, template) if compete else cond.flows(path.trace)
+    cross = (
+        _competition(rng, spec.copies, template, spec.competition)
+        if compete
+        else cond.flows(path.trace)
+    )
 
     def own(c: TcpCross | UdpCross, noise: int) -> TcpCross | UdpCross:
         if isinstance(c, TcpCross) and isinstance(c.cc, AgentCC):

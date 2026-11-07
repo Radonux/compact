@@ -583,3 +583,25 @@ def test_ppo_loop_runs_an_iteration_with_copies(
     assert entry["learner"]["trajectories"] >= 2 and entry["learner"]["decisions"] > 100
     assert entry["learner"]["kl_to_rule"] >= 0 and initial["eval"]["pairs"] == 0
     assert (tmp_path / "out" / "policy.onnx").exists()
+
+
+def test_broad_competition_starts_stock_flows_late_and_adds_a_second() -> None:
+    rng = np.random.default_rng(3)
+    copy = AgentCC(policy=OnnxPolicy(path=Path("p.onnx"), sha256="0" * 64))
+    draws = [ppo._competition(rng, (2, 4), copy, "broad") for _ in range(400)]  # pyright: ignore[reportPrivateUsage]
+    stock = [d for d in draws if not any(isinstance(c.cc, AgentCC) for c in d)]  # pyright: ignore[reportAttributeAccessIssue]
+    copies = [d for d in draws if d not in stock]
+    assert stock and copies
+    assert all(c.start_ms == 0 for d in copies for c in d)  # pyright: ignore[reportAttributeAccessIssue]
+    starts = [c.start_ms for d in stock for c in d]  # pyright: ignore[reportAttributeAccessIssue]
+    assert min(starts) >= 0 and max(starts) <= ppo.BROAD_START_MS and len(set(starts)) > 50
+    assert {len(d) for d in stock} == {1, 2}
+    assert {d[0].cc for d in stock} == {"cubic", "bbr"}  # pyright: ignore[reportAttributeAccessIssue]
+
+
+def test_at_start_competition_starts_every_flow_at_zero() -> None:
+    rng = np.random.default_rng(3)
+    copy = AgentCC(policy=OnnxPolicy(path=Path("p.onnx"), sha256="0" * 64))
+    draws = [ppo._competition(rng, (2, 4), copy) for _ in range(200)]  # pyright: ignore[reportPrivateUsage]
+    assert all(c.start_ms == 0 for d in draws for c in d)  # pyright: ignore[reportAttributeAccessIssue]
+    assert all(len(d) == 1 for d in draws if not isinstance(d[0].cc, AgentCC))  # pyright: ignore[reportAttributeAccessIssue]

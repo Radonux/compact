@@ -1,0 +1,29 @@
+{
+  "title": "Round 9: round 7's students with 16 times the training links, and competition that starts late",
+  "description": "Round 7's DAgger gate3 students passed the gate as an ensemble with the veto (exp-net2-gate-r7e05-133, again on new episodes in exp-net2-gate-r7e05-s11-137) and matched the fixed rule on test, beating it with Cubic from the start (exp-net2-test-r7e-k0.5-134), but their competition gain shrank on test, and round 8, trained longer on the same 600 links, learned sharper beliefs in training yet did worse at the gate: the student generalizes poorly beyond its training data. Round 7 ran about 1,540 competition rollouts on 600 training links, about 2.6 per link, and its stock competitors always started at 0 s, while the evaluation's also start at 2, 4 and 10 s. Round 9 changes only the data. Arm links: the same learner on 9,600 training links of their own (examples/net1_broad.py set net2-train-xl, same distribution, new seed), so nearly every rollout runs on a link it has not seen. Arm broad: those links, and stock competitors that start at a uniform time in the first 10 s, with a second (Cubic, BBRv1 or Reno) half the time (PPOSpec competition \"broad\"); BBRv3 and Westwood stay held out. Everything else is round 7's: student gate3 trained from the rule with the cooperative teacher, teacher gain k = 0.5 or 1, threshold 0.5, learning rate 1e-3, 32 links of one rollout per iteration, a replay of 16 iterations, about one pass per iteration, 80% competition with Cubic, BBR or 2 or 4 copies, sigma = 0.05, seeds 1, 2 and 3, 60 iterations. Fixed before the run: each arm and teacher gain is gated as round 7e was, its three seeds as one policy on their mean beliefs with q vetoing the push, p's threshold at 0.5 and q's at 0 (four gates). Validation links only.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v5": "release:exp-net1v4-recheck-79",
+    "models": "release:model-net1v3"
+  },
+  "matrix": {
+    "arm": [
+      "links",
+      "broad"
+    ],
+    "k": [
+      0.5,
+      1
+    ],
+    "seed": [
+      1,
+      2,
+      3
+    ]
+  },
+  "prepare": "N=\"$IN/v5/net1-d0.05-w512-s0/net1.pt\"; uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$N\" --models \"$IN/models\" --u 0.25 --paths net2-train-xl",
+  "run": "S=\"$OUT/spec-r9-$ARM-k$K-s$SEED.json\"; jq --arg arm \"$ARM\" --argjson k \"$K\" --argjson seed \"$SEED\" '.algo = \"dagger\" | .student = \"gate3\" | .base = \"fixed\" | .share_k = $k | .gate_threshold = 0.5 | .critic_warmup = 0 | .lr = 0.001 | .updates_per_iteration = 50 | .replay_iterations = 16 | .tau_s = 1 | .noise_sigma = 0.05 | .group = 1 | .links_per_iteration = 32 | .compete = 0.8 | .copies = [2, 4] | .seed = $seed | .iterations = 60 | .eval_every = 20 | .competition = (if $arm == \"broad\" then \"broad\" else \"at-start\" end)' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/ppo-r9-$ARM-k$K-s$SEED\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ppo-*",
+  "timeout_minutes": 360
+}
