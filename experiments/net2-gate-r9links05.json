@@ -1,0 +1,15 @@
+{
+  "title": "net2 gate, round 9 (links): round 9's students at teacher gain 0.5 as one ensemble with the veto",
+  "description": "Round 9 (exp-net2-r9-data-138) trained round 7's DAgger gate3 learner unchanged on more diverse data: arm links, 9,600 training links of their own instead of 600, with round 7's competition (stock flows from 0 s). Here its three seeds at teacher gain 0.5 run as one policy on their mean beliefs (experiments/gate_ensemble_export.py) with q vetoing the push (gate3_copies \"rule\"), p's threshold at 0.5 and q's at 0, exactly as round 7e (exp-net2-gate-r7e05-133 passed at gain 0.5); this gate and its settings were fixed in exp-net2-r9-data-138's description before training ended. Its policy is in release model-net2-r9links05-cands (named seed 0, the ensemble of seeds 1 to 3). They run next to the fixed rule on net1 v5 (u = 0.25, release model-net1v5) and BBRv3 on the five validation families and as 2 and 4 copies for 30 s, with campaign seed 21. The share rule at k = 0.5 and 1 on net1 v5 also runs, as a reference and not a candidate: it is what the teacher does wherever a stock TCP flow is active, so with the fixed rule it bounds what the student can reach. The rule is unchanged (experiments/net2_ppo_gate_report.py): per link, the mean over a candidate's seeds of its log utility minus the rule's; the candidate kept has the highest five-family mean; the gate passes if it beats the rule in cubic-first-60 and in new-20's competition conditions, each with its 95% interval over links above 0, is at or above the rule on the five-family mean, and is not worse with copies beyond its interval. A candidate that passes runs once on the test links. Validation links only.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "c": "release:model-net2-r9links05-cands",
+    "m": "release:model-net1v5"
+  },
+  "prepare": "(cd \"$IN/c\" && sha256sum -c SHA256SUMS); (cd \"$IN/m\" && sha256sum -c SHA256SUMS); uv run python experiments/share_rule_export.py \"$OUT/share\" \"$IN/m/net1v5.pt\" --u0 0.25 --k 0.5 1; P=(--policy \"rule-v5=$IN/m/rule-u0.25.onnx\" --policy \"share-k0.5=$OUT/share/share-u0.25-k0.5.onnx\" --policy \"share-k1=$OUT/share/share-u0.25-k1.onnx\"); for f in \"$IN\"/c/ppo-*.onnx; do P+=(--policy \"$(basename \"$f\" .onnx)=$f\"); done; experiments/rule_eval.sh \"$OUT\" val 21 21 bbr3 \"${P[@]}\"; uv run python experiments/copies.py \"$OUT/copies\" --split val --duration-ms 30000 --seed 21 --n 2 4 --stock bbr3 \"${P[@]}\"; mv \"$OUT/copies/c-copies-30s\" \"$OUT/\"; jq -s add \"$OUT/aliases.json\" \"$OUT/copies/aliases.json\" > \"$OUT/a.json\"; mv \"$OUT/a.json\" \"$OUT/aliases.json\"",
+  "shards": 40,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps; done; uv run python experiments/slim_steps.py \"$OUT\"",
+  "collect": "uv run python experiments/rule_report.py \"$OUT\" --apart copies-30s && mv \"$OUT/summary.md\" \"$OUT/against-bbr3.md\" && uv run python experiments/net2_ppo_gate_report.py \"$OUT\"",
+  "timeout_minutes": 300
+}
