@@ -1,10 +1,12 @@
-"""Export several trained "gate" net2s (train/ppo.py, student "gate") as one
-policy whose belief is the mean of theirs (recurrent.EnsembleActor), with
-the switch sharpened at t as in gate_threshold_export.py. Seeds of one
-setting differ mostly in where they believe a stock TCP flow is present
-when none is, so their mean belief should cross t less often among copies.
+"""Export several trained gate net2s (train/ppo.py, student "gate" or
+"gate3") as one policy whose beliefs are the mean of theirs
+(recurrent.EnsembleActor), with the switch sharpened at t as in
+gate_threshold_export.py (and for "gate3", q at --tq and the copies policy
+--copies). Seeds of one setting misfire on different links, so their mean
+belief should cross a threshold less often where it should not.
 
 Usage: python experiments/gate_ensemble_export.py OUT NAME RUN_DIR... --t 0.5
+       [--tq 0] [--copies rule]
 Each RUN_DIR is an `expliccit train ppo` output (ppo_spec.json, net1.pt,
 actor.pt) of the same setting but its seed; writes OUT/NAME.onnx.
 """
@@ -25,17 +27,23 @@ def main() -> None:
     a.add_argument("name")
     a.add_argument("runs", type=Path, nargs="+")
     a.add_argument("--t", type=float, required=True)
+    a.add_argument("--tq", type=float)
+    a.add_argument("--copies", choices=["coop", "rule"])
     args = a.parse_args()
     specs = [ppo.PPOSpec.parse((r / "ppo_spec.json").read_text()) for r in args.runs]
     same = {s.model_copy(update={"seed": 0, "init_actor": None}).model_dump_json() for s in specs}
-    if len(same) != 1 or specs[0].student != "gate":
+    if len(same) != 1 or specs[0].student not in ("gate", "gate3"):
         raise SystemExit("the runs must be gate students of one setting, differing only in seed")
-    spec = specs[0].model_copy(update={"gate_threshold": args.t})
+    update: dict[str, object] = {"gate_threshold": args.t, "gate_threshold_q": args.tq}
+    if args.copies is not None:
+        update["gate3_copies"] = args.copies
+    spec = specs[0].model_copy(update=update)
     net1, _ = fit.load_net1(args.runs[0] / "net1.pt")
     width = ppo._width(net1, spec)  # pyright: ignore[reportPrivateUsage]
     members: list[RecurrentActor] = []
     for r in args.runs:
-        actor = RecurrentActor(width, spec.hidden, memory=spec.memory)
+        outputs = 2 if spec.student == "gate3" else 1
+        actor = RecurrentActor(width, spec.hidden, memory=spec.memory, outputs=outputs)
         actor.load_state_dict(torch.load(r / "actor.pt", weights_only=True))
         members.append(actor)
     args.out.mkdir(parents=True, exist_ok=True)

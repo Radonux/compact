@@ -242,6 +242,7 @@ new-20's three competition conditions.
 | 7 | A teacher that also cooperates with copies; the student learns p and q, its belief that copies are present | [`exp-net2-gate-r7-125`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r7-125) | +0.051 (-0.086 to +0.184) | +0.006 (-0.065 to +0.069) | -0.012 (-0.256 to +0.234) |
 | 7t | Round 7's students acting on p past 0.3 (named) or 0.4 instead of 0.5 | [`exp-net2-gate-r7t03-126`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r7t03-126), [`-r7t04-127`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r7t04-127) | +0.062 (-0.077 to +0.199) | +0.009 (-0.058 to +0.068) | -0.070 (-0.329 to +0.180) |
 | 7v | Round 7's students with q vetoing the push instead of cooperating | [`exp-net2-gate-r7v-128`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r7v-128) | +0.147 (+0.069 to +0.227) | +0.059 (+0.017 to +0.099) | -0.145 (-0.211 to -0.077) |
+| 7vq | The veto with q's threshold at 0.3 or 0 (named: 0) | [`exp-net2-gate-r7vq03-130`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r7vq03-130), [`-r7vq0-131`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r7vq0-131) | +0.140 (+0.060 to +0.220) | +0.056 (+0.010 to +0.099) | -0.142 (-0.221 to -0.064) |
 
 Every candidate's five-family mean is within 0.04 of the rule's. Each
 gate's notes name its candidates' policy release (`model-net2-...`). The
@@ -307,11 +308,18 @@ to 0.15 to 0.5 where the rule's was 0.39 to 0.87, losing 0.4 to 1.1 on
 those links, while on deeper buffers every seed gained 0.3 to 0.6.
 Lowering the threshold on p changed little (round 7t). The beliefs are
 trained on their labels whatever the policy does, so the same students
-can act differently: with q vetoing the push instead, u = u_rule + p'(1
-- q')(share - u_rule) (round 7v), taking Cubic for copies costs at most
-the push. The gain-1 candidate then meets every gate condition but
-copies, the closest any round has come, and loses 0.145 as copies: at a
-threshold of 0.5 the veto among copies is weak.
+can act differently: with q vetoing the push instead,
+`u = u_rule + p'(1 - q')(share - u_rule)` (round 7v), taking Cubic for
+copies costs at most the push. The gain-1 candidate then meets every
+gate condition but copies, the closest any round has come, and loses
+0.145 as copies. A stronger veto did not change that (round 7vq): with
+q's threshold at 0.3 or 0 the kept candidate lost 0.136 and 0.142 as
+copies. At teacher gain 0.5 and threshold 0 the copies loss fell to
+0.045 (interval -0.097 to +0.004), but that candidate's competition
+interval reached -0.010, and the gate keeps the gain-1 candidate. Per
+link, the copies loss is single seeds misfiring: in 12 of the 42 pairs
+of link and number of copies one seed lost 0.5 or more, in none did all
+three, and those cells carry 72% of the loss.
 
 Before the gate existed, learning from other controllers' logs failed
 (cloning and IQL on net1 v3: -0.97 to -1.61 on validation, against -0.48
