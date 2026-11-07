@@ -186,6 +186,13 @@ class PPOSpec(BaseModel):
     # A "gate3" student's threshold for q, its belief in copies, where it
     # differs from p's; None applies gate_threshold to both.
     gate_threshold_q: Annotated[float, Field(ge=0, lt=1)] | None = None
+    # What a "gate3" student does where it believes copies share the link.
+    # "coop": moves toward the cooperative window by q. "rule": q vetoes
+    # the push instead, u = u_rule + p (1 - q) (share - u_rule), so taking
+    # a buffer-filling flow for copies costs at most the push, while the
+    # cooperative window yields to it. The beliefs train the same either
+    # way (cross-entropy on their labels); this sets the policy that acts.
+    gate3_copies: Literal["coop", "rule"] = "coop"
     # Start the actor from a saved state (an earlier run's actor.pt) instead
     # of the rule; its width and hidden size must match this spec's.
     init_actor: Path | None = None
@@ -216,6 +223,8 @@ class PPOSpec(BaseModel):
             raise ValueError(f'student "{self.student}" is learned by algo "dagger" only')
         if self.gate_threshold_q is not None and self.student != "gate3":
             raise ValueError('gate_threshold_q is the threshold of student "gate3" only')
+        if self.gate3_copies != "coop" and self.student != "gate3":
+            raise ValueError('gate3_copies is a choice of student "gate3" only')
         return self
 
     @classmethod
@@ -390,11 +399,19 @@ class _ShareGate(nn.Module):
 
 
 def gated3_u(
-    p: torch.Tensor, q: torch.Tensor, share: torch.Tensor, coop: torch.Tensor, u_rule: float
+    p: torch.Tensor,
+    q: torch.Tensor,
+    share: torch.Tensor,
+    coop: torch.Tensor,
+    u_rule: float,
+    *,
+    copies: Literal["coop", "rule"] = "coop",
 ) -> torch.Tensor:
     """A "gate3" student's u: toward the share rule by p, the belief in a
     stock TCP flow, and otherwise toward the cooperative window by q, the
-    belief in copies."""
+    belief in copies; with copies "rule", q vetoes the push instead."""
+    if copies == "rule":
+        return u_rule + p * (1 - q) * (share - u_rule)
     return u_rule + p * (share - u_rule) + (1 - p) * q * (coop - u_rule)
 
 
@@ -411,10 +428,11 @@ class _ShareGate3(nn.Module):
         self.share, self.coop = _ShareOffset(net1, spec), _CoopOffset(net1, spec)
         self.u_rule, self.t = spec.u_rule, spec.gate_threshold
         self.tq = spec.gate_threshold if spec.gate_threshold_q is None else spec.gate_threshold_q
+        self.copies: Literal["coop", "rule"] = spec.gate3_copies
 
     def forward(self, z: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
         p, q = _sharpen((a[:, 0] + 1) / 2, self.t), _sharpen((a[:, 1] + 1) / 2, self.tq)
-        return gated3_u(p, q, self.share(z), self.coop(z), self.u_rule)
+        return gated3_u(p, q, self.share(z), self.coop(z), self.u_rule, copies=self.copies)
 
 
 def _gate(net1: fit.Net1, spec: PPOSpec) -> nn.Module | None:
@@ -557,7 +575,7 @@ def _trajectory(
     coop_u = _CoopOffset(net1, spec).eval()(z).numpy().astype(np.float32)
     tcp = (counts[:, 1] > 0).astype(np.float32)
     copies = (counts[:, 0] > 0).astype(np.float32)
-    if spec.student == "gate3":
+    if spec.student == "gate3" and spec.gate3_copies == "coop":
         teacher = teacher3_u(share_u, coop_u, counts, spec.u_rule)
     else:
         teacher = teacher_u(share_u, counts, spec.u_rule)
@@ -876,7 +894,12 @@ class _DAggerLearner:
         coop, _ = _pad([_field(tr.coop)[:, None] for tr in trs])
         pq = torch.sigmoid(2 * pre)
         return gated3_u(
-            pq[..., 0], pq[..., 1], share.squeeze(-1), coop.squeeze(-1), self.spec.u_rule
+            pq[..., 0],
+            pq[..., 1],
+            share.squeeze(-1),
+            coop.squeeze(-1),
+            self.spec.u_rule,
+            copies=self.spec.gate3_copies,
         )
 
     def _gaps(self, trs: list[Trajectory]) -> dict[str, float]:

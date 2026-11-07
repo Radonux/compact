@@ -4,7 +4,8 @@ past a belief t in a stock TCP flow, p' = clamp((p - t) / (1 - t), 0, 1).
 Copies lose more per unit of push than a flow against Cubic gains, so the
 best push under an uncertain belief is below p. Threshold 0 is the policy
 without sharpening. A "gate3" student's belief q in copies takes its own
-threshold from --tq, or t without it.
+threshold from --tq, or t without it; --copies rule exports it with q
+vetoing the push (PPOSpec gate3_copies), named with -rule before the seed.
 
 Usage: python experiments/gate_threshold_export.py OUT RUN_DIR... --t 0.3 0.5 [--tq 0.5]
 Each RUN_DIR is an `expliccit train ppo` output (ppo_spec.json, net1.pt,
@@ -32,6 +33,7 @@ def main() -> None:
     a.add_argument("runs", type=Path, nargs="+")
     a.add_argument("--t", type=float, nargs="+", required=True)
     a.add_argument("--tq", type=float, nargs="+", default=[None])
+    a.add_argument("--copies", choices=["coop", "rule"])
     args = a.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     for run in args.runs:
@@ -49,9 +51,12 @@ def main() -> None:
         for t in args.t:
             for tq in args.tq:
                 update = {"gate_threshold": t, "gate_threshold_q": tq}
+                if args.copies is not None:
+                    update["gate3_copies"] = args.copies
                 graph = ppo.policy_graph(net1, actor, spec.model_copy(update=update))
                 q = "" if tq is None else f"q{tq:g}"
-                name = f"{m['cand']}-t{t:g}{q}-s{m['seed']}.onnx"
+                r = "-rule" if args.copies == "rule" else ""
+                name = f"{m['cand']}-t{t:g}{q}{r}-s{m['seed']}.onnx"
                 (args.out / name).write_bytes(to_onnx(graph))
                 print(name)
 

@@ -6,6 +6,7 @@ from __future__ import annotations
 import itertools
 import json
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import onnx
@@ -193,11 +194,17 @@ def test_an_ensemble_gate_graph_acts_on_its_members_mean_belief() -> None:
 
 
 @pytest.mark.parametrize(
-    ("p", "q", "t", "tq"),
-    [(0.9, 0.2, 0.5, None), (0.2, 0.9, 0.5, None), (0.7, 0.8, 0.0, None), (0.6, 0.7, 0.3, 0.6)],
+    ("p", "q", "t", "tq", "copies"),
+    [
+        (0.9, 0.2, 0.5, None, "coop"),
+        (0.2, 0.9, 0.5, None, "coop"),
+        (0.7, 0.8, 0.0, None, "coop"),
+        (0.6, 0.7, 0.3, 0.6, "coop"),
+        (0.9, 0.7, 0.5, None, "rule"),
+    ],
 )
 def test_a_gate3_graph_mixes_the_rules_by_its_beliefs(
-    p: float, q: float, t: float, tq: float | None
+    p: float, q: float, t: float, tq: float | None, copies: Literal["coop", "rule"]
 ) -> None:
     from expliccit_env.train.share import ACTION_MAX, CoopRule, ShareRule  # noqa: PLC0415
 
@@ -213,6 +220,7 @@ def test_a_gate3_graph_mixes_the_rules_by_its_beliefs(
         share_k=2.0,
         gate_threshold=t,
         gate_threshold_q=tq,
+        gate3_copies=copies,
     )
     actor = RecurrentActor(ppo._width(net1, spec), spec.hidden, outputs=2)  # pyright: ignore[reportPrivateUsage]
     with torch.no_grad():
@@ -239,7 +247,10 @@ def test_a_gate3_graph_mixes_the_rules_by_its_beliefs(
             if state[0, -1] > 0.5:  # a decision
                 sh = float(share_rule(view(z))) * ACTION_MAX  # pyright: ignore[reportOptionalCall]
                 co = float(coop_rule(view(z))) * ACTION_MAX  # pyright: ignore[reportOptionalCall]
-                u = 0.25 + ps * (sh - 0.25) + (1 - ps) * qs * (co - 0.25)
+                if copies == "rule":
+                    u = 0.25 + ps * (1 - qs) * (sh - 0.25)
+                else:
+                    u = 0.25 + ps * (sh - 0.25) + (1 - ps) * qs * (co - 0.25)
                 want = float(graph.target(z)) + u  # pyright: ignore[reportOptionalCall]
                 assert float(a) + np.log2(cwnd) == pytest.approx(want, abs=1e-4)
             cwnd = cwnd * 2 ** float(a)
@@ -468,6 +479,17 @@ def test_a_gate3_student_learns_both_beliefs() -> None:
 def test_a_gate_student_is_learned_by_dagger_only() -> None:
     with pytest.raises(ValueError, match="gate"):
         ppo.PPOSpec(paths_from=Path("x"), net1_from=Path("x"), student="gate")
+
+
+def test_only_a_gate3_student_chooses_what_to_do_with_copies() -> None:
+    with pytest.raises(ValueError, match="gate3_copies"):
+        ppo.PPOSpec(
+            paths_from=Path("x"),
+            net1_from=Path("x"),
+            algo="dagger",
+            student="gate",
+            gate3_copies="rule",
+        )
 
 
 def test_only_a_gate3_student_has_a_threshold_for_copies() -> None:

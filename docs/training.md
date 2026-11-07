@@ -133,6 +133,7 @@ LCFs.
 | `base` | `fixed` | `share`: the actor learns a residual on the share rule (gain `share_k`) |
 | `u_rule`, `share_k` | 0.125, 0.5 | the fixed rule's u, and the share rule's gain (the teacher's gain for `dagger`) |
 | `gate_threshold`, `gate_threshold_q` | 0, none | act on a belief only past t: p' = clamp((p - t) / (1 - t), 0, 1); `gate3`'s q uses `gate_threshold_q` when set |
+| `gate3_copies` | `coop` | `gate3` where it believes copies: `coop` moves toward the cooperative window by q; `rule` lets q veto the push, u = u_rule + p (1 - q) (share - u_rule) |
 | `init_actor` | none | start from a saved `actor.pt` |
 | `compete`, `copies` | 0.5, (2, 3, 4) | share of training links with competition, and the copies drawn there |
 | `copies_reward`, `critic_flows` | `own`, false | `team`: copies learn from their mean utility; the critic also counts the flows on the link |
