@@ -252,6 +252,8 @@ new-20's three competition conditions.
 | 7e | Round 7's three seeds as one policy on their mean beliefs, with the veto and q's threshold at 0 (named: gain 0.5, which passes; gain 1 lost 0.113 as copies) | [`exp-net2-gate-r7e05-133`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r7e05-133), [`-r7e1-132`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r7e1-132) | +0.086 (+0.040 to +0.139) | +0.054 (+0.004 to +0.107) | -0.005 (-0.064 to +0.049) |
 | 7e, again | Round 7e's passing candidate unchanged, on new validation episodes (campaign seed 11) | [`exp-net2-gate-r7e05-s11-137`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r7e05-s11-137) | +0.086 (+0.039 to +0.140) | +0.057 (+0.009 to +0.107) | -0.027 (-0.083 to +0.024) |
 | 8e | Round 7's students trained 60 more iterations under the veto, as 7e (named: gain 0.5; gain 1 lost 0.106 as copies) | [`exp-net2-gate-r8e05-136`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r8e05-136), [`-r8e1-135`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r8e1-135) | +0.073 (+0.020 to +0.134) | +0.029 (-0.027 to +0.082) | -0.042 (-0.082 to -0.003) |
+| 9 | Round 7's learner on 16 times the training links (named: gain 0.5; gain 1 had competition +0.026) | [`exp-net2-gate-r9links05-140`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r9links05-140), [`-r9links1-139`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r9links1-139) | +0.070 (+0.027 to +0.125) | +0.013 (-0.020 to +0.042) | -0.041 (-0.087 to +0.006) |
+| 9b | Those links with stock competitors that join within the first 10 s (named: gain 0.5; gain 1 had +0.020 with Cubic from the start) | [`exp-net2-gate-r9broad05-142`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r9broad05-142), [`-r9broad1-141`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r9broad1-141) | +0.015 (-0.010 to +0.043) | +0.039 (+0.004 to +0.078) | -0.033 (-0.100 to +0.025) |
 
 The test of round 7e's candidate
 ([`exp-net2-test-r7e-k0.5-134`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-test-r7e-k0.5-134)),
@@ -282,7 +284,7 @@ training runs: round 1 `exp-net2-ppo-search1-90`, `-search2-96`,
 `-share-109`; round 4 `exp-net2-r4-dagger-110`, 4c `-r4c-dagger-113`;
 round 5 `exp-net2-r5-gate-115`; round 6 `exp-net2-r6-gate-119`, 6b
 `-r6b-gate-120`; round 7 `exp-net2-r7-gate3-124`; round 8
-`exp-net2-r8-gate3-129`.
+`exp-net2-r8-gate3-129`; round 9 `exp-net2-r9-data-138`.
 
 Reinforcement learning stayed at its start. After 60 iterations the
 spread of u across states was 0.02 to 0.04 for every PPO and TD3+BC
@@ -356,16 +358,22 @@ Averaging the three seeds' beliefs (round 7e) dilutes one seed's
 misfire. At teacher gain 0.5 the copies loss fell to 0.005 and the
 candidate passed; at gain 1 copies still lost 0.113.
 
-Training round 7's students 60 more iterations under the veto (round 8)
-sharpened their beliefs over the last 10 iterations (q 0.68 to 0.82 with
-copies and 0.12 to 0.18 elsewhere; p 0.73 to 0.81 with a stock TCP flow
-and 0.14 to 0.28 with copies), but the same ensembles did worse at the
-gate: at gain 0.5 the competition interval reached -0.027 and copies
-lost 0.042. Sharper beliefs in training did not carry over to the
-validation links. Round 7e's pass was not luck of the episodes: run
-again unchanged on new validation episodes (campaign seed 11), it passed
-with nearly the same numbers. That its competition gain shrank on test
-then more likely reflects the test links than the episodes (inferred).
+Neither more training nor more data beat round 7e. Round 8 trained its
+students 60 more iterations under the veto; round 9 trained round 7's
+learner on 9,600 links instead of 600, so that nearly every rollout ran
+on a link it had not seen, with competitors from 0 s as before (9) or
+joining within the first 10 s (9b). Rounds 8 and 9b sharpened the
+beliefs in training (9b: p 0.69 to 0.84 with a stock TCP flow and 0.11
+to 0.17 with copies; q 0.72 to 0.78 with copies and 0.10 to 0.18
+elsewhere, over the last 10 iterations), but none did better at the
+gate. Changing the data moved the gain between conditions rather than
+raising it: 9b cleared the competition interval but fell to +0.015 with
+Cubic from the start. The student seems limited by something other than
+the amount or kind of its training data (inferred). Round 7e's pass
+itself was not luck of the episodes: run again unchanged on new
+validation episodes (campaign seed 11), it passed with nearly the same
+numbers, so its smaller competition gain on test more likely reflects
+the test links (inferred).
 
 Before the gate existed, learning from other controllers' logs failed
 (cloning and IQL on net1 v3: -0.97 to -1.61 on validation, against -0.48
