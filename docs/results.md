@@ -249,6 +249,7 @@ new-20's three competition conditions.
 | 7v | Round 7's students with q vetoing the push instead of cooperating | [`exp-net2-gate-r7v-128`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r7v-128) | +0.147 (+0.069 to +0.227) | +0.059 (+0.017 to +0.099) | -0.145 (-0.211 to -0.077) |
 | 7vq | The veto with q's threshold at 0.3 or 0 (named: 0) | [`exp-net2-gate-r7vq03-130`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r7vq03-130), [`-r7vq0-131`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r7vq0-131) | +0.140 (+0.060 to +0.220) | +0.056 (+0.010 to +0.099) | -0.142 (-0.221 to -0.064) |
 | 7e | Round 7's three seeds as one policy on their mean beliefs, with the veto and q's threshold at 0 (named: gain 0.5, which passes; gain 1 lost 0.113 as copies) | [`exp-net2-gate-r7e05-133`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r7e05-133), [`-r7e1-132`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r7e1-132) | +0.086 (+0.040 to +0.139) | +0.054 (+0.004 to +0.107) | -0.005 (-0.064 to +0.049) |
+| 8e | Round 7's students trained 60 more iterations under the veto, as 7e (named: gain 0.5; gain 1 lost 0.106 as copies) | [`exp-net2-gate-r8e05-136`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r8e05-136), [`-r8e1-135`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r8e1-135) | +0.073 (+0.020 to +0.134) | +0.029 (-0.027 to +0.082) | -0.042 (-0.082 to -0.003) |
 
 The test of round 7e's candidate
 ([`exp-net2-test-r7e-k0.5-134`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-test-r7e-k0.5-134)),
@@ -278,7 +279,8 @@ training runs: round 1 `exp-net2-ppo-search1-90`, `-search2-96`,
 `exp-net2-td3bc-103`; round 3 `exp-net2-r3-ppo-105`, `-td3-106`,
 `-share-109`; round 4 `exp-net2-r4-dagger-110`, 4c `-r4c-dagger-113`;
 round 5 `exp-net2-r5-gate-115`; round 6 `exp-net2-r6-gate-119`, 6b
-`-r6b-gate-120`; round 7 `exp-net2-r7-gate3-124`.
+`-r6b-gate-120`; round 7 `exp-net2-r7-gate3-124`; round 8
+`exp-net2-r8-gate3-129`.
 
 Reinforcement learning stayed at its start. After 60 iterations the
 spread of u across states was 0.02 to 0.04 for every PPO and TD3+BC
@@ -351,6 +353,14 @@ three, and those cells carry 72% of the loss.
 Averaging the three seeds' beliefs (round 7e) dilutes one seed's
 misfire. At teacher gain 0.5 the copies loss fell to 0.005 and the
 candidate passed; at gain 1 copies still lost 0.113.
+
+Training round 7's students 60 more iterations under the veto (round 8)
+sharpened their beliefs over the last 10 iterations (q 0.68 to 0.82 with
+copies and 0.12 to 0.18 elsewhere; p 0.73 to 0.81 with a stock TCP flow
+and 0.14 to 0.28 with copies), but the same ensembles did worse at the
+gate: at gain 0.5 the competition interval reached -0.027 and copies
+lost 0.042. Sharper beliefs in training did not carry over to the
+validation links, which suggests that part of round 7e's pass was luck.
 
 Before the gate existed, learning from other controllers' logs failed
 (cloning and IQL on net1 v3: -0.97 to -1.61 on validation, against -0.48
