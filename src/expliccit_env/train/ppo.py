@@ -183,6 +183,9 @@ class PPOSpec(BaseModel):
     # rollouts DAgger labels come from the policy that would be deployed;
     # the beliefs themselves are learned without it.
     gate_threshold: Annotated[float, Field(ge=0, lt=1)] = 0.0
+    # A "gate3" student's threshold for q, its belief in copies, where it
+    # differs from p's; None applies gate_threshold to both.
+    gate_threshold_q: Annotated[float, Field(ge=0, lt=1)] | None = None
     # Start the actor from a saved state (an earlier run's actor.pt) instead
     # of the rule; its width and hidden size must match this spec's.
     init_actor: Path | None = None
@@ -211,6 +214,8 @@ class PPOSpec(BaseModel):
             raise ValueError('algo "dagger" learns the whole u: base must be "fixed"')
         if self.student != "u" and self.algo != "dagger":
             raise ValueError(f'student "{self.student}" is learned by algo "dagger" only')
+        if self.gate_threshold_q is not None and self.student != "gate3":
+            raise ValueError('gate_threshold_q is the threshold of student "gate3" only')
         return self
 
     @classmethod
@@ -399,16 +404,17 @@ def _sharpen(p: torch.Tensor, t: float) -> torch.Tensor:
 
 class _ShareGate3(nn.Module):
     """net1's output and the actor's two outputs in [-1, 1] -> a "gate3"
-    student's u, with its beliefs (a + 1) / 2 past spec.gate_threshold."""
+    student's u, with its beliefs (a + 1) / 2 past their thresholds."""
 
     def __init__(self, net1: fit.Net1, spec: PPOSpec) -> None:
         super().__init__()
         self.share, self.coop = _ShareOffset(net1, spec), _CoopOffset(net1, spec)
         self.u_rule, self.t = spec.u_rule, spec.gate_threshold
+        self.tq = spec.gate_threshold if spec.gate_threshold_q is None else spec.gate_threshold_q
 
     def forward(self, z: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
-        pq = _sharpen((a + 1) / 2, self.t)
-        return gated3_u(pq[:, 0], pq[:, 1], self.share(z), self.coop(z), self.u_rule)
+        p, q = _sharpen((a[:, 0] + 1) / 2, self.t), _sharpen((a[:, 1] + 1) / 2, self.tq)
+        return gated3_u(p, q, self.share(z), self.coop(z), self.u_rule)
 
 
 def _gate(net1: fit.Net1, spec: PPOSpec) -> nn.Module | None:

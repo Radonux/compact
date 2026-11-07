@@ -192,8 +192,13 @@ def test_an_ensemble_gate_graph_acts_on_its_members_mean_belief() -> None:
             cwnd = cwnd * 2 ** float(a)
 
 
-@pytest.mark.parametrize(("p", "q", "t"), [(0.9, 0.2, 0.5), (0.2, 0.9, 0.5), (0.7, 0.8, 0.0)])
-def test_a_gate3_graph_mixes_the_rules_by_its_beliefs(p: float, q: float, t: float) -> None:
+@pytest.mark.parametrize(
+    ("p", "q", "t", "tq"),
+    [(0.9, 0.2, 0.5, None), (0.2, 0.9, 0.5, None), (0.7, 0.8, 0.0, None), (0.6, 0.7, 0.3, 0.6)],
+)
+def test_a_gate3_graph_mixes_the_rules_by_its_beliefs(
+    p: float, q: float, t: float, tq: float | None
+) -> None:
     from expliccit_env.train.share import ACTION_MAX, CoopRule, ShareRule  # noqa: PLC0415
 
     steps, net1 = _bdp_net1()
@@ -207,6 +212,7 @@ def test_a_gate3_graph_mixes_the_rules_by_its_beliefs(p: float, q: float, t: flo
         student="gate3",
         share_k=2.0,
         gate_threshold=t,
+        gate_threshold_q=tq,
     )
     actor = RecurrentActor(ppo._width(net1, spec), spec.hidden, outputs=2)  # pyright: ignore[reportPrivateUsage]
     with torch.no_grad():
@@ -214,10 +220,10 @@ def test_a_gate3_graph_mixes_the_rules_by_its_beliefs(p: float, q: float, t: flo
         actor.head.bias.copy_(torch.tensor([np.arctanh(2 * p - 1), np.arctanh(2 * q - 1)]))
     graph = ppo.policy_graph(net1, actor, spec)
 
-    def sharp(x: float) -> float:
+    def sharp(x: float, t: float) -> float:
         return min(max((x - t) / (1 - t), 0.0), 1.0) if t > 0 else x
 
-    ps, qs = sharp(p), sharp(q)
+    ps, qs = sharp(p, t), sharp(q, t if tq is None else tq)
     view = fit._view(net1, "means", None)  # pyright: ignore[reportPrivateUsage]
     assert view is not None
     share_rule, coop_rule = ShareRule(net1, 0.25, 2.0), CoopRule(net1, 0.25)
@@ -462,6 +468,17 @@ def test_a_gate3_student_learns_both_beliefs() -> None:
 def test_a_gate_student_is_learned_by_dagger_only() -> None:
     with pytest.raises(ValueError, match="gate"):
         ppo.PPOSpec(paths_from=Path("x"), net1_from=Path("x"), student="gate")
+
+
+def test_only_a_gate3_student_has_a_threshold_for_copies() -> None:
+    with pytest.raises(ValueError, match="gate_threshold_q"):
+        ppo.PPOSpec(
+            paths_from=Path("x"),
+            net1_from=Path("x"),
+            algo="dagger",
+            student="gate",
+            gate_threshold_q=0.5,
+        )
 
 
 def test_noise_seed_is_left_out_unless_set(tmp_path: Path) -> None:
