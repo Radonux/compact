@@ -214,13 +214,18 @@ LCFs: it describes the other endpoints, not the path, changes as flows
 come and go, and one sender's measurements fit several values of it. It
 is net2's to infer from how the others respond.
 
-## Learned net2 has not passed its gate
+## A learned net2 matches the rule and beats it against Cubic
 
-No learned net2 has passed the gate. Reinforcement learning from the rule
-never moved off the rule. Imitation of a privileged teacher learns to
-tell copies from Cubic in part, but its candidates either lose 0.08 to
-0.15 to the fixed rule as copies (rounds 4c to 6b, 7v) or, taught to
-cooperate with copies, give up their gain against Cubic (round 7).
+One learned net2 passed its gate, and on the test links it matched the
+fixed rule in every family and beat it with Cubic from the start, by
+0.042 (0.004 to 0.083). The gains are small, and the gain in the
+competition conditions shrank from +0.054 on validation to +0.019 on
+test, with an interval spanning zero: it was one of 19 gates on the same
+validation links. Reinforcement learning from the rule never moved off
+the rule. What worked is imitation of a privileged teacher (DAgger), a
+student that learns from net1's output alone two beliefs, p that a stock
+TCP flow shares the link and q that copies of itself do, a policy in
+which q vetoes the push, and the mean belief of three seeds.
 
 Every round on net1 v5, minus the fixed rule on the 21 validation links
 (campaign seed 21); the kept candidate unless named. "Competition" is
@@ -243,6 +248,28 @@ new-20's three competition conditions.
 | 7t | Round 7's students acting on p past 0.3 (named) or 0.4 instead of 0.5 | [`exp-net2-gate-r7t03-126`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r7t03-126), [`-r7t04-127`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r7t04-127) | +0.062 (-0.077 to +0.199) | +0.009 (-0.058 to +0.068) | -0.070 (-0.329 to +0.180) |
 | 7v | Round 7's students with q vetoing the push instead of cooperating | [`exp-net2-gate-r7v-128`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r7v-128) | +0.147 (+0.069 to +0.227) | +0.059 (+0.017 to +0.099) | -0.145 (-0.211 to -0.077) |
 | 7vq | The veto with q's threshold at 0.3 or 0 (named: 0) | [`exp-net2-gate-r7vq03-130`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r7vq03-130), [`-r7vq0-131`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r7vq0-131) | +0.140 (+0.060 to +0.220) | +0.056 (+0.010 to +0.099) | -0.142 (-0.221 to -0.064) |
+| 7e | Round 7's three seeds as one policy on their mean beliefs, with the veto and q's threshold at 0 (named: gain 0.5, which passes; gain 1 lost 0.113 as copies) | [`exp-net2-gate-r7e05-133`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r7e05-133), [`-r7e1-132`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r7e1-132) | +0.086 (+0.040 to +0.139) | +0.054 (+0.004 to +0.107) | -0.005 (-0.064 to +0.049) |
+
+The test of round 7e's candidate
+([`exp-net2-test-r7e-k0.5-134`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-test-r7e-k0.5-134)),
+27 test links, once, no failed episode; the net2 minus the fixed rule,
+paired by link, and each minus BBRv3 in the same run:
+
+| Family | net2 minus the rule | net2 minus BBRv3 | rule minus BBRv3 |
+|---|---|---|---|
+| training-20 | -0.003 (-0.014 to +0.008) | +0.083 | +0.085 |
+| training-60 | +0.014 (+0.004 to +0.025) | +0.128 | +0.114 |
+| new-20 | +0.009 (-0.008 to +0.026) | +0.274 | +0.264 |
+| deep-long-20 | +0.005 (-0.009 to +0.019) | +0.253 | +0.248 |
+| cubic-first-60 | +0.042 (+0.004 to +0.083) | -0.014 | -0.056 |
+| five-family mean | +0.014 | +0.145 | +0.131 |
+| new-20, competition | +0.019 (-0.015 to +0.051) | | |
+| held-competitors-60 | | +0.103 | +0.084 |
+| copies-30s | +0.035 (-0.031 to +0.102) | +0.035 | +0.000 |
+
+The rule's scores differ a little from `exp-final-test-100`'s (-0.056
+against -0.041 with Cubic from the start); each comparison here is
+within this run.
 
 Every candidate's five-family mean is within 0.04 of the rule's. Each
 gate's notes name its candidates' policy release (`model-net2-...`). The
@@ -320,6 +347,10 @@ interval reached -0.010, and the gate keeps the gain-1 candidate. Per
 link, the copies loss is single seeds misfiring: in 12 of the 42 pairs
 of link and number of copies one seed lost 0.5 or more, in none did all
 three, and those cells carry 72% of the loss.
+
+Averaging the three seeds' beliefs (round 7e) dilutes one seed's
+misfire. At teacher gain 0.5 the copies loss fell to 0.005 and the
+candidate passed; at gain 1 copies still lost 0.113.
 
 Before the gate existed, learning from other controllers' logs failed
 (cloning and IQL on net1 v3: -0.97 to -1.61 on validation, against -0.48

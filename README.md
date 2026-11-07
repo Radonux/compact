@@ -36,11 +36,11 @@ the claims and defines every term used below.
    flow (Cubic) pays, pushing against copies of oneself hurts, and the
    seven LCFs do not say which is present. Told the number of flows, a
    rule on the true state handles both (an oracle bound).
-4. Learned net2 has not passed its gate. Reinforcement learning from the
-   rule (recurrent PPO, TD3+BC) never moved off it. Imitation of a teacher
-   that knows the other flows (DAgger) partly tells copies from Cubic from
-   net1's output alone, but its candidates either lose 0.08 to 0.15 among
-   copies or, taught to cooperate with them, give up their gain on Cubic.
+4. A learned net2 matched the rule and beat it only against Cubic. RL
+   from the rule (recurrent PPO, TD3+BC) never moved off it. Imitation of
+   a teacher that knows the other flows (DAgger), with a student inferring
+   stock TCP and copies of itself from net1's output, matched the rule on
+   every test family and beat it with Cubic from the start (+0.042).
 5. None of expliCCit's three checked results reproduced as stated: R^2
    above 0.9 for every LCF, the split's cost against Sage, and its
    case-study diagnosis.

@@ -126,7 +126,8 @@ zero). Otherwise net2 stays the fixed rule and the share rule.
 Testing. The test links run once, after every choice is fixed:
 [`exp-final-test-100`](https://github.com/Radonux/palaestra/releases/tag/exp-final-test-100)
 (campaign seeds 13 and 31). A learned net2 that passes a later gate runs
-on them once, on its own.
+on them once, on its own (round 7e:
+[`exp-net2-test-r7e-k0.5-134`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-test-r7e-k0.5-134)).
 
 ## Arms
 
@@ -177,5 +178,5 @@ links; the claim rests on that measurement. The plan:
 | H4 | UNRUN | |
 | H5 | One case: a capacity fault repaired by retraining net1 alone, net2 unchanged; alarms without ground truth missed it | [results](results.md#alarms-and-repair) |
 | H6 | The simplest net2 on net1 beats every Linux controller and Sage on test links; against a black box with the same inputs (A4) UNRUN | [results](results.md#the-split-costs-little) |
-| Learned net2 | No candidate has passed its gate (rounds 1 to 7) | [results](results.md#learned-net2-has-not-passed-its-gate) |
+| Learned net2 | One candidate (round 7e) passed, of 19 gates; on test it matched the fixed rule in every family and beat it with Cubic from the start (+0.042, interval +0.004 to +0.083); five-family mean +0.014 | [results](results.md#a-learned-net2-matches-the-rule-and-beats-it-against-cubic) |
 | Stated uncertainty | No measurable value to net2 so far (A2 against A3) | [results](results.md#stated-uncertainty-has-not-helped-net2-yet) |
