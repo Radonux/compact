@@ -177,5 +177,5 @@ links; the claim rests on that measurement. The plan:
 | H4 | UNRUN | |
 | H5 | One case: a capacity fault repaired by retraining net1 alone, net2 unchanged; alarms without ground truth missed it | [results](results.md#alarms-and-repair) |
 | H6 | The simplest net2 on net1 beats every Linux controller and Sage on test links; against a black box with the same inputs (A4) UNRUN | [results](results.md#the-split-costs-little) |
-| Learned net2 | No candidate has passed its gate; round 7 is UNRUN | [results](results.md#learned-net2-has-not-passed-its-gate) |
+| Learned net2 | No candidate has passed its gate (rounds 1 to 7) | [results](results.md#learned-net2-has-not-passed-its-gate) |
 | Stated uncertainty | No measurable value to net2 so far (A2 against A3) | [results](results.md#stated-uncertainty-has-not-helped-net2-yet) |

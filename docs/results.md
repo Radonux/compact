@@ -217,9 +217,10 @@ is net2's to infer from how the others respond.
 ## Learned net2 has not passed its gate
 
 No learned net2 has passed the gate. Reinforcement learning from the rule
-never moved off the rule; imitation of a privileged teacher learns to
-tell copies from Cubic in part, but its best candidates still lose 0.08
-to 0.14 to the fixed rule as copies.
+never moved off the rule. Imitation of a privileged teacher learns to
+tell copies from Cubic in part, but its candidates either lose 0.08 to
+0.14 to the fixed rule as copies (rounds 4c to 6b) or, taught to
+cooperate with copies, give up their gain against Cubic (round 7).
 
 Every round on net1 v5, minus the fixed rule on the 21 validation links
 (campaign seed 21); the kept candidate unless named. "Competition" is
@@ -238,7 +239,7 @@ new-20's three competition conditions.
 | 5e | One policy on the mean belief of round 5t's three gain-0.5 students | [`exp-net2-gate-r5e-121`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r5e-121) | +0.088 (+0.037 to +0.143) | +0.021 (-0.032 to +0.070) | -0.112 (-0.233 to -0.014) |
 | 6 | The threshold also in training; round 5's students continued | [`exp-net2-gate-r6-122`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r6-122) | +0.095 (+0.046 to +0.143) | +0.034 (-0.011 to +0.072) | -0.135 (-0.204 to -0.078) |
 | 6b | Round 6 with more copies in training (named: new students) | [`exp-net2-gate-r6b-123`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r6b-123) | +0.079 (+0.040 to +0.123) | +0.032 (-0.013 to +0.072) | -0.081 (-0.161 to -0.010) |
-| 7 | A teacher that also cooperates with copies; the student learns p and q, its belief that copies are present (`experiments/net2-r7-gate3.json`) | UNRUN at the time of writing (training in run #124) | | | |
+| 7 | A teacher that also cooperates with copies; the student learns p and q, its belief that copies are present | [`exp-net2-gate-r7-125`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r7-125) | +0.051 (-0.086 to +0.184) | +0.006 (-0.065 to +0.069) | -0.012 (-0.256 to +0.234) |
 
 Every candidate's five-family mean is within 0.03 of the rule's. Each
 gate's notes name its candidates' policy release (`model-net2-...`). The
@@ -247,7 +248,7 @@ training runs: round 1 `exp-net2-ppo-search1-90`, `-search2-96`,
 `exp-net2-td3bc-103`; round 3 `exp-net2-r3-ppo-105`, `-td3-106`,
 `-share-109`; round 4 `exp-net2-r4-dagger-110`, 4c `-r4c-dagger-113`;
 round 5 `exp-net2-r5-gate-115`; round 6 `exp-net2-r6-gate-119`, 6b
-`-r6b-gate-120`.
+`-r6b-gate-120`; round 7 `exp-net2-r7-gate3-124`.
 
 Reinforcement learning stayed at its start. After 60 iterations the
 spread of u across states was 0.02 to 0.04 for every PPO and TD3+BC
@@ -276,7 +277,7 @@ tell the two apart in part. Round 4 overfit (about 12 passes per
 iteration over a replay drawn from 64 links); round 4c fixed that, and
 its copies loss fell from 0.291 to 0.129.
 
-Matching the rule among copies has a floor. From round 4c on, the best
+Matching the rule among copies has a floor. From round 4c to 6b, the best
 candidates lose 0.08 to 0.14 as copies however training changed. A seed's
 copies loss follows how well it told the cases apart in training: the
 round-5t seed whose belief p was 0.78 with a stock TCP flow and 0.13
@@ -284,8 +285,18 @@ without lost 0.02 as copies, the two with p of 0.44 and 0.47 without lost
 0.13 to 0.16. The loss sits on a few links (7 of 42 copies episodes in
 round 5e set a window more than 0.1 above the rule's, in log2), where one
 copy's push deepens the queue, which then looks like a buffer-filling
-flow to the others. Round 7 therefore aims to beat the rule among copies:
-its teacher uses the cooperative window while only copies share the link.
+flow to the others.
+
+Cooperating with copies moved the trade-off rather than removing it.
+Round 7's teacher uses the cooperative window (the mode rule's, above)
+while only copies share the link. Its students learned q, a belief that
+copies are present: over the last 10 training iterations, 0.55 to 0.72
+with copies and 0.21 to 0.26 elsewhere, while p stayed at 0.21 to 0.35
+with copies. The copies loss vanished on average (-0.012 for the kept
+candidate, +0.054 for the other), but so did most of the gain against
+Cubic (+0.051, against +0.079 to +0.146 in rounds 4 to 6b), and its
+copies interval (-0.256 to +0.234) is the widest of any round: among
+copies the outcome depends strongly on the link.
 
 Before the gate existed, learning from other controllers' logs failed
 (cloning and IQL on net1 v3: -0.97 to -1.61 on validation, against -0.48
