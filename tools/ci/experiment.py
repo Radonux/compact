@@ -39,8 +39,10 @@ Usage: python tools/ci/experiment.py plan|prepare|fetch|run|collect|pack FILE_OR
 import itertools
 import json
 import os
+import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Annotated, Self
 
@@ -183,7 +185,6 @@ def fetch(exp: Experiment) -> None:
     repo = os.environ["GITHUB_REPOSITORY"]
     for name, ref in exp.inputs.items():
         tmp = REPO / "in" / f".{name}"
-        tmp.mkdir(parents=True, exist_ok=True)
         kind, _, what = ref.partition(":")
         if kind == "release":
             cmd = ["gh", "release", "download", what, "--dir", str(tmp), "--repo", repo]
@@ -201,9 +202,21 @@ def fetch(exp: Experiment) -> None:
                 "--repo",
                 repo,
             ]
-        subprocess.run(cmd, check=True)
+        download(cmd, tmp)
         unpack(tmp, REPO / "in" / name)
         tmp.rmdir()
+
+
+def download(cmd: list[str], into: Path) -> None:
+    """Run a gh download into an empty directory, retrying: GitHub's API
+    fails now and then (HTTP 500), and one failed shard fails the run."""
+    for wait in (4, 16, 64, 0):
+        shutil.rmtree(into, ignore_errors=True)
+        into.mkdir(parents=True)
+        if subprocess.run(cmd, check=False).returncode == 0:
+            return
+        time.sleep(wait)
+    raise SystemExit(f"{' '.join(cmd)}: failed 4 times")
 
 
 def pack(name: str) -> None:

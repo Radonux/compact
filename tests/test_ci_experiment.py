@@ -79,3 +79,30 @@ def test_unpack_joins_each_packed_result_and_moves_other_files(tmp_path: Path) -
     assert sorted(p.name for p in dest.iterdir()) == ["NOTES.md", "a.txt", "b.txt"]
     assert (dest / "a.txt").read_text() == "a" * 100
     assert not list(src.iterdir())
+
+
+def test_a_download_retries_into_a_clean_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    into, calls = tmp_path / "in", []
+
+    def run(cmd: list[str], check: bool) -> subprocess.CompletedProcess[bytes]:
+        calls.append(sorted(p.name for p in into.iterdir()))
+        (into / "partial").write_text("x")
+        return subprocess.CompletedProcess(cmd, 0 if len(calls) == 3 else 1)
+
+    monkeypatch.setattr(experiment.subprocess, "run", run)
+    monkeypatch.setattr(experiment.time, "sleep", lambda _: None)
+    experiment.download(["gh", "release", "download", "x"], into)
+    assert calls == [[], [], []]
+
+
+def test_a_download_gives_up_after_four_failures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        experiment.subprocess, "run", lambda cmd, check: subprocess.CompletedProcess(cmd, 1)
+    )
+    monkeypatch.setattr(experiment.time, "sleep", lambda _: None)
+    with pytest.raises(SystemExit, match="failed 4 times"):
+        experiment.download(["gh", "x"], tmp_path / "in")
