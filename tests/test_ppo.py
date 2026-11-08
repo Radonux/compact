@@ -270,6 +270,33 @@ def test_held_graph_exports_with_state_and_cwnd() -> None:
     assert [o.name for o in m.graph.output] == ["a", "next_state"]
 
 
+def test_the_black_box_aims_at_the_measured_bdp_and_reads_no_belief() -> None:
+    steps, net1 = _bdp_net1()
+    spec = ppo.PPOSpec(
+        paths_from=Path("unused"), net1_from=Path("unused"), u_rule=0.25, hidden=8, inputs="raw"
+    )
+    width = ppo._width(net1, spec)  # pyright: ignore[reportPrivateUsage]
+    assert width == net1.scaler.cols.numel()
+    actor = RecurrentActor(width, spec.hidden)
+    actor.clone_rule(0.25, spec.action_max)
+    graph = ppo.policy_graph(net1, actor, spec)
+    obs = steps.obs[steps.episode == 0][:5].copy()
+    obs[:, ppo._MAX_DELIVERED] = 0.5  # 50 Mbit/s  # pyright: ignore[reportPrivateUsage]
+    obs[:, ppo._MIN_RTT_MS] = 24.0  # pyright: ignore[reportPrivateUsage]
+    bdp = np.log2(50e6 * 0.024 / 12_000)  # 100 packets
+    for p in net1.net.parameters():  # no belief reaches the black box
+        p.data.fill_(float("nan"))
+    with torch.no_grad():
+        a, _ = graph.step(
+            torch.from_numpy(obs[:1]), torch.zeros(1, graph.state_dim), cwnd=torch.tensor([[10.0]])
+        )
+    assert float(a) + np.log2(10.0) == pytest.approx(bdp + 0.25, abs=1e-4)
+    m = onnx.load_from_string(to_onnx(graph))
+    assert [i.name for i in m.graph.input] == ["obs", "state", "cwnd"]
+    with pytest.raises(ValueError, match="no net1 rule"):
+        ppo.PPOSpec(paths_from=Path("u"), net1_from=Path("u"), inputs="raw", base="share")
+
+
 def _traj(group: tuple[int, int], reward: np.ndarray) -> ppo.Trajectory:
     n = reward.size
     z = np.zeros((n, 3), np.float32)

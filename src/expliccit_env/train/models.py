@@ -226,7 +226,7 @@ class ScaledMeans(nn.Module):
 
 
 # Bits per packet in the BDP: Mahimahi's 1500-byte packets.
-_PACKET_BITS = 1500 * 8
+PACKET_BITS = 1500 * 8
 
 
 class WindowTarget(nn.Module):
@@ -240,7 +240,7 @@ class WindowTarget(nn.Module):
 
     def forward(self, z: torch.Tensor) -> torch.Tensor:
         mean = self.means(z)
-        bdp = mean[:, self.capacity] * 1e6 * mean[:, self.one_way] * 2e-3 / _PACKET_BITS
+        bdp = mean[:, self.capacity] * 1e6 * mean[:, self.one_way] * 2e-3 / PACKET_BITS
         return torch.log2(torch.clamp(bdp, min=1.0))
 
 
@@ -344,7 +344,7 @@ class PolicyGraph(nn.Module):
         # empty: the first six, as expliCCit's deployed controller does.
         self.register_buffer("rounded", torch.zeros(0, dtype=torch.bool))
         self.view: nn.Module | None = None
-        self.target: WindowTarget | None = None
+        self.target: nn.Module | None = None  # WindowTarget, or a measured BDP (train/ppo.py)
 
     def take_from_truth(
         self,

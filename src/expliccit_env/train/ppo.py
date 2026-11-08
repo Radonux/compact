@@ -51,6 +51,7 @@ import json
 import math
 import shutil
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any, Final, Literal, cast
@@ -63,7 +64,7 @@ import torch
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt, model_validator
 from torch import nn
 
-from expliccit_env.policy import OBS_DIM
+from expliccit_env.policy import OBS_COLUMNS, OBS_DIM
 from expliccit_env.spec import (
     STOCK_NAMES,
     AgentCC,
@@ -77,6 +78,7 @@ from expliccit_env.spec import (
 )
 from expliccit_env.train import fit, score
 from expliccit_env.train.export import to_onnx
+from expliccit_env.train.models import PACKET_BITS, PolicyGraph, Scaler
 from expliccit_env.train.online import _arms, _run  # pyright: ignore[reportPrivateUsage]
 from expliccit_env.train.recurrent import (
     OBS_MIN_RTT,
@@ -234,6 +236,12 @@ class PPOSpec(BaseModel):
     # (train/share.py); the actor starts at 0, so training starts from the
     # share rule and learns a residual on it.
     base: Literal["fixed", "share"] = "fixed"
+    # What the actor reads. "net1": net1's beliefs (the split). "raw": the
+    # black box (arm A4): the measurements net1 reads, through net1's input
+    # scaler, with the window aimed at a measured BDP (the windowed maximum
+    # delivery rate times the minimum RTT, as BBR estimates it) instead of
+    # net1's. net1 then serves only as that scaler and the evaluation's rule.
+    inputs: Literal["net1", "raw"] = "net1"
     share_k: Annotated[float, Field(ge=0)] = 0.5
     alpha: Annotated[float, Field(gt=0)] = 20.0
     updates_per_iteration: PositiveInt = 200
@@ -261,6 +269,10 @@ class PPOSpec(BaseModel):
             raise ValueError('init_critic continues algo "ppo" only')
         if self.alone + self.compete > 1:
             raise ValueError("alone and compete are shares of the links: at most 1 together")
+        if self.inputs == "raw" and (self.algo != "ppo" or self.base != "fixed"):
+            raise ValueError(
+                'inputs "raw" has no net1 rule to start from: algo "ppo", base "fixed"'
+            )
         return self
 
     @classmethod
@@ -582,12 +594,52 @@ def _with_base(mu: torch.Tensor, trs: list[Trajectory]) -> torch.Tensor:
     return mu + b.squeeze(-1)
 
 
-def _views(net1: fit.Net1, spec: PPOSpec) -> tuple[nn.Module | None, nn.Module]:
+_MAX_DELIVERED: Final = OBS_COLUMNS.index("max_delivered_x100mbps")
+_MIN_RTT_MS: Final = OBS_COLUMNS.index("min_rtt_ms")
+
+
+class RawInputs(nn.Module):
+    """The black box's stand-in for net1 (PPOSpec.inputs "raw"): obs ->
+    [the measurements as net1's input scaler gives them, then log2 of the
+    measured BDP in packets]. The measured BDP is the guest's windowed
+    maximum delivery rate times its minimum RTT, at least one packet."""
+
+    def __init__(self, scaler: Scaler) -> None:
+        super().__init__()
+        self.scaler = scaler
+
+    def forward(self, obs: torch.Tensor) -> torch.Tensor:
+        bits = obs[:, _MAX_DELIVERED] * 1e8 * obs[:, _MIN_RTT_MS] * 1e-3
+        bdp = torch.log2(torch.clamp(torch.nan_to_num(bits) / PACKET_BITS, min=1.0))
+        return torch.cat([self.scaler(obs), bdp.unsqueeze(1)], dim=1)
+
+
+class _Features(nn.Module):
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        return z[:, :-1]
+
+
+class _MeasuredBdp(nn.Module):
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        return z[:, -1]
+
+
+def _views(
+    net1: fit.Net1, spec: PPOSpec
+) -> tuple[Callable[[F32], torch.Tensor], nn.Module | None, nn.Module]:
+    """What turns a flow's obs into net1's output z (or the black box's
+    stand-in), z into the actor's input, and z into log2 of the BDP the
+    window is aimed at."""
+    if spec.inputs == "raw":
+        raw = RawInputs(net1.scaler).eval()
+        return (lambda obs: raw(torch.from_numpy(obs))), _Features(), _MeasuredBdp()
     view = fit._view(net1, spec.view, spec.input_bins if spec.view == "bins" else None)  # pyright: ignore[reportPrivateUsage]
-    return view, fit.window_target(net1)
+    return (lambda obs: torch.from_numpy(net1.beliefs(obs))), view, fit.window_target(net1)
 
 
 def _width(net1: fit.Net1, spec: PPOSpec) -> int:
+    if spec.inputs == "raw":
+        return int(net1.scaler.cols.numel())
     return fit.net2_width(
         net1,
         Net2Spec(
@@ -638,6 +690,7 @@ def _trajectory(
     utility: npt.NDArray[np.float32],
     net1: fit.Net1,
     *,
+    encode: Callable[[F32], torch.Tensor],
     view: nn.Module | None,
     target: nn.Module,
     spec: PPOSpec,
@@ -657,7 +710,7 @@ def _trajectory(
     d = d[d + 1 < n]  # a decision's realized window is the next step's
     if d.size < 2:
         return None
-    z = torch.from_numpy(net1.beliefs(obs[d]))
+    z = encode(obs[d])
     x = (z if view is None else view(z)).numpy()
     lb = target(z).numpy()
     u = (np.log2(np.maximum(cwnd[d + 1], 1.0)) - lb).astype(np.float32)
@@ -714,7 +767,7 @@ def _trajectories(
     rivals: dict[str, npt.NDArray[np.float64]],
 ) -> list[Trajectory]:
     """Every agent flow of every ok rollout episode."""
-    view, target = _views(net1, spec)
+    encode, view, target = _views(net1, spec)
     out: list[Trajectory] = []
     flows_of: dict[str, list[tuple[int, pa.Table]]] = {}
     for shard in sorted(rollouts.glob("shards/*")):
@@ -746,6 +799,7 @@ def _trajectories(
                 t,
                 u,
                 net1,
+                encode=encode,
                 view=view,
                 target=target,
                 spec=spec,
@@ -1131,6 +1185,18 @@ def _make_learner(
 def policy_graph(
     net1: fit.Net1, actor: RecurrentActor | EnsembleActor, spec: PPOSpec
 ) -> HeldPolicyGraph:
+    if spec.inputs == "raw":
+        n = OBS_DIM
+        identity = Scaler(
+            tuple(range(n)),
+            np.full(n, -3.0e38, np.float32),
+            np.full(n, 3.0e38, np.float32),
+            np.zeros(n, np.float32),
+            np.ones(n, np.float32),
+        )
+        raw = PolicyGraph(identity, RawInputs(net1.scaler), net1.lcf_scaler, actor, spec.action_max)
+        raw.view, raw.target = _Features(), _MeasuredBdp()
+        return HeldPolicyGraph(raw, actor).eval()
     base = fit.policy_graph(
         net1,
         actor,

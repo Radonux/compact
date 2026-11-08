@@ -1,0 +1,25 @@
+{
+  "title": "Round 19: the split against a black box with the same inputs, learner and training (arm A4, H6)",
+  "description": "Two arms that differ only in what the actor reads, each trained by the same recurrent PPO from the reward (team reward among copies, privileged critic, held exploration sigma 0.2 for 200 ms, round 15's copies mixture: competition on 60% of the links, half of it 2 or 4 copies, the flow alone on 35%, diverse competitors, 30 s episodes, tau 1 s, 120 iterations, seeds 1 to 3). net1: net1 v6's beliefs (release exp-net1v6-149), the window aimed at 2^u times net1's believed BDP, starting as the fixed rule (u = 0.25). raw: the black box, the 78 measurements net1 reads through net1's input scaler and no belief, the window aimed at 2^u times a measured BDP (the guest's windowed maximum delivery rate times its minimum RTT, as BBR estimates it), starting at u = 0.25 on that BDP. Both are scored every 20 iterations against the fixed rule on net1 v6 on the validation links.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v6": "release:exp-net1v6-149",
+    "models": "release:model-net1v3"
+  },
+  "matrix": {
+    "arm": [
+      "net1",
+      "raw"
+    ],
+    "seed": [
+      1,
+      2,
+      3
+    ]
+  },
+  "prepare": "N=\"$IN/v6/net1-v6-s0/net1.pt\"; uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$N\" --models \"$IN/models\" --u 0.25 --paths net2-train-xl",
+  "run": "S=\"$OUT/spec-r19-$ARM-s$SEED.json\"; jq --arg arm \"$ARM\" --argjson seed \"$SEED\" '.algo = \"ppo\" | .base = \"fixed\" | .inputs = $arm | .copies_reward = \"team\" | .critic_flows = true | .noise_sigma = 0.2 | .noise_hold_steps = 20 | .tau_s = 1 | .group = 4 | .links_per_iteration = 8 | .lr = 0.0003 | .copies = [2, 4] | .competition = \"diverse\" | .alone = 0.35 | .compete = 0.6 | .seed = $seed | .iterations = 120 | .eval_every = 20' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/ppo-r19-$ARM-s$SEED\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ppo-*",
+  "timeout_minutes": 360
+}
