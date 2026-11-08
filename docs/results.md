@@ -299,88 +299,100 @@ round 5 `exp-net2-r5-gate-115`; round 6 `exp-net2-r6-gate-119`, 6b
 `exp-net2-r12-mix-147`; round 13 `exp-net2-r13-alone-151`; on net1 v6,
 round 14 `exp-net2-r14-v6-154`, round 15 run 156 (no release; its final
 copies-arm policies are in `model-net2-v6-cands`), round 16
-`exp-net2-r16-long-157`.
+`exp-net2-r16-long-157`, round 14's stage 2 `exp-net2-r14-s2-158`.
 
 Reinforcement learning first stayed at its start, then learned what its
-training mixture rewarded. In rounds 1 to 3, after 60 iterations, the
-spread of u across states was 0.02 to 0.04 for every PPO and TD3+BC
-learner: exploration noise of sigma 0.05 drawn anew at each decision
-tells a return over thousands of decisions too little about any one.
-Holding each draw for 200 ms at sigma 0.2 (round 10) moved PPO off the
-rule (spread 0.3 to 0.6), toward larger windows: +0.05 to +0.07 with
-Cubic from the start but -0.22 to -0.39 where the flow was alone, because
-competition on 80% of the training links left it alone on about 8% of
-them, against half of the evaluation's. A longer discount horizon pushed
-harder (round 11: at tau 20 s the window reached 4 to 7 times the
-believed BDP and the policy lost 1.5 to 2.2), and trained always alone
-the same learner lowered the window and beat the rule there by up to
-0.08 (round 13). The learner follows its objective; the mixture sets the
+training mixture rewarded. In rounds 1 to 3 the spread of u across states
+after 60 iterations was 0.02 to 0.04 for every PPO and TD3+BC learner:
+noise of sigma 0.05 drawn anew at each decision tells a return over
+thousands of decisions too little about any one. Held for 200 ms at sigma
+0.2 (round 10), it moved PPO off the rule (spread 0.3 to 0.6) toward
+larger windows: +0.05 to +0.07 with Cubic from the start but -0.22 to
+-0.39 alone, since competition on 80% of the training links left the flow
+alone on about 8% of them, against half of the evaluation's. A longer
+horizon pushed harder (round 11: at tau 20 s the window reached 4 to 7
+times the believed BDP, losing 1.5 to 2.2), and trained always alone the
+same learner lowered the window and beat the rule there by up to 0.08
+(round 13). The learner follows its objective; the mixture sets the
 direction. With the flow alone on about half the links (round 12), PPO
-matched the rule on every family, but beat it nowhere beyond the noise
-and lost about 0.1 as copies. Longer episodes did not help. From net1
-v6's rule at equal compute per iteration (round 16), 120 s episodes did
-no better than 30 s ones at tau 1 s, and at tau 5 s they kept pushing
-(mean u 0.6 to 1.5) and stayed 0.4 to 1.5 below the rule, where 30 s
-episodes dipped and came back to the rule's level (round 14). A long
-episode holds long stretches where a competitor yields to a push, and
-two links per update instead of eight (inferred).
+matched the rule on every family, beat it nowhere beyond the noise,
+and lost about 0.1 as copies. Longer episodes did not help: at equal
+compute per iteration (round 16, net1 v6), 120 s episodes did no better
+than 30 s ones at tau 1 s, and at tau 5 s they kept pushing (mean u 0.6
+to 1.5) and stayed 0.4 to 1.5 below the rule. A long episode holds long
+stretches where a competitor yields to a push, and gives two links per
+update instead of eight (inferred).
 
-A graph bug cost rounds 1 and 2 about 0.13 as copies. The exported graph
-held a decision's window until the next decision, freezing the BDP it was
-computed from, where the rule re-reads its belief every step. The
-untrained clone of the rule lost 0.132 to the rule as copies with the held
-window, and came within 0.003 of it once each step aimed at that step's
-believed BDP
-([`exp-net2-clone-copies-107`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-clone-copies-107),
-fixed in `85de8d0`).
+On net1 v6, PPO gains more against competitors than any earlier net2
+and loses more as copies. Its final policies, each over three seeds,
+minus v6's fixed rule on the same links
+([`exp-net2-eval-v6-159`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-eval-v6-159),
+the seeds' mean u in
+[`-v6-ens-160`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-eval-v6-ens-160)):
+
+| Round | Five-family mean | cubic-first-60 | competition | copies-30s |
+|---|---|---|---|---|
+| 14, tau 1 s | +0.002 | +0.068 (-0.033 to +0.177) | +0.059 (-0.008 to +0.129) | -0.223 (-0.524 to +0.042) |
+| 14, tau 5 s | -0.012 | +0.110 (-0.028 to +0.262) | +0.032 (-0.045 to +0.114) | -0.258 (-0.514 to -0.022) |
+| 15, more copies in training | +0.004 | +0.174 (+0.057 to +0.292) | +0.085 (+0.011 to +0.161) | -0.300 (-0.605 to -0.007) |
+| 15, one policy on the seeds' mean u | +0.011 | +0.149 (+0.044 to +0.262) | +0.065 (-0.005 to +0.139) | -0.258 (-0.594 to +0.043) |
+
+Averaging the seeds removed little of the copies loss, so unlike round
+7's misfires it is a push the seeds share: the push that wins against
+Cubic deepens the queue among copies (inferred). More training made it
+worse. Continued for up to 120 more iterations (round 14's stage 2), every
+cell lost ground after about 40: on the new family's validation links the
+tau 5 s cells peaked at +0.021 and +0.032 at iteration 39 and ended at
+-0.114 and -0.039, the loss falling where the flow was alone, and the
+tau 1 s cells fell from their start to -0.035 to -0.075.
+
+A graph bug cost rounds 1 and 2 about 0.13 as copies: the exported graph
+held a decision's window, freezing the BDP it was computed from, where
+the rule re-reads its belief every step (the clone of the rule lost
+0.132 to it as copies, and 0.003 once fixed in `85de8d0`;
+[`exp-net2-clone-copies-107`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-clone-copies-107)).
 
 Imitation learns state dependence. DAgger labels every decision with a
 privileged teacher's u (the share rule while a stock TCP flow shares the
 link, the fixed rule otherwise), which the student must infer from net1's
 output. Round 4's students spread u by 0.16 to 0.48 across states and kept
-62% to 77% of the share rule's gain against Cubic while paying 31% to 34%
-of its loss as copies; round 4c removed their overfitting.
+62% to 77% of the share rule's gain against Cubic, paying 31% to 34% of
+its loss as copies (round 4c removed their overfitting).
 
-Matching the rule among copies has a floor. From round 4c to 6b the best
-candidates lose 0.08 to 0.14 as copies, and a seed's loss follows how well
-it told the cases apart in training (p of 0.78 with a stock flow and 0.13
-without lost 0.02; p of 0.44 to 0.47 without lost 0.13 to 0.16). One
-copy's push deepens the queue, which then looks like a buffer-filling flow
-to the others.
+Copies set a floor. From round 4c to 6b the best candidates lose 0.08 to
+0.14 as copies, and a seed's loss follows how well it told the cases
+apart in training (p of 0.78 with a stock flow and 0.13 without lost
+0.02; p of 0.44 to 0.47 without lost 0.13 to 0.16): one copy's push
+deepens the queue, which then looks like a buffer-filling flow to the
+others. Round 7's teacher cooperates while only copies share the link,
+and its students learned q, a belief that copies are present (0.55 to
+0.72 with copies, 0.21 to 0.26 elsewhere). The copies loss vanished on
+average, but so did most of the gain against Cubic (+0.051), with the
+widest copies interval of any round: on buffers of 20 to 112 packets with
+Cubic from the start, some seeds took Cubic for copies and yielded,
+losing 0.4 to 1.1 (per link, from the round-7 gate's episodes).
 
-Cooperating with copies moved the trade-off rather than removing it.
-Round 7's teacher uses the cooperative window while only copies share the
-link, and its students learned q, a belief that copies are present (0.55
-to 0.72 with copies, 0.21 to 0.26 elsewhere). The copies loss vanished on
-average, but so did most of the gain against Cubic (+0.051), and its
-copies interval (-0.256 to +0.234) is the widest of any round.
-
-Per link (from the round-7 gate's episodes), the cooperative window was
-the cost: with Cubic from the start on buffers of 20 to 112 packets, some
-seeds took Cubic for copies and yielded, losing 0.4 to 1.1. The beliefs
-are trained on their labels whatever the policy does, so the same
-students can act differently: with q vetoing the push instead,
+The beliefs are trained on their labels whatever the policy does, so the
+same students can act differently. With q vetoing the push instead,
 `u = u_rule + p'(1 - q')(share - u_rule)` (round 7v), taking Cubic for
-copies costs at most the push. The gain-1 candidate then meets every
-gate condition but copies (-0.145), and a stronger veto did not change
-that (round 7vq). Per link, the copies loss is single seeds misfiring: in
-12 of the 42 pairs of link and number of copies one seed lost 0.5 or
-more, in none did all three, and those cells carry 72% of the loss.
-
-Averaging the three seeds' beliefs (round 7e) dilutes one seed's
-misfire. At teacher gain 0.5 the copies loss fell to 0.005 and the
-candidate passed; at gain 1 copies still lost 0.113.
+copies costs at most the push; the gain-1 candidate then met every gate
+condition but copies (-0.145), and a stronger veto did not change that
+(round 7vq). That loss was single seeds misfiring: in 12 of the 42 pairs
+of link and number of copies one seed lost 0.5 or more, in none did all
+three, and those cells carry 72% of the loss. One policy on the three
+seeds' mean beliefs (round 7e) diluted the misfires: at teacher gain 0.5
+the copies loss fell to 0.005 and the candidate passed; at gain 1 copies
+still lost 0.113.
 
 Neither more training nor more data beat round 7e. Round 8 trained 60
 more iterations under the veto; round 9 used 9,600 training links instead
 of 600, with competitors from 0 s (9) or joining within 10 s (9b). The
-beliefs sharpened in training, but changing the data moved the gain
-between conditions rather than raising it (9b cleared the competition
-interval but fell to +0.015 with Cubic from the start): the student seems
-limited by something other than its data (inferred). Round 7e's pass was
-not luck of the episodes: unchanged, it passed again on new validation
+beliefs sharpened, but the gain moved between conditions rather than
+rising (9b cleared the competition interval but fell to +0.015 with Cubic
+from the start), so the student seems limited by something other than its
+data (inferred). Unchanged, round 7e passed again on new validation
 episodes (campaign seed 11), so its smaller competition gain on test more
-likely reflects the test links (inferred).
+likely reflects the test links than luck of the episodes (inferred).
 
 Before the gate existed, learning from other controllers' logs failed
 (cloning and IQL on net1 v3: -0.97 to -1.61 on validation, against -0.48
