@@ -1,6 +1,6 @@
 {
   "title": "Round 14, stage 2: every cell continues on net1 v6",
-  "description": "Round 14 (exp-net2-r14-v6-154: recurrent PPO from net1 v6's rule, the flow alone on about half the training links, 30 s episodes, tau 1 s and 5 s, seeds 1 to 3) ended while its cells were still improving: the first cell to finish (tau 5 s, seed 1) went from -0.273 at iteration 39 to +0.012 at its last, with +0.078 against competitors and -0.055 where the flow is alone. Stage 2 continues every cell from its final actor and critic (release model-net2-r14-state) with everything else unchanged, 120 more iterations, training seed + 100. Validation links only; checkpoints are chosen on validation and the gate runs after the last stage.",
+  "description": "Round 14 (exp-net2-r14-v6-154: recurrent PPO from net1 v6's rule, the flow alone on about half the training links, 30 s episodes, tau 1 s and 5 s, seeds 1 to 3) ended while its cells were still moving: at tau 5 s each dipped where the flow is alone and recovered to +0.012, +0.000 and -0.031 at its last evaluation, with +0.07 to +0.08 against competitors for seeds 1 and 2; at tau 1 s they stayed within -0.004 to +0.008 of the rule. Stage 2 continues every cell from its final actor and critic (release model-net2-r14-state) with everything else unchanged, 120 more iterations, training seed + 100. Validation links only; checkpoints are chosen on validation and the gate runs after the last stage.",
   "uml": true,
   "train": true,
   "inputs": {
