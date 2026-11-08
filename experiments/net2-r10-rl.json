@@ -1,0 +1,26 @@
+{
+  "title": "Round 10: net2 learned from the reward, from the rule or from a student, with held exploration and diverse competition",
+  "description": "Every learned net2 that passed so far imitated a privileged teacher (DAgger), which caps it at the teacher and can never teach probing: the teacher knows who shares the link and never needs to probe, and a gate student's action is a fixed function of its beliefs. More and broader data (exp-net2-r9-data-138) did not lift that ceiling. Round 10 learns from the reward itself with recurrent PPO: the per-flow log utility, with copies learning from the copies' mean (copies_reward team), since that is what the gate judges among copies; the critic sees the true LCFs and the counts of other flows (critic_flows), the actor only net1's output and its own last u, with a free action u. The earlier PPO rounds never moved off the rule (spread of u 0.02 to 0.04): exploration drew independent noise of sigma 0.05 to 0.1 at every decision, so a push lasting several RTTs, and the others' response to it, was almost never sampled. Here each exploration draw (sigma 0.2) is held for 20 steps, 200 ms (PPOSpec noise_hold_steps), and stock competitors are any controller but the held-out BBRv3 and Westwood, weighted towards the common ones, starting within the first 10 s with a second half the time (competition \"diverse\"), on the 9,600 training links (net2-train-xl). Arm rule starts from the fixed rule, with no teacher at all; arm student starts from round 4c's DAgger u students at teacher gain 0.5 (release model-net2-r4c-actors, by seed), so a teacher only sets the start. Group baseline K = 4 rollouts per link, 8 links per iteration, learning rate 3e-4, tau = 1 s, seeds 1, 2 and 3. This is stage 1 of several: later stages continue each cell (init_actor and init_critic from this release), and the gate runs after the last stage, not after this one. Validation links only.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v5": "release:exp-net1v4-recheck-79",
+    "models": "release:model-net1v3",
+    "a": "release:model-net2-r4c-actors"
+  },
+  "matrix": {
+    "start": [
+      "rule",
+      "student"
+    ],
+    "seed": [
+      1,
+      2,
+      3
+    ]
+  },
+  "prepare": "(cd \"$IN/a\" && sha256sum -c SHA256SUMS); N=\"$IN/v5/net1-d0.05-w512-s0/net1.pt\"; uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$N\" --models \"$IN/models\" --u 0.25 --paths net2-train-xl",
+  "run": "S=\"$OUT/spec-r10-$START-s$SEED.json\"; jq --arg start \"$START\" --argjson seed \"$SEED\" --arg init \"$IN/a/ppo-r4c-k0.5-s$SEED.actor.pt\" '.algo = \"ppo\" | .base = \"fixed\" | .copies_reward = \"team\" | .critic_flows = true | .noise_sigma = 0.2 | .noise_hold_steps = 20 | .tau_s = 1 | .group = 4 | .links_per_iteration = 8 | .lr = 0.0003 | .compete = 0.8 | .copies = [2, 4] | .competition = \"diverse\" | .seed = $seed | .iterations = 60 | .eval_every = 20 | (if $start == \"student\" then .init_actor = $init else . end)' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/ppo-r10-$START-s$SEED\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ppo-*",
+  "timeout_minutes": 360
+}

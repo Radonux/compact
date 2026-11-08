@@ -65,6 +65,7 @@ from torch import nn
 
 from expliccit_env.policy import OBS_DIM
 from expliccit_env.spec import (
+    STOCK_NAMES,
     AgentCC,
     Condition,
     EpisodeSpec,
@@ -142,8 +143,15 @@ class PPOSpec(BaseModel):
     # flow from 0 s. "broad": that flow starts at a uniform time in the
     # first 10 s, and half the time a second one (Cubic, BBRv1 or Reno)
     # joins at its own such time, as the evaluation's competition does
-    # (BBRv1 from 4 s, Cubic from 2 s and 10 s). Copies start at 0 s in both.
-    competition: Literal["at-start", "broad"] = "at-start"
+    # (BBRv1 from 4 s, Cubic from 2 s and 10 s). "diverse": as "broad", but
+    # each stock flow is any controller except the held-out BBRv3 and
+    # Westwood, the common ones more often (DIVERSE_WEIGHT). Copies start at
+    # 0 s in all three.
+    competition: Literal["at-start", "broad", "diverse"] = "at-start"
+    # Hold each exploration draw for this many steps (10 ms each), so that a
+    # push lasting several RTTs, and the others' response to it, can be
+    # sampled; 1 draws anew at every step.
+    noise_hold_steps: Annotated[int, Field(ge=1, le=1000)] = 1
     # What a flow learns from where several flows run the policy (copies):
     # its own utility, or the mean of theirs at each step. A flow facing
     # other controllers always learns from its own.
@@ -203,6 +211,9 @@ class PPOSpec(BaseModel):
     # Start the actor from a saved state (an earlier run's actor.pt) instead
     # of the rule; its width and hidden size must match this spec's.
     init_actor: Path | None = None
+    # Start PPO's value network from an earlier run's critic.pt, to continue
+    # training across runs.
+    init_critic: Path | None = None
     # What the actor's output is added to. "fixed": nothing; the actor starts
     # as the fixed rule, u_rule everywhere. "share": the share rule on net1's
     # mean beliefs, u = u_rule + share_k * busy * max(0, 1 - share)
@@ -232,6 +243,8 @@ class PPOSpec(BaseModel):
             raise ValueError('gate_threshold_q is the threshold of student "gate3" only')
         if self.gate3_copies != "coop" and self.student != "gate3":
             raise ValueError('gate3_copies is a choice of student "gate3" only')
+        if self.init_critic is not None and self.algo != "ppo":
+            raise ValueError('init_critic continues algo "ppo" only')
         return self
 
     @classmethod
@@ -257,37 +270,58 @@ class Trajectory:
     coop: F32 | None = None  # [T] the cooperative window's u (algo "dagger")
 
 
-def _agent(policy: Path, sigma: float, noise_seed: int | None) -> AgentCC:
+def _agent(policy: Path, sigma: float, noise_seed: int | None, hold: int = 1) -> AgentCC:
     sha = hashlib.sha256(policy.read_bytes()).hexdigest()
     return AgentCC(
-        policy=OnnxPolicy(path=policy, sha256=sha), noise_sigma=sigma, noise_seed=noise_seed
+        policy=OnnxPolicy(path=policy, sha256=sha),
+        noise_sigma=sigma,
+        noise_seed=noise_seed,
+        noise_hold_steps=hold,
     )
 
 
 BROAD_START_MS: Final = 10_000
 BROAD_SECOND: Final[tuple[StockName, ...]] = ("cubic", "bbr", "reno")
+HELD_OUT: Final[frozenset[StockName]] = frozenset({"bbr3", "westwood"})
+# The Internet's common controllers more often, as examples/net1_broad.py.
+DIVERSE_WEIGHT: Final[dict[StockName, float]] = {
+    n: {"cubic": 6.0, "bbr": 4.0, "reno": 2.0}.get(n, 1.0) for n in STOCK_NAMES if n not in HELD_OUT
+}
+
+
+def _diverse(rng: np.random.Generator) -> StockName:
+    names = list(DIVERSE_WEIGHT)
+    w = np.array([DIVERSE_WEIGHT[n] for n in names])
+    return names[int(rng.choice(len(names), p=w / w.sum()))]
 
 
 def _competition(
     rng: np.random.Generator,
     copies: tuple[int, ...],
     copy: AgentCC | None,
-    competition: Literal["at-start", "broad"] = "at-start",
+    competition: Literal["at-start", "broad", "diverse"] = "at-start",
 ) -> list[TcpCross | UdpCross]:
     """Cubic or BBR, or n - 1 copies of the policy (n in copies) from 0 s;
     with competition "broad", stock flows start within BROAD_START_MS and a
-    second one joins half the time."""
+    second one joins half the time; with "diverse", as "broad" with each
+    stock flow drawn from DIVERSE_WEIGHT."""
     choices = ["cubic", "bbr", *(f"copies{n}" for n in copies if copy is not None)]
     pick = choices[int(rng.integers(len(choices)))]
     if not pick.startswith("copies"):
         stock: StockName = "cubic" if pick == "cubic" else "bbr"
         if competition == "at-start":
             return [TcpCross(cc=stock, start_ms=0)]
+        if competition == "diverse":
+            stock = _diverse(rng)
         flows: list[TcpCross | UdpCross] = [
             TcpCross(cc=stock, start_ms=int(rng.integers(0, BROAD_START_MS + 1)))
         ]
         if rng.random() < 0.5:
-            second = BROAD_SECOND[int(rng.integers(len(BROAD_SECOND)))]
+            second = (
+                _diverse(rng)
+                if competition == "diverse"
+                else BROAD_SECOND[int(rng.integers(len(BROAD_SECOND)))]
+            )
             flows.append(TcpCross(cc=second, start_ms=int(rng.integers(0, BROAD_START_MS + 1))))
         return flows
     assert copy is not None
@@ -305,7 +339,7 @@ def _group_episodes(
     """K rollouts of one link: the same seed, different noise seeds."""
     path, cond = arm
     seed, base = int(rng.integers(0, 2**63)), int(rng.integers(0, 2**62))
-    template = _agent(policy, spec.noise_sigma, None)
+    template = _agent(policy, spec.noise_sigma, None, spec.noise_hold_steps)
     cross = (
         _competition(rng, spec.copies, template, spec.competition)
         if compete
@@ -1030,13 +1064,16 @@ _LEARNERS: Final = {"ppo": _Learner, "td3bc": _TD3Learner, "dagger": _DAggerLear
 def _make_learner(
     spec: PPOSpec, width: int, critic_width: int
 ) -> _Learner | _TD3Learner | _DAggerLearner:
-    """The spec's learner, its actor loaded from spec.init_actor if set."""
+    """The spec's learner, its actor loaded from spec.init_actor and PPO's
+    critic from spec.init_critic if set."""
     learner = _LEARNERS[spec.algo](width, critic_width, spec)
     if spec.init_actor is not None:
         state = torch.load(spec.init_actor, weights_only=True)
         learner.actor.load_state_dict(state)
         if isinstance(learner, _TD3Learner):
             learner.actor_target.load_state_dict(state)
+    if spec.init_critic is not None and isinstance(learner, _Learner):
+        learner.critic.load_state_dict(torch.load(spec.init_critic, weights_only=True))
     return learner
 
 

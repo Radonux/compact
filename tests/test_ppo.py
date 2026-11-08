@@ -605,3 +605,23 @@ def test_at_start_competition_starts_every_flow_at_zero() -> None:
     draws = [ppo._competition(rng, (2, 4), copy) for _ in range(200)]  # pyright: ignore[reportPrivateUsage]
     assert all(c.start_ms == 0 for d in draws for c in d)  # pyright: ignore[reportAttributeAccessIssue]
     assert all(len(d) == 1 for d in draws if not isinstance(d[0].cc, AgentCC))  # pyright: ignore[reportAttributeAccessIssue]
+
+
+def test_diverse_competition_draws_every_controller_but_the_held_out() -> None:
+    rng = np.random.default_rng(5)
+    copy = AgentCC(policy=OnnxPolicy(path=Path("p.onnx"), sha256="0" * 64))
+    draws = [ppo._competition(rng, (2, 4), copy, "diverse") for _ in range(3000)]  # pyright: ignore[reportPrivateUsage]
+    stock = [c.cc for d in draws for c in d if not isinstance(c.cc, AgentCC)]  # pyright: ignore[reportAttributeAccessIssue]
+    assert set(stock) == set(ppo.DIVERSE_WEIGHT)
+    assert not set(stock) & ppo.HELD_OUT
+    assert stock.count("cubic") > stock.count("vegas")
+
+
+def test_exploration_noise_is_held_and_a_critic_needs_ppo(tmp_path: Path) -> None:
+    pol = tmp_path / "p.onnx"
+    pol.write_bytes(b"x")
+    assert ppo._agent(pol, 0.2, None, 20).noise_hold_steps == 20  # pyright: ignore[reportPrivateUsage]
+    with pytest.raises(ValueError, match="init_critic"):
+        ppo.PPOSpec(
+            paths_from=Path("x"), net1_from=Path("x"), algo="td3bc", init_critic=Path("c.pt")
+        )
