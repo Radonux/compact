@@ -1,0 +1,24 @@
+{
+  "title": "Round 13: is PPO's drift to larger windows the objective or the learner? Train with the flow always alone",
+  "description": "In rounds 10 and 11 every PPO arm drifted towards larger windows (mean u from the rule's 0.25 to 0.5 to 2.8), the more the longer the discount horizon, while its evaluation against the rule fell. Two explanations predict different things here. If the selfish objective rewards a held window against loss-based competitors, a flow that is always alone has nothing to gain by pushing (a larger window only adds queueing delay and its own drops), so an unbiased learner should keep u near the rule or lower it. If the learner itself is biased upwards, u rises here too. Round 10's learner (recurrent PPO from the rule, privileged critic, sigma 0.2 held 200 ms, 30 s episodes) trains with alone 1.0: no cross flows on any link, the paths' random loss kept; tau 1 s and 5 s, seeds 1 and 2, 60 iterations. Read: the mean u and the evaluation's alone conditions over iterations.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v5": "release:exp-net1v4-recheck-79",
+    "models": "release:model-net1v3"
+  },
+  "matrix": {
+    "tau": [
+      1,
+      5
+    ],
+    "seed": [
+      1,
+      2
+    ]
+  },
+  "prepare": "N=\"$IN/v5/net1-d0.05-w512-s0/net1.pt\"; uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$N\" --models \"$IN/models\" --u 0.25 --paths net2-train-xl",
+  "run": "S=\"$OUT/spec-r13-tau$TAU-s$SEED.json\"; jq --argjson tau \"$TAU\" --argjson seed \"$SEED\" '.algo = \"ppo\" | .base = \"fixed\" | .copies_reward = \"team\" | .critic_flows = true | .noise_sigma = 0.2 | .noise_hold_steps = 20 | .tau_s = $tau | .group = 4 | .links_per_iteration = 8 | .lr = 0.0003 | .alone = 1.0 | .compete = 0.0 | .seed = $seed | .iterations = 60 | .eval_every = 20' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/ppo-r13-tau$TAU-s$SEED\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ppo-*",
+  "timeout_minutes": 360
+}
