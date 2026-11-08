@@ -293,6 +293,8 @@ def test_the_black_box_aims_at_the_measured_bdp_and_reads_no_belief() -> None:
     assert float(a) + np.log2(10.0) == pytest.approx(bdp + 0.25, abs=1e-4)
     m = onnx.load_from_string(to_onnx(graph))
     assert [i.name for i in m.graph.input] == ["obs", "state", "cwnd"]
+    # The guest's tract cannot run IsInf (round 19's first try).
+    assert "IsInf" not in {n.op_type for n in m.graph.node}
     with pytest.raises(ValueError, match="an arm of algo"):
         ppo.PPOSpec(paths_from=Path("u"), net1_from=Path("u"), inputs="raw", base="share")
 

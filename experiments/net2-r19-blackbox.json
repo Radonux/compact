@@ -1,6 +1,6 @@
 {
-  "title": "Round 19: the split against a black box with the same inputs, learner and training (arm A4, H6)",
-  "description": "Two arms that differ only in what the actor reads, each trained by the same recurrent PPO from the reward (team reward among copies, privileged critic, held exploration sigma 0.2 for 200 ms, round 15's copies mixture: competition on 60% of the links, half of it 2 or 4 copies, the flow alone on 35%, diverse competitors, 30 s episodes, tau 1 s, 120 iterations, seeds 1 to 3). net1: net1 v6's beliefs (release exp-net1v6-149), the window aimed at 2^u times net1's believed BDP, starting as the fixed rule (u = 0.25). raw: the black box, the 78 measurements net1 reads through net1's input scaler and no belief, the window aimed at 2^u times a measured BDP (the guest's windowed maximum delivery rate times its minimum RTT, as BBR estimates it), starting at u = 0.25 on that BDP. Both are scored every 20 iterations against the fixed rule on net1 v6 on the validation links.",
+  "title": "Round 19: one learner on the true path state, on net1's beliefs and on raw measurements (arms A1, A3, A4; H1, H6)",
+  "description": "Three arms that differ only in what the actor reads, each trained by the same recurrent PPO from the reward (team reward among copies, privileged critic, held exploration sigma 0.2 for 200 ms, round 15's copies mixture: competition on 60% of the links, half of it 2 or 4 copies, the flow alone on 35%, diverse competitors, 30 s episodes, tau 1 s, 120 iterations, seeds 1 to 3). truth: net1 v6's output with all probability on the true value's bin, from the guest's live truth, the window aimed at 2^u times the true BDP's bin. net1: net1 v6's beliefs (release exp-net1v6-149), the window aimed at 2^u times net1's believed BDP. raw: the black box, the 78 measurements net1 reads through net1's input scaler and no belief, the window aimed at 2^u times a measured BDP (the guest's windowed maximum delivery rate times its minimum RTT, as BBR estimates it). Each starts at u = 0.25 on its BDP. truth against net1 is what estimation costs; net1 against raw is what the split costs. All are scored every 20 iterations against the fixed rule on net1 v6 on the validation links.",
   "uml": true,
   "train": true,
   "inputs": {
@@ -9,6 +9,7 @@
   },
   "matrix": {
     "arm": [
+      "truth",
       "net1",
       "raw"
     ],

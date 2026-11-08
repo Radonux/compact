@@ -611,7 +611,9 @@ class RawInputs(nn.Module):
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
         bits = obs[:, _MAX_DELIVERED] * 1e8 * obs[:, _MIN_RTT_MS] * 1e-3
-        bdp = torch.log2(torch.clamp(torch.nan_to_num(bits) / PACKET_BITS, min=1.0))
+        # Not nan_to_num: its IsInf is an op the guest's tract cannot run.
+        bits = torch.where(torch.abs(bits) < 3.0e38, bits, torch.zeros_like(bits))
+        bdp = torch.log2(torch.clamp(bits / PACKET_BITS, min=1.0))
         return torch.cat([self.scaler(obs), bdp.unsqueeze(1)], dim=1)
 
 
