@@ -1,0 +1,25 @@
+{
+  "title": "Round 16: longer episodes from the rule on net1 v6, with the corrected mixture",
+  "description": "Round 11 tested longer horizons with a mixture that rewarded pushing, and its stage 2 (exp-net2-r11-s2-150) continued from the policies that had collapsed, so it confounded the horizon with recovery: there the 30 s cells returned to the rule's level (-0.008 and +0.008 at iteration 79) and the 120 s cells did not (-0.08 to -0.20 at tau 1 s, -0.45 at tau 5 s with dynamic competition). This is the clean test of whether longer episodes help: from net1 v6's rule (u = 0.25), with round 14's mixture (alone 0.4, compete 0.4) and learner, at equal compute per iteration (960 s of rollouts: 2 links of 4 rollouts of 120 s, against round 14's 8 links of 30 s): 120 s with tau 1 s and 5 s and diverse competition, and 120 s with tau 5 s and dynamic competition (arrivals over the first 60% of the episode, a third of flows leaving early). Round 14 (30 s, tau 1 s and 5 s, diverse) is the comparison. Seeds 1 and 2; a 4.5 h budget so that cells end within the job limit. Validation links only.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v6": "release:exp-net1v6-149",
+    "models": "release:model-net1v3"
+  },
+  "matrix": {
+    "arm": [
+      "120_1_diverse_2",
+      "120_5_diverse_2",
+      "120_5_dynamic_2"
+    ],
+    "seed": [
+      1,
+      2
+    ]
+  },
+  "prepare": "N=\"$IN/v6/net1-v6-s0/net1.pt\"; uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$N\" --models \"$IN/models\" --u 0.25 --paths net2-train-xl",
+  "run": "IFS=_ read -r T TAU COMP LINKS <<< \"$ARM\"; S=\"$OUT/spec-r16-$ARM-s$SEED.json\"; jq --argjson t \"$T\" --argjson tau \"$TAU\" --arg comp \"$COMP\" --argjson links \"$LINKS\" --argjson seed \"$SEED\" '.algo = \"ppo\" | .base = \"fixed\" | .copies_reward = \"team\" | .critic_flows = true | .noise_sigma = 0.2 | .noise_hold_steps = 20 | .tau_s = $tau | .duration_ms = ($t * 1000) | .group = 4 | .links_per_iteration = $links | .lr = 0.0003 | .alone = 0.4 | .compete = 0.4 | .copies = [2, 4] | .competition = $comp | .seed = $seed | .iterations = 200 | .eval_every = 20 | .time_budget_s = 16200' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/ppo-r16-$ARM-s$SEED\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ppo-*",
+  "timeout_minutes": 360
+}
