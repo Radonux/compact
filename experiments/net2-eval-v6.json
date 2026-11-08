@@ -1,0 +1,15 @@
+{
+  "title": "net2 on net1 v6: rounds 14 and 15's final policies on every validation family, against v6's rule",
+  "description": "The first full evaluation of net2 learned on net1 v6 (an evaluation of stage-1 policies, not the gate): round 14's final policies at tau 1 s and 5 s (exp-net2-r14-v6-154) and round 15's copies arm (run 156, more copies in training), each as one candidate over its three seeds (release model-net2-v6-cands), next to net1 v6's fixed rule (u = 0.25, exported here as rule-v6) and BBRv3 on the five validation families and as 2 and 4 copies for 30 s, campaign seed 21, with v6's share rule at k = 0.5 and 1 as a reference. The training evaluation only covers the new family without copies; this shows the copies and the other families. experiments/net2_ppo_gate_report.py scores it against rule-v6. Round 14's cells continue in stage 2 (run 158) meanwhile.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "c": "release:model-net2-v6-cands",
+    "v6": "release:exp-net1v6-149"
+  },
+  "prepare": "(cd \"$IN/c\" && sha256sum -c SHA256SUMS); N=\"$IN/v6/net1-v6-s0/net1.pt\"; uv run python experiments/rule_export.py \"$OUT/rule6\" \"$N\" --u 0.25; uv run python experiments/share_rule_export.py \"$OUT/share\" \"$N\" --u0 0.25 --k 0.5 1; P=(--policy \"rule-v6=$OUT/rule6/rule-u0.25.onnx\" --policy \"share-k0.5=$OUT/share/share-u0.25-k0.5.onnx\" --policy \"share-k1=$OUT/share/share-u0.25-k1.onnx\"); for f in \"$IN\"/c/ppo-*.onnx; do P+=(--policy \"$(basename \"$f\" .onnx)=$f\"); done; experiments/rule_eval.sh \"$OUT\" val 21 21 bbr3 \"${P[@]}\"; uv run python experiments/copies.py \"$OUT/copies\" --split val --duration-ms 30000 --seed 21 --n 2 4 --stock bbr3 \"${P[@]}\"; mv \"$OUT/copies/c-copies-30s\" \"$OUT/\"; jq -s add \"$OUT/aliases.json\" \"$OUT/copies/aliases.json\" > \"$OUT/a.json\"; mv \"$OUT/a.json\" \"$OUT/aliases.json\"",
+  "shards": 40,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps; done; uv run python experiments/slim_steps.py \"$OUT\"",
+  "collect": "uv run python experiments/rule_report.py \"$OUT\" --apart copies-30s && mv \"$OUT/summary.md\" \"$OUT/against-bbr3.md\" && uv run python experiments/net2_ppo_gate_report.py \"$OUT\" rule-v6",
+  "timeout_minutes": 300
+}
