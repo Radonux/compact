@@ -224,6 +224,8 @@ class HeldPolicyGraph(PolicyGraph):
             raise ValueError("a held net2 takes an offset or a gate, not both")
         self.view, self.target = base.view, base.target
         self.offset, self.gate = offset, gate
+        for name in ("truth_cols", "truth_units", "from_truth", "truth_bounds"):
+            setattr(self, name, getattr(base, name))
 
     @property
     def actor(self) -> HeldActor:
@@ -242,7 +244,7 @@ class HeldPolicyGraph(PolicyGraph):
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
         if state is None or cwnd is None or self.target is None:
             raise ValueError("a held net2 needs its state and the cwnd input")
-        z = self.net1(self.scaler(obs))
+        z = self.beliefs(obs, truth)
         x = z if self.view is None else self.view(z)
         lb = self.target(z)
         lc = torch.log2(torch.clamp(cwnd, min=1.0)).squeeze(1)

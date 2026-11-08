@@ -236,12 +236,15 @@ class PPOSpec(BaseModel):
     # (train/share.py); the actor starts at 0, so training starts from the
     # share rule and learns a residual on it.
     base: Literal["fixed", "share"] = "fixed"
-    # What the actor reads. "net1": net1's beliefs (the split). "raw": the
-    # black box (arm A4): the measurements net1 reads, through net1's input
-    # scaler, with the window aimed at a measured BDP (the windowed maximum
-    # delivery rate times the minimum RTT, as BBR estimates it) instead of
-    # net1's. net1 then serves only as that scaler and the evaluation's rule.
-    inputs: Literal["net1", "raw"] = "net1"
+    # What the actor reads. "net1": net1's beliefs (the split). "truth": the
+    # oracle (arm A1): net1's output with all probability on the true
+    # LCF's bin, from the guest's live truth, so the actor and the window
+    # read the true path state. "raw": the black box (arm A4): the
+    # measurements net1 reads, through net1's input scaler, with the window
+    # aimed at a measured BDP (the windowed maximum delivery rate times the
+    # minimum RTT, as BBR estimates it) instead of net1's. net1 then serves
+    # only as that scaler and the evaluation's rule.
+    inputs: Literal["net1", "truth", "raw"] = "net1"
     share_k: Annotated[float, Field(ge=0)] = 0.5
     alpha: Annotated[float, Field(gt=0)] = 20.0
     updates_per_iteration: PositiveInt = 200
@@ -269,10 +272,8 @@ class PPOSpec(BaseModel):
             raise ValueError('init_critic continues algo "ppo" only')
         if self.alone + self.compete > 1:
             raise ValueError("alone and compete are shares of the links: at most 1 together")
-        if self.inputs == "raw" and (self.algo != "ppo" or self.base != "fixed"):
-            raise ValueError(
-                'inputs "raw" has no net1 rule to start from: algo "ppo", base "fixed"'
-            )
+        if self.inputs != "net1" and (self.algo != "ppo" or self.base != "fixed"):
+            raise ValueError(f'inputs "{self.inputs}" is an arm of algo "ppo" on base "fixed"')
         return self
 
     @classmethod
@@ -624,17 +625,24 @@ class _MeasuredBdp(nn.Module):
         return z[:, -1]
 
 
-def _views(
-    net1: fit.Net1, spec: PPOSpec
-) -> tuple[Callable[[F32], torch.Tensor], nn.Module | None, nn.Module]:
-    """What turns a flow's obs into net1's output z (or the black box's
-    stand-in), z into the actor's input, and z into log2 of the BDP the
-    window is aimed at."""
+type Encode = Callable[[F32, F32], torch.Tensor]
+
+
+def _views(net1: fit.Net1, spec: PPOSpec) -> tuple[Encode, nn.Module | None, nn.Module]:
+    """What turns a flow's obs and true LCFs (report units) into net1's
+    output z (or the black box's stand-in), z into the actor's input, and
+    z into log2 of the BDP the window is aimed at."""
     if spec.inputs == "raw":
         raw = RawInputs(net1.scaler).eval()
-        return (lambda obs: raw(torch.from_numpy(obs))), _Features(), _MeasuredBdp()
+        return (lambda obs, _: raw(torch.from_numpy(obs))), _Features(), _MeasuredBdp()
     view = fit._view(net1, spec.view, spec.input_bins if spec.view == "bins" else None)  # pyright: ignore[reportPrivateUsage]
-    return (lambda obs: torch.from_numpy(net1.beliefs(obs))), view, fit.window_target(net1)
+    if spec.inputs == "truth":
+        return (
+            lambda obs, y: fit._oracle(net1, torch.from_numpy(net1.beliefs(obs)), y),  # pyright: ignore[reportPrivateUsage]
+            view,
+            fit.window_target(net1),
+        )
+    return (lambda obs, _: torch.from_numpy(net1.beliefs(obs))), view, fit.window_target(net1)
 
 
 def _width(net1: fit.Net1, spec: PPOSpec) -> int:
@@ -690,7 +698,7 @@ def _trajectory(
     utility: npt.NDArray[np.float32],
     net1: fit.Net1,
     *,
-    encode: Callable[[F32], torch.Tensor],
+    encode: Encode,
     view: nn.Module | None,
     target: nn.Module,
     spec: PPOSpec,
@@ -710,7 +718,8 @@ def _trajectory(
     d = d[d + 1 < n]  # a decision's realized window is the next step's
     if d.size < 2:
         return None
-    z = encode(obs[d])
+    y = np.stack([labels[k][d] * np.float32(LCF_UNITS[k][0]) for k in net1.lcfs], axis=1)
+    z = encode(obs[d], y)
     x = (z if view is None else view(z)).numpy()
     lb = target(z).numpy()
     u = (np.log2(np.maximum(cwnd[d + 1], 1.0)) - lb).astype(np.float32)
@@ -728,7 +737,6 @@ def _trajectory(
     inp = np.concatenate([x, (prev / spec.action_max)[:, None]], axis=1).astype(np.float32)
     parts = [x, (prev / spec.action_max)[:, None], frac]
     if spec.critic_truth:
-        y = np.stack([labels[k][d] * np.float32(LCF_UNITS[k][0]) for k in net1.lcfs], axis=1)
         ys = net1.lcf_scaler(torch.from_numpy(y)).numpy()
         parts.insert(0, np.where(np.isfinite(ys), ys, 0.0).astype(np.float32))
     counts = active(rivals, d * _STEP_S)
@@ -1201,6 +1209,7 @@ def policy_graph(
         net1,
         actor,
         spec.action_max,
+        truth=frozenset(net1.lcfs) if spec.inputs == "truth" else frozenset(),
         action="bdp",
         view=spec.view,
         input_bins=spec.input_bins if spec.view == "bins" else None,

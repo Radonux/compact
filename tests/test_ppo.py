@@ -293,8 +293,41 @@ def test_the_black_box_aims_at_the_measured_bdp_and_reads_no_belief() -> None:
     assert float(a) + np.log2(10.0) == pytest.approx(bdp + 0.25, abs=1e-4)
     m = onnx.load_from_string(to_onnx(graph))
     assert [i.name for i in m.graph.input] == ["obs", "state", "cwnd"]
-    with pytest.raises(ValueError, match="no net1 rule"):
+    with pytest.raises(ValueError, match="an arm of algo"):
         ppo.PPOSpec(paths_from=Path("u"), net1_from=Path("u"), inputs="raw", base="share")
+
+
+def test_the_oracle_reads_the_live_truth_as_its_trajectories_do() -> None:
+    steps, net1 = _bdp_net1()
+    spec = ppo.PPOSpec(
+        paths_from=Path("unused"),
+        net1_from=Path("unused"),
+        u_rule=0.25,
+        input_bins=4,
+        hidden=8,
+        inputs="truth",
+    )
+    actor = RecurrentActor(ppo._width(net1, spec), spec.hidden)  # pyright: ignore[reportPrivateUsage]
+    actor.clone_rule(0.25, spec.action_max)
+    graph = ppo.policy_graph(net1, actor, spec)
+    obs = steps.obs[steps.episode == 0][:1]
+    # 80 Mbit/s and 30 ms one way, where net1 was trained near 50 and 20.
+    truth = np.array([[np.nan, np.nan, 80e6, np.nan, np.nan, 30e6, np.nan]], np.float32)
+    with torch.no_grad():
+        a, _ = graph.step(
+            torch.from_numpy(obs),
+            torch.zeros(1, graph.state_dim),
+            torch.from_numpy(truth),
+            torch.tensor([[10.0]]),
+        )
+    encode, _, target = ppo._views(net1, spec)  # pyright: ignore[reportPrivateUsage]
+    y = truth * np.array([ppo.LCF_UNITS[k][0] for k in net1.lcfs], np.float32)
+    lb = float(target(encode(obs, y)))
+    assert float(a) + np.log2(10.0) == pytest.approx(lb + 0.25, abs=1e-4)
+    believed = float(target(torch.from_numpy(net1.beliefs(obs))))
+    assert abs(believed - lb) > 0.2  # the truth's bins, not net1's belief
+    m = onnx.load_from_string(to_onnx(graph))
+    assert [i.name for i in m.graph.input] == ["obs", "state", "truth", "cwnd"]
 
 
 def _traj(group: tuple[int, int], reward: np.ndarray) -> ppo.Trajectory:

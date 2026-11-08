@@ -384,14 +384,8 @@ class PolicyGraph(nn.Module):
         state = torch.zeros(obs.shape[0], self.state_dim) if self.state_dim else None
         return self.step(obs, state, truth, cwnd)[0]
 
-    def step(
-        self,
-        obs: torch.Tensor,
-        state: torch.Tensor | None,
-        truth: torch.Tensor | None = None,
-        cwnd: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor | None]:
-        """a and, for a net2 with memory, its next state."""
+    def beliefs(self, obs: torch.Tensor, truth: torch.Tensor | None = None) -> torch.Tensor:
+        """net1's output, with the LCFs ``take_from_truth`` chose from the truth."""
         z = self.net1(self.scaler(obs))
         if truth is not None and self.uses_truth and self.truth_bounds.numel():
             y = truth.index_select(1, self.truth_cols) * self.truth_units
@@ -404,6 +398,17 @@ class PolicyGraph(nn.Module):
             zt = self.lcf_scaler(truth.index_select(1, self.truth_cols) * self.truth_units)
             reps = self.from_truth.shape[0] // zt.shape[1]
             z = torch.where(self.from_truth, zt.repeat(1, reps), z)
+        return z
+
+    def step(
+        self,
+        obs: torch.Tensor,
+        state: torch.Tensor | None,
+        truth: torch.Tensor | None = None,
+        cwnd: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
+        """a and, for a net2 with memory, its next state."""
+        z = self.beliefs(obs, truth)
         if self.as_deployed:
             c = torch.relu(self.lcf_scaler.inverse(z))
             mask = self.rounded if self.rounded.numel() else torch.arange(c.shape[1]) < 6

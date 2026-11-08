@@ -1,0 +1,24 @@
+{
+  "title": "Round 20: a learned net2 on the true path state (arm A1, H1), next to round 19's split and black box",
+  "description": "The upper bound of the ladder in round 19: the same recurrent PPO, mixture and spec as round 19's two arms (round 15's copies mixture, tau 1 s, 120 iterations, seeds 1 to 3), with the actor reading the true LCFs instead of net1's beliefs: net1 v6's output with all probability on the true value's bin, from the guest's live truth, and the window aimed at 2^u times the true BDP's bin. With round 19, it separates what estimation costs (truth against net1) from what the split costs (net1 against the black box). Scored every 20 iterations against the fixed rule on net1 v6 on the validation links.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v6": "release:exp-net1v6-149",
+    "models": "release:model-net1v3"
+  },
+  "matrix": {
+    "arm": [
+      "truth"
+    ],
+    "seed": [
+      1,
+      2,
+      3
+    ]
+  },
+  "prepare": "N=\"$IN/v6/net1-v6-s0/net1.pt\"; uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$N\" --models \"$IN/models\" --u 0.25 --paths net2-train-xl",
+  "run": "S=\"$OUT/spec-r20-$ARM-s$SEED.json\"; jq --arg arm \"$ARM\" --argjson seed \"$SEED\" '.algo = \"ppo\" | .base = \"fixed\" | .inputs = $arm | .copies_reward = \"team\" | .critic_flows = true | .noise_sigma = 0.2 | .noise_hold_steps = 20 | .tau_s = 1 | .group = 4 | .links_per_iteration = 8 | .lr = 0.0003 | .copies = [2, 4] | .competition = \"diverse\" | .alone = 0.35 | .compete = 0.6 | .seed = $seed | .iterations = 120 | .eval_every = 20' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/ppo-r20-$ARM-s$SEED\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ppo-*",
+  "timeout_minutes": 360
+}
