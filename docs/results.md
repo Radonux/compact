@@ -296,7 +296,10 @@ round 5 `exp-net2-r5-gate-115`; round 6 `exp-net2-r6-gate-119`, 6b
 `exp-net2-r8-gate3-129`; round 9 `exp-net2-r9-data-138`; round 10
 `exp-net2-r10-rl-143`; round 11 run 144 (it published no release:
 `model-net2-r11-state`) and `exp-net2-r11-s2-150`; round 12
-`exp-net2-r12-mix-147`; round 13 `exp-net2-r13-alone-151`.
+`exp-net2-r12-mix-147`; round 13 `exp-net2-r13-alone-151`; on net1 v6,
+round 14 `exp-net2-r14-v6-154`, round 15 run 156 (no release; its final
+copies-arm policies are in `model-net2-v6-cands`), round 16
+`exp-net2-r16-long-157`.
 
 Reinforcement learning first stayed at its start, then learned what its
 training mixture rewarded. In rounds 1 to 3, after 60 iterations, the
@@ -314,9 +317,13 @@ the same learner lowered the window and beat the rule there by up to
 0.08 (round 13). The learner follows its objective; the mixture sets the
 direction. With the flow alone on about half the links (round 12), PPO
 matched the rule on every family, but beat it nowhere beyond the noise
-and lost about 0.1 as copies. Longer episodes recovered more slowly at
-equal compute in round 11's second stage, which started from collapsed
-policies; a clean test from the rule is UNRUN.
+and lost about 0.1 as copies. Longer episodes did not help. From net1
+v6's rule at equal compute per iteration (round 16), 120 s episodes did
+no better than 30 s ones at tau 1 s, and at tau 5 s they kept pushing
+(mean u 0.6 to 1.5) and stayed 0.4 to 1.5 below the rule, where 30 s
+episodes dipped and came back to the rule's level (round 14). A long
+episode holds long stretches where a competitor yields to a push, and
+two links per update instead of eight (inferred).
 
 A graph bug cost rounds 1 and 2 about 0.13 as copies. The exported graph
 held a decision's window until the next decision, freezing the BDP it was
