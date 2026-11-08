@@ -1,0 +1,24 @@
+{
+  "title": "Round 11, stage 2: the kept horizon configurations continue on the evaluation's mixture of traffic",
+  "description": "Round 11 (run 144, histories and weights in release model-net2-r11-state; the run published no release of its own because four of its cells did not finish) varied the episode T and the discount horizon tau at equal compute. Every arm drifted towards larger windows, the more the longer tau: at tau 20 s the mean u reached 2.0 to 2.8 (4 to 7 times the believed BDP), with 30 to 70% of its packets dropped, and the policy lost 1.5 to 2.2 to the rule on validation; at tau 1 s with 120 s episodes it matched round 10 (+0.01 to +0.02 against competitors, -0.33 to -0.40 alone). The training mixture explains part of it: competition (half of it copies) on 80% of the links leaves the flow alone on about 8% of them, against half of the evaluation's, and on large buffers a held window beats a loss-based competitor. The choice rule written before the results keeps the three configurations with the best mean over seeds of the last evaluation minus the rule: 120 s with tau 1 s (diverse, -0.175), 30 s with tau 5 s (diverse, -0.299) and 120 s with tau 5 s (dynamic, -0.716, seed 1 only; its seed 2 failed); of the arms not kept, none ended above its first evaluation after training began. The 30 s arms recovered over their second half (-0.43 to -0.24 and -0.58 to -0.36 from iteration 39 to 79). Stage 2 continues each kept cell, actor and critic, on round 12's mixture (alone 0.4, compete 0.4) with everything else unchanged, and a 4.5 h budget so that the 120 s cells end within the job limit. Validation links only; the gate runs after the last stage. CONT is T_tau_competition_links_seed.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v5": "release:exp-net1v4-recheck-79",
+    "models": "release:model-net1v3",
+    "a": "release:model-net2-r11-state"
+  },
+  "matrix": {
+    "cont": [
+      "120_1_diverse_2_1",
+      "120_1_diverse_2_2",
+      "30_5_diverse_8_1",
+      "30_5_diverse_8_2",
+      "120_5_dynamic_2_1"
+    ]
+  },
+  "prepare": "(cd \"$IN/a\" && sha256sum -c SHA256SUMS); N=\"$IN/v5/net1-d0.05-w512-s0/net1.pt\"; uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$N\" --models \"$IN/models\" --u 0.25 --paths net2-train-xl",
+  "run": "IFS=_ read -r T TAU COMP LINKS SEED <<< \"$CONT\"; ARM=\"${T}_${TAU}_${COMP}_${LINKS}\"; S=\"$OUT/spec-r11s2-$ARM-s$SEED.json\"; A=\"$IN/a/ppo-r11-$ARM-s$SEED\"; jq --argjson t \"$T\" --argjson tau \"$TAU\" --arg comp \"$COMP\" --argjson links \"$LINKS\" --argjson seed \"$SEED\" --arg actor \"$A.actor.pt\" --arg critic \"$A.critic.pt\" '.algo = \"ppo\" | .base = \"fixed\" | .copies_reward = \"team\" | .critic_flows = true | .noise_sigma = 0.2 | .noise_hold_steps = 20 | .tau_s = $tau | .duration_ms = ($t * 1000) | .group = 4 | .links_per_iteration = $links | .lr = 0.0003 | .alone = 0.4 | .compete = 0.4 | .copies = [2, 4] | .competition = $comp | .seed = ($seed + 100) | .iterations = 200 | .eval_every = 20 | .time_budget_s = 16200 | .init_actor = $actor | .init_critic = $critic' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/ppo-r11s2-$ARM-s$SEED\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ppo-*",
+  "timeout_minutes": 360
+}
