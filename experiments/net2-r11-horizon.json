@@ -1,0 +1,29 @@
+{
+  "title": "Round 11: does a longer horizon let net2 learn the others' reactions? Episode length and discount horizon",
+  "description": "Round 10 learns from the reward over 30 s episodes with returns discounted over tau = 1 s. On the training links a Cubic epoch (loss to the old window) takes 3.4 to 11 s (10th to 90th percentile, median 6 s) and a Reno recovery a median 24 s (minutes on a large BDP), so a 1 s return never sees a competitor's reaction to a push, and a 30 s episode with arrivals in its first 10 s shows at most a few such cycles. Probing pays only if what it reveals is used long enough afterwards, which needs a horizon longer than the reaction. This round varies the two horizons at equal compute (960 s of rollouts per iteration, the 5 h 15 min budget): the episode T (30, 120, 240 s; links per iteration 8, 2, 1, each with K = 4 rollouts) and the discount horizon tau (1, 5, 20 s). Competition \"dynamic\" spreads stock competitors' arrivals over the first 60% of the episode and lets 30% leave early, as in net1's data, so that longer episodes also hold more kinds of interaction; \"diverse\" keeps round 10's arrivals in the first 10 s. Everything else is round 10's rule arm (no teacher): team reward among copies, privileged critic with flow counts, sigma 0.2 held 200 ms, compete 0.8, copies 2 or 4, learning rate 3e-4, seeds 1 and 2. Arm names are T_tau_competition_links. Round 10's rule arm is the 30 s, tau 1 s, diverse point. Choice rule, written before the results: stage 2 continues, from each cell's actor and critic, the three configurations with the highest mean over seeds of the last training evaluation's utility minus the rule's, and any configuration whose evaluation rose over its run; the gate runs only after the last stage. Validation links only.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v5": "release:exp-net1v4-recheck-79",
+    "models": "release:model-net1v3"
+  },
+  "matrix": {
+    "arm": [
+      "30_5_diverse_8",
+      "120_1_diverse_2",
+      "120_5_diverse_2",
+      "120_20_diverse_2",
+      "120_5_dynamic_2",
+      "120_20_dynamic_2",
+      "240_20_dynamic_1"
+    ],
+    "seed": [
+      1,
+      2
+    ]
+  },
+  "prepare": "N=\"$IN/v5/net1-d0.05-w512-s0/net1.pt\"; uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$N\" --models \"$IN/models\" --u 0.25 --paths net2-train-xl",
+  "run": "IFS=_ read -r T TAU COMP LINKS <<< \"$ARM\"; S=\"$OUT/spec-r11-$ARM-s$SEED.json\"; jq --argjson t \"$T\" --argjson tau \"$TAU\" --arg comp \"$COMP\" --argjson links \"$LINKS\" --argjson seed \"$SEED\" '.algo = \"ppo\" | .base = \"fixed\" | .copies_reward = \"team\" | .critic_flows = true | .noise_sigma = 0.2 | .noise_hold_steps = 20 | .tau_s = $tau | .duration_ms = ($t * 1000) | .group = 4 | .links_per_iteration = $links | .lr = 0.0003 | .compete = 0.8 | .copies = [2, 4] | .competition = $comp | .seed = $seed | .iterations = 200 | .eval_every = 20' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/ppo-r11-$ARM-s$SEED\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ppo-*",
+  "timeout_minutes": 360
+}

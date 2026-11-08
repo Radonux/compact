@@ -145,9 +145,12 @@ class PPOSpec(BaseModel):
     # joins at its own such time, as the evaluation's competition does
     # (BBRv1 from 4 s, Cubic from 2 s and 10 s). "diverse": as "broad", but
     # each stock flow is any controller except the held-out BBRv3 and
-    # Westwood, the common ones more often (DIVERSE_WEIGHT). Copies start at
-    # 0 s in all three.
-    competition: Literal["at-start", "broad", "diverse"] = "at-start"
+    # Westwood, the common ones more often (DIVERSE_WEIGHT). "dynamic": as
+    # "diverse", but each stock flow starts at 0 s or anywhere in the first
+    # 60% of the episode and a third of them leave early (_window), as in
+    # net1's broad data, so longer episodes hold arrivals and departures.
+    # Copies start at 0 s in all four.
+    competition: Literal["at-start", "broad", "diverse", "dynamic"] = "at-start"
     # Hold each exploration draw for this many steps (10 ms each), so that a
     # push lasting several RTTs, and the others' response to it, can be
     # sampled; 1 draws anew at every step.
@@ -295,22 +298,39 @@ def _diverse(rng: np.random.Generator) -> StockName:
     return names[int(rng.choice(len(names), p=w / w.sum()))]
 
 
+def _window(rng: np.random.Generator, duration_ms: int) -> TcpCross:
+    """A stock flow's lifetime under competition "dynamic", as
+    examples/net1_broad.py's window: from 0 s (35%) or a uniform time in
+    [1 s, 60% of the episode], and 30% of the time leaving at a uniform
+    time at least 5 s later; the controller is drawn from DIVERSE_WEIGHT."""
+    cc = _diverse(rng)
+    start = 0 if rng.random() < 0.35 else int(rng.uniform(1000, 0.6 * duration_ms))
+    if rng.random() < 0.3 and start + 5000 < duration_ms:
+        return TcpCross(cc=cc, start_ms=start, stop_ms=int(rng.uniform(start + 5000, duration_ms)))
+    return TcpCross(cc=cc, start_ms=start)
+
+
 def _competition(
     rng: np.random.Generator,
     copies: tuple[int, ...],
     copy: AgentCC | None,
-    competition: Literal["at-start", "broad", "diverse"] = "at-start",
+    competition: Literal["at-start", "broad", "diverse", "dynamic"] = "at-start",
+    duration_ms: int = 30_000,
 ) -> list[TcpCross | UdpCross]:
     """Cubic or BBR, or n - 1 copies of the policy (n in copies) from 0 s;
     with competition "broad", stock flows start within BROAD_START_MS and a
     second one joins half the time; with "diverse", as "broad" with each
-    stock flow drawn from DIVERSE_WEIGHT."""
+    stock flow drawn from DIVERSE_WEIGHT; with "dynamic", each stock flow
+    gets a lifetime anywhere in the episode (_window)."""
     choices = ["cubic", "bbr", *(f"copies{n}" for n in copies if copy is not None)]
     pick = choices[int(rng.integers(len(choices)))]
     if not pick.startswith("copies"):
         stock: StockName = "cubic" if pick == "cubic" else "bbr"
         if competition == "at-start":
             return [TcpCross(cc=stock, start_ms=0)]
+        if competition == "dynamic":
+            first = _window(rng, duration_ms)
+            return [first, _window(rng, duration_ms)] if rng.random() < 0.5 else [first]
         if competition == "diverse":
             stock = _diverse(rng)
         flows: list[TcpCross | UdpCross] = [
@@ -341,7 +361,7 @@ def _group_episodes(
     seed, base = int(rng.integers(0, 2**63)), int(rng.integers(0, 2**62))
     template = _agent(policy, spec.noise_sigma, None, spec.noise_hold_steps)
     cross = (
-        _competition(rng, spec.copies, template, spec.competition)
+        _competition(rng, spec.copies, template, spec.competition, spec.duration_ms)
         if compete
         else cond.flows(path.trace)
     )

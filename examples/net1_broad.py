@@ -16,6 +16,13 @@ SET is one of:
                     ignored there)
   net2-train-xl     the same with 16 times the links, so that nearly every
                     rollout of a learned net2 runs on a link it has not seen
+  wide30, wide120   net1 v6's added data: one-way delay of 5 to 150 ms,
+                    buffers of 0.25 to 32 BDP, base capacity of 1 to 200
+                    Mbit/s, and 30 s and 120 s episodes, so that slow
+                    dynamics (a Reno or Cubic cycle on a large BDP, many
+                    capacity steps, late arrivals and departures) play out
+  ood-rtt-wide      one-way delay of 151 to 250 ms, otherwise as wide30
+  ood-buffer-wide   buffers of 32 to 64 BDP, otherwise as wide30
 
 The held-out sets use training conditions or training links except in the
 one family they change. Training links: base capacity 4 to 150 Mbit/s,
@@ -54,6 +61,20 @@ SETS = {  # name: (links, conditions, duration s, campaign seed)
     "ood-buffer": (150, 64, 30, 4006),
     "net2-train": (600, 64, 30, 4011),
     "net2-train-xl": (9600, 64, 30, 4012),
+    "wide30": (1200, 64, 30, 4021),
+    "wide120": (600, 64, 120, 4022),
+    "ood-rtt-wide": (150, 64, 30, 4023),
+    "ood-buffer-wide": (150, 64, 30, 4024),
+}
+# name: (one-way delay ms, buffer in BDP, base capacity Mbit/s), where it is
+# not the training ranges (5 to 60, 0.25 to 8, 4 to 150).
+RANGES = {
+    "ood-rtt": ((61, 90), (0.25, 8.0), (4.0, 150.0)),
+    "ood-buffer": ((5, 60), (8.0, 16.0), (4.0, 150.0)),
+    "wide30": ((5, 150), (0.25, 32.0), (1.0, 200.0)),
+    "wide120": ((5, 150), (0.25, 32.0), (1.0, 200.0)),
+    "ood-rtt-wide": ((151, 250), (0.25, 32.0), (1.0, 200.0)),
+    "ood-buffer-wide": ((5, 150), (32.0, 64.0), (1.0, 200.0)),
 }
 
 
@@ -62,9 +83,12 @@ def logu(rng: np.random.Generator, lo: float, hi: float) -> float:
 
 
 def link(
-    rng: np.random.Generator, delay: tuple[int, int], buffer_bdp: tuple[float, float]
+    rng: np.random.Generator,
+    delay: tuple[int, int],
+    buffer_bdp: tuple[float, float],
+    capacity: tuple[float, float] = (4.0, 150.0),
 ) -> dict[str, object]:
-    b = round(logu(rng, 4, 150), 1)
+    b = round(logu(rng, *capacity), 1)
     if rng.random() < 0.4:
         levels = [b]
     else:
@@ -138,14 +162,16 @@ def controllers(models: Path) -> list[dict[str, object]]:
 def campaign(name: str, models: Path) -> dict[str, object]:
     n_links, n_cond, seconds, seed = SETS[name]
     rng = np.random.default_rng(seed)
-    delay = (61, 90) if name == "ood-rtt" else (5, 60)
-    buffer_bdp = (8.0, 16.0) if name == "ood-buffer" else (0.25, 8.0)
+    delay, buffer_bdp, capacity = RANGES.get(name, ((5, 60), (0.25, 8.0), (4.0, 150.0)))
     family = name if name in ("ood-competitors", "ood-loss") else "train"
     return {
         "name": f"net1-broad-{name}",
         "ccs": controllers(models),
         "ccs_per_point": 3,
-        "sweep": {"kind": "paths", "paths": [link(rng, delay, buffer_bdp) for _ in range(n_links)]},
+        "sweep": {
+            "kind": "paths",
+            "paths": [link(rng, delay, buffer_bdp, capacity) for _ in range(n_links)],
+        },
         "conditions": [condition(rng, seconds * 1000, family) for _ in range(n_cond)],
         "conditions_per_point": 2,
         "duration_ms": seconds * 1000,

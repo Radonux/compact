@@ -14,7 +14,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from expliccit_env.spec import AgentCC, EpisodeSpec, OnnxPolicy  # noqa: E402
+from expliccit_env.spec import AgentCC, EpisodeSpec, OnnxPolicy, TcpCross  # noqa: E402
 from expliccit_env.train import fit, ppo  # noqa: E402
 from expliccit_env.train.export import to_onnx  # noqa: E402
 from expliccit_env.train.recurrent import OBS_MIN_RTT, RecurrentActor, decision_steps  # noqa: E402
@@ -615,6 +615,23 @@ def test_diverse_competition_draws_every_controller_but_the_held_out() -> None:
     assert set(stock) == set(ppo.DIVERSE_WEIGHT)
     assert not set(stock) & ppo.HELD_OUT
     assert stock.count("cubic") > stock.count("vegas")
+
+
+def test_dynamic_competition_spreads_arrivals_and_departures_over_the_episode() -> None:
+    rng = np.random.default_rng(7)
+    copy = AgentCC(policy=OnnxPolicy(path=Path("p.onnx"), sha256="0" * 64))
+    draws = [ppo._competition(rng, (2, 4), copy, "dynamic", 120_000) for _ in range(3000)]  # pyright: ignore[reportPrivateUsage]
+    flows = [c for d in draws for c in d if isinstance(c, TcpCross)]
+    copies = [c for c in flows if isinstance(c.cc, AgentCC)]
+    stock = [c for c in flows if not isinstance(c.cc, AgentCC)]
+    assert all(c.start_ms == 0 and c.stop_ms is None for c in copies)
+    assert not {str(c.cc) for c in stock} & ppo.HELD_OUT
+    starts = np.array([c.start_ms for c in stock])
+    assert 0.25 < (starts == 0).mean() < 0.45
+    assert 60_000 < starts.max() <= 72_000
+    stops = [(c.start_ms, c.stop_ms) for c in stock if c.stop_ms is not None]
+    assert 0.2 < len(stops) / len(stock) < 0.4
+    assert all(a + 5000 <= b <= 120_000 for a, b in stops)
 
 
 def test_exploration_noise_is_held_and_a_critic_needs_ppo(tmp_path: Path) -> None:
