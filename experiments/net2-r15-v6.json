@@ -1,0 +1,26 @@
+{
+  "title": "Round 15: net2 on net1 v6 with more copies in training, and warm-started from round 12",
+  "description": "Round 12's checkpoints matched the fixed rule on every validation family without beating it beyond the noise (exp-net2-eval-r12-155: five-family mean -0.002 and +0.004, cubic-first-60 +0.042 and +0.026 with intervals including 0), and lost 0.10 to 0.12 as copies, with intervals of -0.41 to +0.20. Two arms on net1 v6 (release exp-net1v6-149, its rule at u = 0.25), each next to round 14 (the same learner and mixture, from the rule): copies: more copies in training, competition on 60% of the links (half of it 2 or 4 copies with the team reward, so copies on 30% against round 14's 20%) and the flow alone on 35%; warm: round 12's rule arm, actor and critic (release model-net2-r12-cands, by seed), continued on v6 with round 14's mixture (alone 0.4, compete 0.4), to see whether what it learned on v5's beliefs carries over and shortens training. 30 s episodes, tau 1 s, seeds 1 to 3, 120 iterations. Validation links only.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v6": "release:exp-net1v6-149",
+    "models": "release:model-net1v3",
+    "a": "release:model-net2-r12-cands"
+  },
+  "matrix": {
+    "arm": [
+      "copies",
+      "warm"
+    ],
+    "seed": [
+      1,
+      2,
+      3
+    ]
+  },
+  "prepare": "(cd \"$IN/a\" && sha256sum -c SHA256SUMS); N=\"$IN/v6/net1-v6-s0/net1.pt\"; uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$N\" --models \"$IN/models\" --u 0.25 --paths net2-train-xl",
+  "run": "S=\"$OUT/spec-r15-$ARM-s$SEED.json\"; A=\"$IN/a/ppo-r12-rule-s$SEED\"; jq --arg arm \"$ARM\" --argjson seed \"$SEED\" --arg actor \"$A.actor.pt\" --arg critic \"$A.critic.pt\" '.algo = \"ppo\" | .base = \"fixed\" | .copies_reward = \"team\" | .critic_flows = true | .noise_sigma = 0.2 | .noise_hold_steps = 20 | .tau_s = 1 | .group = 4 | .links_per_iteration = 8 | .lr = 0.0003 | .copies = [2, 4] | .competition = \"diverse\" | .seed = $seed | .iterations = 120 | .eval_every = 20 | (if $arm == \"copies\" then .alone = 0.35 | .compete = 0.6 else .alone = 0.4 | .compete = 0.4 | .init_actor = $actor | .init_critic = $critic end)' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/ppo-r15-$ARM-s$SEED\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ppo-*",
+  "timeout_minutes": 360
+}
