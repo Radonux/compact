@@ -1,0 +1,26 @@
+{
+  "title": "Round 14, stage 2: every cell continues on net1 v6",
+  "description": "Round 14 (exp-net2-r14-v6-154: recurrent PPO from net1 v6's rule, the flow alone on about half the training links, 30 s episodes, tau 1 s and 5 s, seeds 1 to 3) ended while its cells were still improving: the first cell to finish (tau 5 s, seed 1) went from -0.273 at iteration 39 to +0.012 at its last, with +0.078 against competitors and -0.055 where the flow is alone. Stage 2 continues every cell from its final actor and critic (release model-net2-r14-state) with everything else unchanged, 120 more iterations, training seed + 100. Validation links only; checkpoints are chosen on validation and the gate runs after the last stage.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v6": "release:exp-net1v6-149",
+    "models": "release:model-net1v3",
+    "a": "release:model-net2-r14-state"
+  },
+  "matrix": {
+    "tau": [
+      1,
+      5
+    ],
+    "seed": [
+      1,
+      2,
+      3
+    ]
+  },
+  "prepare": "(cd \"$IN/a\" && sha256sum -c SHA256SUMS); N=\"$IN/v6/net1-v6-s0/net1.pt\"; uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$N\" --models \"$IN/models\" --u 0.25 --paths net2-train-xl",
+  "run": "S=\"$OUT/spec-r14s2-tau$TAU-s$SEED.json\"; A=\"$IN/a/ppo-r14-tau$TAU-s$SEED\"; jq --argjson tau \"$TAU\" --argjson seed \"$SEED\" --arg actor \"$A.actor.pt\" --arg critic \"$A.critic.pt\" '.algo = \"ppo\" | .base = \"fixed\" | .copies_reward = \"team\" | .critic_flows = true | .noise_sigma = 0.2 | .noise_hold_steps = 20 | .tau_s = $tau | .group = 4 | .links_per_iteration = 8 | .lr = 0.0003 | .alone = 0.4 | .compete = 0.4 | .copies = [2, 4] | .competition = \"diverse\" | .seed = ($seed + 100) | .iterations = 120 | .eval_every = 20 | .init_actor = $actor | .init_critic = $critic' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/ppo-r14s2-tau$TAU-s$SEED\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ppo-*",
+  "timeout_minutes": 360
+}
