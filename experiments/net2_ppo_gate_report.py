@@ -152,10 +152,10 @@ def load(out: Path) -> tuple[Scores, set[str]]:
     return scores, failed
 
 
-def markdown(cands: dict[str, Candidate], kept: str | None) -> str:
+def markdown(cands: dict[str, Candidate], kept: str | None, rule: str = RULE) -> str:
     head = [*FAMILIES, "five-family mean", "new-20, competition", "copies", "per seed"]
     lines = [
-        "Learned net2 against the fixed rule on net1 v5, validation links: per link the mean over",
+        f"Learned net2 against the fixed rule ({rule}), validation links: per link the mean over",
         "seeds of policy minus rule, then the mean over links with its 95% interval.",
         "A * marks a candidate with a failed episode.",
         "",
@@ -175,7 +175,7 @@ def markdown(cands: dict[str, Candidate], kept: str | None) -> str:
 
 def main(out: Path, rule: str = RULE) -> None:
     cands, kept = decide(*load(out), rule)
-    text = markdown(cands, kept)
+    text = markdown(cands, kept, rule)
     (out / "summary.md").write_text(text)
     gate = {
         "kept": kept,
