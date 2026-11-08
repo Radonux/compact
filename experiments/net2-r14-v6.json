@@ -1,0 +1,25 @@
+{
+  "title": "Round 14: net2 learned from the reward on net1 v6, alone as often as evaluated",
+  "description": "net1 v6 replaces v5 (exp-net1v6-inrange-152), and the fixed rule on v6 keeps u = 0.25 (exp-rule-net1v6-val-153: best on all three campaign seeds, +0.133 to +0.138 over BBRv3, u 0.125 next at +0.127 to +0.130). Round 13 showed PPO is not biased towards pushing: trained always alone, it lowered u and beat the rule there. Round 12 showed the mixture alone 0.4, compete 0.4 removes round 10's losses when alone (its cells finished so far stay within about +0.02 of the rule, trading small gains between competition and the flow alone across checkpoints). Round 14 runs round 12's learner and mixture on net1 v6, from v6's rule: recurrent PPO, team reward among copies, privileged critic with flow counts, sigma 0.2 held 200 ms, 30 s episodes, diverse competition, alone 0.4, compete 0.4, 120 iterations; tau 1 s and 5 s (round 13's tau 5 s learned best when alone), seeds 1 to 3. Each iteration's policy is kept, so a checkpoint can be chosen on validation before the gate. Validation links only.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v6": "release:exp-net1v6-149",
+    "models": "release:model-net1v3"
+  },
+  "matrix": {
+    "tau": [
+      1,
+      5
+    ],
+    "seed": [
+      1,
+      2,
+      3
+    ]
+  },
+  "prepare": "N=\"$IN/v6/net1-v6-s0/net1.pt\"; uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$N\" --models \"$IN/models\" --u 0.25 --paths net2-train-xl",
+  "run": "S=\"$OUT/spec-r14-tau$TAU-s$SEED.json\"; jq --argjson tau \"$TAU\" --argjson seed \"$SEED\" '.algo = \"ppo\" | .base = \"fixed\" | .copies_reward = \"team\" | .critic_flows = true | .noise_sigma = 0.2 | .noise_hold_steps = 20 | .tau_s = $tau | .group = 4 | .links_per_iteration = 8 | .lr = 0.0003 | .alone = 0.4 | .compete = 0.4 | .copies = [2, 4] | .competition = \"diverse\" | .seed = $seed | .iterations = 120 | .eval_every = 20' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/ppo-r14-tau$TAU-s$SEED\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ppo-*",
+  "timeout_minutes": 360
+}
