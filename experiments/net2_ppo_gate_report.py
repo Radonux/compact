@@ -1,8 +1,9 @@
 """The gate a learned net2 must pass on validation before its one run on
 the test links: each candidate's policies (one per training seed, named
 ppo-CANDIDATE-sSEED, from `expliccit train ppo` by PPO, TD3+BC or DAgger)
-against the fixed rule on net1 v5, paired by link, on every validation
-family and as copies.
+against the fixed rule (the policy named RULE, by default rule-v5, the
+fixed rule on net1 v5), paired by link, on every validation family and as
+copies.
 
 The rule, fixed before the first gate ran (experiments/net2-ppo-gate.json):
 
@@ -21,7 +22,7 @@ The rule, fixed before the first gate ran (experiments/net2-ppo-gate.json):
   interval's upper end at or above 0). Otherwise net2 stays the fixed rule
   and the share rule.
 
-Usage: python experiments/net2_ppo_gate_report.py OUT
+Usage: python experiments/net2_ppo_gate_report.py OUT [RULE]
 Writes OUT/summary.md and OUT/gate.json.
 """
 
@@ -38,7 +39,7 @@ import numpy as np
 from expliccit_env.train import score
 from expliccit_env.train.spec import Net2Spec
 
-RULE = "rule-v5"
+RULE = "rule-v5"  # the default fixed rule
 FAMILIES = ("training-20", "training-60", "new-20", "deep-long-20", "cubic-first-60")
 COPIES = "copies-30s"
 COMPETITION = ("cubic from 0 s", "bbr from 4 s", "cubic from 2 s, cubic from 10 s")
@@ -88,6 +89,7 @@ def _interval(d: list[float], rng: np.random.Generator) -> Interval:
 def difference(
     by_cond: dict[str, dict[str, dict[str, float]]],
     seeds: list[str],
+    rule_name: str,
     conditions: tuple[str, ...] = (),
 ) -> list[float]:
     """Per link, the mean over seeds of policy minus rule, each the mean
@@ -101,13 +103,15 @@ def difference(
             for k in links
         }
 
-    rule = link_scores(RULE)
+    rule = link_scores(rule_name)
     per_seed = [link_scores(s) for s in seeds]
     shared = sorted(set(rule).intersection(*per_seed))
     return [float(np.mean([p[k] - rule[k] for p in per_seed])) for k in shared]
 
 
-def decide(scores: Scores, failed: set[str]) -> tuple[dict[str, Candidate], str | None]:
+def decide(
+    scores: Scores, failed: set[str], rule: str = RULE
+) -> tuple[dict[str, Candidate], str | None]:
     """Every candidate's differences, and the one kept (the rule above)."""
     rng = np.random.default_rng(0)
     groups: dict[str, list[str]] = defaultdict(list)
@@ -116,14 +120,16 @@ def decide(scores: Scores, failed: set[str]) -> tuple[dict[str, Candidate], str 
             groups[m["cand"]].append(n)
     cands: dict[str, Candidate] = {}
     for cand, seeds in sorted(groups.items()):
-        fam = {f: _interval(difference(scores[f], seeds), rng) for f in FAMILIES}
+        fam = {f: _interval(difference(scores[f], seeds, rule), rng) for f in FAMILIES}
         cands[cand] = Candidate(
             families=fam,
             five_family_mean=float(np.mean([v.mean for v in fam.values()])),
-            competition_new=_interval(difference(scores["new-20"], seeds, COMPETITION), rng),
-            copies=_interval(difference(scores[COPIES], seeds), rng) if COPIES in scores else None,
+            competition_new=_interval(difference(scores["new-20"], seeds, rule, COMPETITION), rng),
+            copies=_interval(difference(scores[COPIES], seeds, rule), rng)
+            if COPIES in scores
+            else None,
             per_seed={
-                s: float(np.mean([np.mean(difference(scores[f], [s])) for f in FAMILIES]))
+                s: float(np.mean([np.mean(difference(scores[f], [s], rule)) for f in FAMILIES]))
                 for s in seeds
             },
             failed=any(s in failed for s in seeds),
@@ -167,8 +173,8 @@ def markdown(cands: dict[str, Candidate], kept: str | None) -> str:
     return "\n".join(lines) + "\n"
 
 
-def main(out: Path) -> None:
-    cands, kept = decide(*load(out))
+def main(out: Path, rule: str = RULE) -> None:
+    cands, kept = decide(*load(out), rule)
     text = markdown(cands, kept)
     (out / "summary.md").write_text(text)
     gate = {
@@ -181,4 +187,4 @@ def main(out: Path) -> None:
 
 
 if __name__ == "__main__":
-    main(Path(sys.argv[1]))
+    main(Path(sys.argv[1]), sys.argv[2] if len(sys.argv) > 2 else RULE)
