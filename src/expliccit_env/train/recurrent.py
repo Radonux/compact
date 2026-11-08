@@ -166,6 +166,31 @@ class EnsembleActor(nn.Module):
         return torch.stack([m.mean(hi) for m, hi in self._parts(h)]).mean(dim=0)
 
 
+class ConcatActor(nn.Module):
+    """Actors on the same inputs, each with its own part of the hidden
+    state; the output is theirs side by side, [B, sum of outputs] (a
+    policy's u next to another's beliefs, for a gate that combines them)."""
+
+    def __init__(self, members: list[RecurrentActor | EnsembleActor]) -> None:
+        super().__init__()
+        if not members:
+            raise ValueError("a concatenation needs one or more actors")
+        self.members = nn.ModuleList(members)
+        self.sizes = [m.hidden for m in members]
+        self.hidden = sum(self.sizes)
+
+    def _parts(self, h: torch.Tensor) -> list[tuple[HeldActor, torch.Tensor]]:
+        hs = torch.split(h, self.sizes, dim=-1)
+        return [(cast(HeldActor, m), hi) for m, hi in zip(self.members, hs, strict=True)]
+
+    def cell(self, x: torch.Tensor, h: torch.Tensor) -> torch.Tensor:
+        return torch.cat([m.cell(x, hi) for m, hi in self._parts(h)], dim=-1)
+
+    def mean(self, h: torch.Tensor) -> torch.Tensor:
+        outs = [m.mean(hi) for m, hi in self._parts(h)]
+        return torch.cat([o.unsqueeze(-1) if o.dim() == 1 else o for o in outs], dim=-1)
+
+
 class HeldPolicyGraph(PolicyGraph):
     """PolicyGraph with a RecurrentActor that decides once per block.
 
@@ -184,7 +209,7 @@ class HeldPolicyGraph(PolicyGraph):
     def __init__(
         self,
         base: PolicyGraph,
-        actor: RecurrentActor | EnsembleActor,
+        actor: RecurrentActor | EnsembleActor | ConcatActor,
         offset: nn.Module | None = None,
         gate: nn.Module | None = None,
     ) -> None:
