@@ -655,6 +655,24 @@ def test_alone_links_have_no_cross_flows_and_shares_add_up(tmp_path: Path) -> No
     assert all([c.cc for c in e.cross] == ["cubic"] for e in eps[0.9])  # pyright: ignore[reportAttributeAccessIssue]
 
 
+def test_copies_share_sets_how_often_competition_is_copies() -> None:
+    copy = AgentCC(policy=OnnxPolicy(path=Path("p.onnx"), sha256="0" * 64))
+    rng = np.random.default_rng(11)
+    draws = [
+        ppo._competition(rng, (2, 4), copy, "diverse", 30_000, copies_share=0.8)
+        for _ in range(4000)
+    ]  # pyright: ignore[reportPrivateUsage]
+    share = np.mean([isinstance(d[0].cc, AgentCC) for d in draws])  # pyright: ignore[reportAttributeAccessIssue]
+    assert 0.77 < share < 0.83
+    old = np.random.default_rng(11)
+    new = np.random.default_rng(11)
+    a = [ppo._competition(old, (2, 4), copy, "diverse") for _ in range(50)]  # pyright: ignore[reportPrivateUsage]
+    b = [
+        ppo._competition(new, (2, 4), copy, "diverse", 30_000, copies_share=None) for _ in range(50)
+    ]  # pyright: ignore[reportPrivateUsage]
+    assert a == b
+
+
 def test_exploration_noise_is_held_and_a_critic_needs_ppo(tmp_path: Path) -> None:
     pol = tmp_path / "p.onnx"
     pol.write_bytes(b"x")

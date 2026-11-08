@@ -145,6 +145,11 @@ class PPOSpec(BaseModel):
     # a policy that pushes everywhere is the optimum of the wrong mixture.
     alone: Annotated[float, Field(ge=0, le=1)] = 0.0
     copies: tuple[int, ...] = (2, 3, 4)
+    # The share of competition links that hold copies rather than a stock
+    # flow; None keeps the original draw (copies as likely as each of Cubic
+    # and BBRv1, one in four or two in four). Where copies and a stock flow
+    # look alike to net1, this share is the prior the shared policy weighs.
+    copies_share: Annotated[float, Field(ge=0, le=1)] | None = None
     # When the competing stock flows start. "at-start": one Cubic or BBRv1
     # flow from 0 s. "broad": that flow starts at a uniform time in the
     # first 10 s, and half the time a second one (Cubic, BBRv1 or Reno)
@@ -324,14 +329,21 @@ def _competition(
     copy: AgentCC | None,
     competition: Literal["at-start", "broad", "diverse", "dynamic"] = "at-start",
     duration_ms: int = 30_000,
+    *,
+    copies_share: float | None = None,
 ) -> list[TcpCross | UdpCross]:
     """Cubic or BBR, or n - 1 copies of the policy (n in copies) from 0 s;
     with competition "broad", stock flows start within BROAD_START_MS and a
     second one joins half the time; with "diverse", as "broad" with each
     stock flow drawn from DIVERSE_WEIGHT; with "dynamic", each stock flow
     gets a lifetime anywhere in the episode (_window)."""
-    choices = ["cubic", "bbr", *(f"copies{n}" for n in copies if copy is not None)]
-    pick = choices[int(rng.integers(len(choices)))]
+    if copies_share is None:
+        choices = ["cubic", "bbr", *(f"copies{n}" for n in copies if copy is not None)]
+        pick = choices[int(rng.integers(len(choices)))]
+    elif copy is not None and copies and rng.random() < copies_share:
+        pick = f"copies{copies[int(rng.integers(len(copies)))]}"
+    else:
+        pick = ("cubic", "bbr")[int(rng.integers(2))]
     if not pick.startswith("copies"):
         stock: StockName = "cubic" if pick == "cubic" else "bbr"
         if competition == "at-start":
@@ -374,7 +386,14 @@ def _group_episodes(
     if draw < spec.alone:
         cross: list[TcpCross | UdpCross] = []
     elif draw < spec.alone + spec.compete:
-        cross = _competition(rng, spec.copies, template, spec.competition, spec.duration_ms)
+        cross = _competition(
+            rng,
+            spec.copies,
+            template,
+            spec.competition,
+            spec.duration_ms,
+            copies_share=spec.copies_share,
+        )
     else:
         cross = cond.flows(path.trace)
 
