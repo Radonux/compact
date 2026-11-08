@@ -1,0 +1,26 @@
+{
+  "title": "Round 12: net2 learned from the reward on the evaluation's mixture of traffic: alone as often as competing",
+  "description": "Round 10 (exp-net2-r10-rl-143) moved PPO off the rule for the first time (spread of u 0.3 to 0.6) and the policy now beats the rule against competitors on validation (rule arm, final: Cubic from 0 s +0.05 to +0.09, BBRv1 from 4 s +0.01 to +0.09), but it pushes everywhere and loses 0.22 to 0.39 where the flow is alone with random or ACK-path loss. Its training mixture explains it: competition on 80% of the links, and on the rest the paths' own conditions, 42% of which have no cross traffic, so the flow was alone on about 8% of the training links but on about half of the evaluation's. Pushing is the optimum of that mixture. Round 12 keeps round 10's learner (recurrent PPO, team reward among copies, privileged critic with flow counts, sigma 0.2 held 200 ms, 30 s episodes, tau 1 s, diverse competition) and changes only the mixture: alone on 40% of the links (PPOSpec alone: no cross flows, the link's loss kept), competition on 40%, the paths' conditions on 20%, so the flow is alone on about 48%. Arm rule starts from the fixed rule; arm r10 continues round 10's rule arm, actor and critic (release model-net2-r10-state, by seed), which already learned to push against competitors and must now learn when not to. Seeds 1 to 3, 120 iterations within the 5 h 15 min budget. Validation links only; the gate runs after the last stage.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v5": "release:exp-net1v4-recheck-79",
+    "models": "release:model-net1v3",
+    "a": "release:model-net2-r10-state"
+  },
+  "matrix": {
+    "start": [
+      "rule",
+      "r10"
+    ],
+    "seed": [
+      1,
+      2,
+      3
+    ]
+  },
+  "prepare": "(cd \"$IN/a\" && sha256sum -c SHA256SUMS); N=\"$IN/v5/net1-d0.05-w512-s0/net1.pt\"; uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$N\" --models \"$IN/models\" --u 0.25 --paths net2-train-xl",
+  "run": "S=\"$OUT/spec-r12-$START-s$SEED.json\"; A=\"$IN/a/ppo-r10-rule-s$SEED\"; jq --arg start \"$START\" --argjson seed \"$SEED\" --arg actor \"$A.actor.pt\" --arg critic \"$A.critic.pt\" '.algo = \"ppo\" | .base = \"fixed\" | .copies_reward = \"team\" | .critic_flows = true | .noise_sigma = 0.2 | .noise_hold_steps = 20 | .tau_s = 1 | .group = 4 | .links_per_iteration = 8 | .lr = 0.0003 | .alone = 0.4 | .compete = 0.4 | .copies = [2, 4] | .competition = \"diverse\" | .seed = $seed | .iterations = 120 | .eval_every = 20 | (if $start == \"r10\" then .init_actor = $actor | .init_critic = $critic else . end)' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/ppo-r12-$START-s$SEED\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ppo-*",
+  "timeout_minutes": 360
+}

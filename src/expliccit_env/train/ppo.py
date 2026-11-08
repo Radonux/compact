@@ -138,6 +138,12 @@ class PPOSpec(BaseModel):
     # Share of links whose condition is replaced by competition: Cubic or
     # BBRv1 from 0 s, or n copies of the policy in all, n drawn from copies.
     compete: Annotated[float, Field(ge=0, le=1)] = 0.5
+    # A share of the links where the flow runs alone (the link's random
+    # loss kept, no cross flows), drawn before compete; the rest keep the
+    # paths' own conditions. With compete high, a flow is alone on few
+    # training links (round 10: 8%) but on about half the evaluation's, and
+    # a policy that pushes everywhere is the optimum of the wrong mixture.
+    alone: Annotated[float, Field(ge=0, le=1)] = 0.0
     copies: tuple[int, ...] = (2, 3, 4)
     # When the competing stock flows start. "at-start": one Cubic or BBRv1
     # flow from 0 s. "broad": that flow starts at a uniform time in the
@@ -248,6 +254,8 @@ class PPOSpec(BaseModel):
             raise ValueError('gate3_copies is a choice of student "gate3" only')
         if self.init_critic is not None and self.algo != "ppo":
             raise ValueError('init_critic continues algo "ppo" only')
+        if self.alone + self.compete > 1:
+            raise ValueError("alone and compete are shares of the links: at most 1 together")
         return self
 
     @classmethod
@@ -354,17 +362,21 @@ def _group_episodes(
     policy: Path,
     spec: PPOSpec,
     rng: np.random.Generator,
-    compete: bool,
+    draw: float,
 ) -> list[EpisodeSpec]:
-    """K rollouts of one link: the same seed, different noise seeds."""
+    """K rollouts of one link: the same seed, different noise seeds. The
+    uniform ``draw`` picks the link's traffic: alone below spec.alone, then
+    competition (_competition) for the next spec.compete, else the paths'
+    own condition."""
     path, cond = arm
     seed, base = int(rng.integers(0, 2**63)), int(rng.integers(0, 2**62))
     template = _agent(policy, spec.noise_sigma, None, spec.noise_hold_steps)
-    cross = (
-        _competition(rng, spec.copies, template, spec.competition, spec.duration_ms)
-        if compete
-        else cond.flows(path.trace)
-    )
+    if draw < spec.alone:
+        cross: list[TcpCross | UdpCross] = []
+    elif draw < spec.alone + spec.compete:
+        cross = _competition(rng, spec.copies, template, spec.competition, spec.duration_ms)
+    else:
+        cross = cond.flows(path.trace)
 
     def own(c: TcpCross | UdpCross, noise: int) -> TcpCross | UdpCross:
         if isinstance(c, TcpCross) and isinstance(c.cc, AgentCC):
@@ -414,7 +426,7 @@ def _batch(
     rivals: dict[str, npt.NDArray[np.float64]] = {}
     for j in range(spec.links_per_iteration):
         arm = arms[int(rng.integers(len(arms)))]
-        for e in _group_episodes(arm, policy, spec, rng, bool(rng.random() < spec.compete)):
+        for e in _group_episodes(arm, policy, spec, rng, float(rng.random())):
             groups[e.episode_id()] = j
             rivals[e.episode_id()] = _rivals(e)
             eps.append(e)

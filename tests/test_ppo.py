@@ -634,6 +634,27 @@ def test_dynamic_competition_spreads_arrivals_and_departures_over_the_episode() 
     assert all(a + 5000 <= b <= 120_000 for a, b in stops)
 
 
+def test_alone_links_have_no_cross_flows_and_shares_add_up(tmp_path: Path) -> None:
+    pol = tmp_path / "p.onnx"
+    pol.write_bytes(b"x")
+    with pytest.raises(ValueError, match="at most 1"):
+        ppo.PPOSpec(paths_from=Path("x"), net1_from=Path("x"), alone=0.6, compete=0.5)
+    spec = ppo.PPOSpec(paths_from=Path("x"), net1_from=Path("x"), alone=0.4, compete=0.4)
+    path = ppo.PathSpec.model_validate(
+        {
+            "trace": {"kind": "periodic_levels", "levels_mbps": [10.0], "level_ms": 2000},
+            "delay": {"mahak_compat_mrtt_ms": 20},
+            "buffer": {"packets": 100},
+        }
+    )
+    cond = ppo.Condition.model_validate({"cross": [{"kind": "tcp", "cc": "cubic", "start_ms": 0}]})
+    rng = np.random.default_rng(1)
+    eps = {d: ppo._group_episodes((path, cond), pol, spec, rng, d) for d in (0.1, 0.5, 0.9)}  # pyright: ignore[reportPrivateUsage]
+    assert all(e.cross == [] for e in eps[0.1])
+    assert all(e.cross for e in eps[0.5])
+    assert all([c.cc for c in e.cross] == ["cubic"] for e in eps[0.9])  # pyright: ignore[reportAttributeAccessIssue]
+
+
 def test_exploration_noise_is_held_and_a_critic_needs_ppo(tmp_path: Path) -> None:
     pol = tmp_path / "p.onnx"
     pol.write_bytes(b"x")
