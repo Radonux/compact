@@ -47,7 +47,7 @@ outside the training ranges.
   links, its 90% intervals for capacity were 12.3 Mbit/s wide on busy
   steps and 41.2 Mbit/s on idle ones (links of 4 to 200 Mbit/s; local
   run).
-- Outside its ranges net1 is not honest. Its bins end just above the
+- Outside its ranges net1 v5 is not honest. Its bins end just above the
   training range, so one-way delays above 60 ms look covered (0.90) while
   the mean cannot leave the range (R^2 -2.54). On buffers deeper than any
   in training, its free-buffer statements hold 44% of the time.
@@ -61,6 +61,20 @@ outside the training ranges.
   was at least as accurate as a single value or an interval on every LCF
   but free buffer, and its CRPS was 3 to 6 times lower than the single
   value's absolute error (local runs).
+
+Wider training data moves that edge; it does not remove it. net1 v6
+has net1 v5's settings and data plus links with one-way delays of 5 to
+150 ms, buffers of 0.25 to 32 BDP, base capacities of 1 to 200 Mbit/s and
+120 s episodes ([`exp-data-net1-v6-146`](https://github.com/Radonux/palaestra/releases/tag/exp-data-net1-v6-146), [`exp-net1v6-149`](https://github.com/Radonux/palaestra/releases/tag/exp-net1v6-149)).
+On v5's own test links it is as good (CRPS skill 0.782 to 0.784 over
+three seeds against 0.778, calibration equal, though its free-buffer mean
+is worse: R^2 0.22 to 0.30 against 0.47;
+[`exp-net1v6-inrange-152`](https://github.com/Radonux/palaestra/releases/tag/exp-net1v6-inrange-152)). On the families v5 never saw it is
+honest (one-way delays of 61 to 90 ms: R^2 0.97, 90% coverage 0.97).
+Beyond its own new ranges it fails again, more gently: at one-way delays
+of 151 to 250 ms its one-way-delay statements hold 27% of the time (R^2
+-3.84, against v5's -24.1). net1 v6 replaces v5 for new work, and the
+fixed rule on it keeps u = 0.25 ([`exp-rule-net1v6-val-153`](https://github.com/Radonux/palaestra/releases/tag/exp-rule-net1v6-val-153)).
 
 ### Split by link, not by row
 
@@ -129,14 +143,11 @@ minus BBRv3:
   a second held-out set of 158 links: net1 closed about 85% of the gap
   between that estimate and the truth (local runs).
 - Copies of the fixed rule hold 0.99 utilization (BBRv3's 0.96) with 22 to
-  29 ms of mean queueing delay (28 to 33 ms). With 2 copies they share as
-  evenly as BBRv3's (Jain's index 0.979 against 0.984), with 4 less so
-  (0.915 against 0.979).
-- Against Sage's released policy with the flow alone, the fixed rule has
-  7% to 8% more utilization on clean links in the training families and
-  14% more on deep, long paths; its queueing delay is within the noise of
-  Sage's in the training families and 70% lower on deep, long paths. Under
-  1% and 3% random loss it has 1.7 to 2.6 times Sage's utilization.
+  29 ms of queueing delay (28 to 33 ms) and share as evenly as BBRv3's
+  with 2 copies (Jain's index 0.979 against 0.984), less so with 4.
+- Against Sage's released policy alone, the fixed rule has 7% to 14% more
+  utilization on clean links and 1.7 to 2.6 times Sage's under 1% and 3%
+  random loss, with up to 70% less queueing delay on deep, long paths.
 
 Nothing was chosen on two outside benchmarks, ccperf's experiments
 ([`exp-ccperf-77`](https://github.com/Radonux/palaestra/releases/tag/exp-ccperf-77),
@@ -156,16 +167,13 @@ which the rules on net1 v5 ran unchanged:
 | ccBench, a Cubic flow first, share of capacity | 0.398 | 0.426 | 0.497 | 0.399 | 0.369 | 0.206 |
 
 The rules keep the link full with a short queue alone, under random loss
-and on deep buffers, and win most of ccBench's solo games (its score is
-throughput squared over delay). They queue more than BBR on traces whose
-capacity jumps, and against a Cubic flow that started first they take
-less than half the link: the same gap as cubic-first-60.
+and on deep buffers; they queue more than BBR on traces whose capacity
+jumps, and take less than half the link against a Cubic flow that started
+first, the same gap as cubic-first-60.
 
-Compute: outside the guest, one decision of the fixed rule on net1 v5
-takes 1.07 ms (median; 99th percentile 1.29 ms) on one core, against
-0.84 ms for Sage's released policy; net1's three members dominate
-(`tools/policy-bench`, 2026-11-05, local). In the guest, inference costs
-no virtual time, so none of this shows in the scores.
+Compute: one decision of the fixed rule on net1 v5 takes 1.07 ms on one
+core (Sage's policy 0.84 ms; `tools/policy-bench`, local); in the guest
+inference costs no virtual time.
 
 ## What limits a rule is the other flows
 
@@ -222,8 +230,8 @@ fixed rule in every family and beat it with Cubic from the start, by
 competition conditions shrank from +0.054 on validation to +0.019 on
 test, with an interval spanning zero. It was one of 19 gates on the same
 validation links, but it passed again, unchanged, on new validation
-episodes. Reinforcement learning from the rule never moved off the rule.
-What worked is imitation of a privileged teacher (DAgger), a student
+episodes. Reinforcement learning from the reward now reaches the rule's
+level on every family but not beyond it. What worked is imitation of a privileged teacher (DAgger), a student
 that learns from net1's output alone two beliefs, p that a stock TCP
 flow shares the link and q that copies of itself do, a policy in which q
 vetoes the push, and the mean belief of three seeds.
@@ -254,6 +262,7 @@ new-20's three competition conditions.
 | 8e | Round 7's students trained 60 more iterations under the veto, as 7e (named: gain 0.5; gain 1 lost 0.106 as copies) | [`exp-net2-gate-r8e05-136`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r8e05-136), [`-r8e1-135`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r8e1-135) | +0.073 (+0.020 to +0.134) | +0.029 (-0.027 to +0.082) | -0.042 (-0.082 to -0.003) |
 | 9 | Round 7's learner on 16 times the training links (named: gain 0.5; gain 1 had competition +0.026) | [`exp-net2-gate-r9links05-140`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r9links05-140), [`-r9links1-139`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r9links1-139) | +0.070 (+0.027 to +0.125) | +0.013 (-0.020 to +0.042) | -0.041 (-0.087 to +0.006) |
 | 9b | Those links with stock competitors that join within the first 10 s (named: gain 0.5; gain 1 had +0.020 with Cubic from the start) | [`exp-net2-gate-r9broad05-142`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r9broad05-142), [`-r9broad1-141`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r9broad1-141) | +0.015 (-0.010 to +0.043) | +0.039 (+0.004 to +0.078) | -0.033 (-0.100 to +0.025) |
+| 12 | PPO from the reward, the flow alone on about half the training links; checkpoint at iteration 79, picked on these links (an evaluation, not a gate) | [`exp-net2-eval-r12-155`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-eval-r12-155) | +0.026 (-0.064 to +0.129) | +0.013 (-0.060 to +0.088) | -0.099 (-0.406 to +0.199) |
 
 The test of round 7e's candidate
 ([`exp-net2-test-r7e-k0.5-134`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-test-r7e-k0.5-134)),
@@ -284,15 +293,30 @@ training runs: round 1 `exp-net2-ppo-search1-90`, `-search2-96`,
 `-share-109`; round 4 `exp-net2-r4-dagger-110`, 4c `-r4c-dagger-113`;
 round 5 `exp-net2-r5-gate-115`; round 6 `exp-net2-r6-gate-119`, 6b
 `-r6b-gate-120`; round 7 `exp-net2-r7-gate3-124`; round 8
-`exp-net2-r8-gate3-129`; round 9 `exp-net2-r9-data-138`.
+`exp-net2-r8-gate3-129`; round 9 `exp-net2-r9-data-138`; round 10
+`exp-net2-r10-rl-143`; round 11 run 144 (it published no release:
+`model-net2-r11-state`) and `exp-net2-r11-s2-150`; round 12
+`exp-net2-r12-mix-147`; round 13 `exp-net2-r13-alone-151`.
 
-Reinforcement learning stayed at its start. After 60 iterations the
+Reinforcement learning first stayed at its start, then learned what its
+training mixture rewarded. In rounds 1 to 3, after 60 iterations, the
 spread of u across states was 0.02 to 0.04 for every PPO and TD3+BC
-learner, and the residuals stayed at the share rule. A return over
-thousands of decisions, each nudged by exploration noise of sigma 0.05,
-carries too little about any one of them. In round 1, PPO drifted toward
-the training mix's best constant u: Cubic was a tenth of the links, and
-on the rest a lower u is better.
+learner: exploration noise of sigma 0.05 drawn anew at each decision
+tells a return over thousands of decisions too little about any one.
+Holding each draw for 200 ms at sigma 0.2 (round 10) moved PPO off the
+rule (spread 0.3 to 0.6), toward larger windows: +0.05 to +0.07 with
+Cubic from the start but -0.22 to -0.39 where the flow was alone, because
+competition on 80% of the training links left it alone on about 8% of
+them, against half of the evaluation's. A longer discount horizon pushed
+harder (round 11: at tau 20 s the window reached 4 to 7 times the
+believed BDP and the policy lost 1.5 to 2.2), and trained always alone
+the same learner lowered the window and beat the rule there by up to
+0.08 (round 13). The learner follows its objective; the mixture sets the
+direction. With the flow alone on about half the links (round 12), PPO
+matched the rule on every family, but beat it nowhere beyond the noise
+and lost about 0.1 as copies. Longer episodes recovered more slowly at
+equal compute in round 11's second stage, which started from collapsed
+policies; a clean test from the rule is UNRUN.
 
 A graph bug cost rounds 1 and 2 about 0.13 as copies. The exported graph
 held a decision's window until the next decision, freezing the BDP it was
@@ -303,85 +327,58 @@ believed BDP
 ([`exp-net2-clone-copies-107`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-clone-copies-107),
 fixed in `85de8d0`).
 
-Imitation learns state dependence. DAgger gives a label at every
-decision: the teacher is the share rule while a stock TCP flow shares the
-link and the fixed rule otherwise, which the student must infer from
-net1's output. Round 4's students spread u by 0.16 to 0.48 across states,
-and against the share rule at the teacher's gain they kept 62% to 77% of
-its gain against Cubic while paying 31% to 34% of its loss as copies: they
-tell the two apart in part. Round 4 overfit (about 12 passes per
-iteration over a replay drawn from 64 links); round 4c fixed that, and
-its copies loss fell from 0.291 to 0.129.
+Imitation learns state dependence. DAgger labels every decision with a
+privileged teacher's u (the share rule while a stock TCP flow shares the
+link, the fixed rule otherwise), which the student must infer from net1's
+output. Round 4's students spread u by 0.16 to 0.48 across states and kept
+62% to 77% of the share rule's gain against Cubic while paying 31% to 34%
+of its loss as copies; round 4c removed their overfitting.
 
-Matching the rule among copies has a floor. From round 4c to 6b, the best
-candidates lose 0.08 to 0.14 as copies however training changed. A seed's
-copies loss follows how well it told the cases apart in training: the
-round-5t seed whose belief p was 0.78 with a stock TCP flow and 0.13
-without lost 0.02 as copies, the two with p of 0.44 and 0.47 without lost
-0.13 to 0.16. The loss sits on a few links (7 of 42 copies episodes in
-round 5e set a window more than 0.1 above the rule's, in log2), where one
-copy's push deepens the queue, which then looks like a buffer-filling
-flow to the others.
+Matching the rule among copies has a floor. From round 4c to 6b the best
+candidates lose 0.08 to 0.14 as copies, and a seed's loss follows how well
+it told the cases apart in training (p of 0.78 with a stock flow and 0.13
+without lost 0.02; p of 0.44 to 0.47 without lost 0.13 to 0.16). One
+copy's push deepens the queue, which then looks like a buffer-filling flow
+to the others.
 
 Cooperating with copies moved the trade-off rather than removing it.
-Round 7's teacher uses the cooperative window (the mode rule's, above)
-while only copies share the link. Its students learned q, a belief that
-copies are present: over the last 10 training iterations, 0.55 to 0.72
-with copies and 0.21 to 0.26 elsewhere, while p stayed at 0.21 to 0.35
-with copies. The copies loss vanished on average (-0.012 for the kept
-candidate, +0.054 for the other), but so did most of the gain against
-Cubic (+0.051, against +0.079 to +0.146 in rounds 4 to 6b), and its
-copies interval (-0.256 to +0.234) is the widest of any round: among
-copies the outcome depends strongly on the link.
+Round 7's teacher uses the cooperative window while only copies share the
+link, and its students learned q, a belief that copies are present (0.55
+to 0.72 with copies, 0.21 to 0.26 elsewhere). The copies loss vanished on
+average, but so did most of the gain against Cubic (+0.051), and its
+copies interval (-0.256 to +0.234) is the widest of any round.
 
 Per link (from the round-7 gate's episodes), the cooperative window was
-the cost. With Cubic from the start, on buffers of 20 to 112 packets
-some seeds took Cubic for copies and yielded: their receive share fell
-to 0.15 to 0.5 where the rule's was 0.39 to 0.87, losing 0.4 to 1.1 on
-those links, while on deeper buffers every seed gained 0.3 to 0.6.
-Lowering the threshold on p changed little (round 7t). The beliefs are
-trained on their labels whatever the policy does, so the same students
-can act differently: with q vetoing the push instead,
+the cost: with Cubic from the start on buffers of 20 to 112 packets, some
+seeds took Cubic for copies and yielded, losing 0.4 to 1.1. The beliefs
+are trained on their labels whatever the policy does, so the same
+students can act differently: with q vetoing the push instead,
 `u = u_rule + p'(1 - q')(share - u_rule)` (round 7v), taking Cubic for
 copies costs at most the push. The gain-1 candidate then meets every
-gate condition but copies, the closest any round has come, and loses
-0.145 as copies. A stronger veto did not change that (round 7vq): with
-q's threshold at 0.3 or 0 the kept candidate lost 0.136 and 0.142 as
-copies. At teacher gain 0.5 and threshold 0 the copies loss fell to
-0.045 (interval -0.097 to +0.004), but that candidate's competition
-interval reached -0.010, and the gate keeps the gain-1 candidate. Per
-link, the copies loss is single seeds misfiring: in 12 of the 42 pairs
-of link and number of copies one seed lost 0.5 or more, in none did all
-three, and those cells carry 72% of the loss.
+gate condition but copies (-0.145), and a stronger veto did not change
+that (round 7vq). Per link, the copies loss is single seeds misfiring: in
+12 of the 42 pairs of link and number of copies one seed lost 0.5 or
+more, in none did all three, and those cells carry 72% of the loss.
 
 Averaging the three seeds' beliefs (round 7e) dilutes one seed's
 misfire. At teacher gain 0.5 the copies loss fell to 0.005 and the
 candidate passed; at gain 1 copies still lost 0.113.
 
-Neither more training nor more data beat round 7e. Round 8 trained its
-students 60 more iterations under the veto; round 9 trained round 7's
-learner on 9,600 links instead of 600, so that nearly every rollout ran
-on a link it had not seen, with competitors from 0 s as before (9) or
-joining within the first 10 s (9b). Rounds 8 and 9b sharpened the
-beliefs in training (9b: p 0.69 to 0.84 with a stock TCP flow and 0.11
-to 0.17 with copies; q 0.72 to 0.78 with copies and 0.10 to 0.18
-elsewhere, over the last 10 iterations), but none did better at the
-gate. Changing the data moved the gain between conditions rather than
-raising it: 9b cleared the competition interval but fell to +0.015 with
-Cubic from the start. The student seems limited by something other than
-the amount or kind of its training data (inferred). Round 7e's pass
-itself was not luck of the episodes: run again unchanged on new
-validation episodes (campaign seed 11), it passed with nearly the same
-numbers, so its smaller competition gain on test more likely reflects
-the test links (inferred).
+Neither more training nor more data beat round 7e. Round 8 trained 60
+more iterations under the veto; round 9 used 9,600 training links instead
+of 600, with competitors from 0 s (9) or joining within 10 s (9b). The
+beliefs sharpened in training, but changing the data moved the gain
+between conditions rather than raising it (9b cleared the competition
+interval but fell to +0.015 with Cubic from the start): the student seems
+limited by something other than its data (inferred). Round 7e's pass was
+not luck of the episodes: unchanged, it passed again on new validation
+episodes (campaign seed 11), so its smaller competition gain on test more
+likely reflects the test links (inferred).
 
 Before the gate existed, learning from other controllers' logs failed
 (cloning and IQL on net1 v3: -0.97 to -1.61 on validation, against -0.48
-for BBRv3; the policies inherit the logs' confounding of a full queue with
-a large window). Online TD3+BC from the rule drifted below it with
-one-step returns and tied it with 40-step returns on net1 v3's validation
-links (local runs), and trailed it on net1 v4's
-([`exp-net2v4-val-16`](https://github.com/Radonux/palaestra/releases/tag/exp-net2v4-val-16)).
+for BBRv3), and online TD3+BC trailed the rule on net1 v4's validation
+links ([`exp-net2v4-val-16`](https://github.com/Radonux/palaestra/releases/tag/exp-net2v4-val-16)).
 
 ## Reproduction of expliCCit
 
@@ -399,13 +396,11 @@ Divergences from expliCCit's and Sage's setting, each a possible cause:
 - Linux 7.0 in UML in virtual time, not Sage's patched Linux 4.19 in real
   time; pacing refreshed every step, not every ACK; inference that costs
   no virtual time.
-- Sage and expliCCit's policies run on links they were not trained on.
-  expliCCit's released net1 was trained on its own emulation, and its
-  ground-truth definitions are not in its code, so ours may differ. On our
-  expliCCit-like data it had R^2 1.000 for one-way delay (so its "mRTT" is
-  the one-way delay), 0.899 for receive rate, 0.847 for queueing delay,
-  0.594 for queue, 0.361 for capacity, -0.743 for busy fraction and -59.0
-  for free buffer (local run).
+- Sage and expliCCit's policies run on links they were not trained on,
+  and expliCCit's ground-truth definitions are not in its code, so ours
+  may differ. On our expliCCit-like data its released net1 had R^2 1.000
+  for one-way delay (its "mRTT"), 0.361 for capacity, -0.743 for busy
+  fraction and -59.0 for free buffer (local run).
 - The emulator itself matches Mahimahi: the link model equals a port of
   Mahimahi's link queue event for event, and the state message equals
   `sage.cc`'s at every compared step ([validation.md](validation.md)). The
@@ -425,37 +420,29 @@ unchanged.
 
 Alarms (R2,
 [`exp-r2-alarms-81`](https://github.com/Radonux/palaestra/releases/tag/exp-r2-alarms-81)):
-physical invariants among the beliefs (receive rate at most capacity
-times busy fraction; queueing delay equal to queue over capacity; queue
-plus free buffer constant), each belief's entropy, and checks against the
-delivery rate and min RTT measured three smoothed RTTs later, with
-each threshold at the 95th percentile of the alarm's episode mean on
-net1 v4's validation links. False alarms stay
-near the nominal 5% per alarm. On net1 v3 they catch one-way delay on
-deep buffers (0.83 of 168 wrong episodes, AUC 0.91), queueing delay at 61
-to 90 ms (0.89 of 90, AUC 0.92) and capacity under 3% to 6% loss (0.63 of
-287, AUC 0.79). They miss its capacity under competition: 0.12 of 43 wrong
-episodes with Cubic from the start (AUC 0.52). A capacity believed at 0.59
-of the truth is still above the flow's own share, so nothing the flow
-measures contradicts it (inferred, not tested).
+physical invariants among the beliefs, each belief's entropy, and checks
+against the delivery rate and min RTT measured three smoothed RTTs later,
+thresholds at the 95th percentile on net1 v4's validation links (false
+alarms near 5%). On net1 v3 they catch one-way delay on deep buffers
+(0.83 of 168 wrong episodes, AUC 0.91), queueing delay at 61 to 90 ms
+(0.89 of 90) and capacity under 3% to 6% loss (0.63 of 287), and miss its
+capacity under competition (0.12 of 43, AUC 0.52): a capacity believed at
+0.59 of the truth is still above the flow's own share, so nothing the flow
+measures contradicts it (inferred).
 
 Repair (R3). net1 v3's rule lost to BBRv3 with Cubic from the start
-because its capacity belief was low there (above); the same rule on the
-true BDP did not, so the belief was the fault. Retraining net1 on the
-broad data repaired it with net2 unchanged: on the test links with Cubic
-from the start, the fixed rule on net1 v4 beat the same rule on net1 v3
-by 0.428 (0.277 to 0.580), each at its validation u
-([`exp-rule-net1v4-test-14`](https://github.com/Radonux/palaestra/releases/tag/exp-rule-net1v4-test-14)).
-Under the frozen settings, on validation
-([`exp-r3-capacity-head-val-86`](https://github.com/Radonux/palaestra/releases/tag/exp-r3-capacity-head-val-86)),
-the rule minus BBRv3 with Cubic from the start is -0.555 on net1 v3,
--0.037 on net1 v4 and +0.058 on the truth. Retraining only net1 v3's
-capacity head
+because its capacity belief was low there; the same rule on the true BDP
+did not. Retraining net1 on the broad data repaired it with net2
+unchanged: on the test links with Cubic from the start, the fixed rule on
+net1 v4 beat the same rule on net1 v3 by 0.428 (0.277 to 0.580)
+([`exp-rule-net1v4-test-14`](https://github.com/Radonux/palaestra/releases/tag/exp-rule-net1v4-test-14);
+under the frozen settings on validation, -0.555 on net1 v3, -0.037 on v4,
++0.058 on the truth, [`exp-r3-capacity-head-val-86`](https://github.com/Radonux/palaestra/releases/tag/exp-r3-capacity-head-val-86)).
+Retraining only the capacity head
 ([`exp-r3-capacity-head-83`](https://github.com/Radonux/palaestra/releases/tag/exp-r3-capacity-head-83))
-repairs its calibration (90% coverage 0.62 to 0.93) but recovers little
-in closed loop: +0.16 with Cubic from the start, where retraining all of
-net1 gained +0.52. A new head on frozen features cannot supply cues the
-features never learned (inferred).
+repairs its calibration (90% coverage 0.62 to 0.93) but recovers +0.16 in
+closed loop where all of net1 gained +0.52: a new head on frozen features
+cannot supply cues the features never learned (inferred).
 
 The case study above shows the other half of the method: replacing one
 belief at a time with the truth localized expliCCit's fault to busy

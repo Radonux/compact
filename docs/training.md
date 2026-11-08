@@ -42,9 +42,12 @@ more from many links with a few controllers than the reverse. Any of the
     uv run expliccit train run train.json out/model
 
 `train.json` is a `TrainSpec` (`src/expliccit_env/train/spec.py`); only
-`data` is required. net1 v5's settings are `experiments/specs/net1v4.json`,
-and `experiments/net1_train.py` trains such a net1 and scores it on
-held-out families (as `experiments/net1v4-recheck.json` does).
+`data` is required. net1 v5's and v6's settings are
+`experiments/specs/net1v4.json`, and `experiments/net1_train.py` trains
+such a net1 and scores it on held-out families (as
+`experiments/net1v6.json` does; `--stride 24` fits net1 v6's data on a
+runner, and `--eval NET1.pt` scores a trained net1 without training, as
+`experiments/net1v6-inrange.json` does).
 
 | Field | Default | Meaning |
 |---|---|---|
