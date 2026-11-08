@@ -2,7 +2,7 @@
 
 Usage: python experiments/net1_train.py OUT --spec SPEC.json --data DIR... \
            [--set KEY=VALUE ...] [--ood NAME=DIR ...] [--compare NET1.pt] [--seed 0]
-           [--stride 12]
+           [--stride 12] [--eval NET1.pt]
 
 Rows are every 12th step (--stride; the stored data keeps every 6th, and
 a runner's 16 GB held net1 v5's 7.2 million rows but not net1 v6's 12.6
@@ -10,7 +10,8 @@ million), split by link (seed 1, 15% validation, 15% test).
 BBRv3, Westwood and threshold-0.3 are held out of training; their rows on
 validation and test links are reported apart. Each --ood dataset is
 reported whole. --compare reports another net1 on the same views, for a
-before and after. Writes OUT/net1.pt, OUT/report.json and OUT/summary.md
+before and after. --eval reports a trained net1 instead of training one
+(net1 v6 against v5 on v5's own data). Writes OUT/net1.pt, OUT/report.json and OUT/summary.md
 (90% coverage, R^2 and CRPS skill per LCF and view; selection on the
 validation rows, never on the test rows).
 """
@@ -53,6 +54,7 @@ def summary(rep: dict[str, Any]) -> dict[str, dict[str, float]]:
             "c90": v["distribution"]["coverage"]["0.9"],
             "r2": v["net1"].get("r2", float("nan")),
             "skill": v["distribution"]["crps_skill"],
+            "log_loss": v["distribution"]["log_loss"],
         }
         for k, v in rep.items()
         if isinstance(v, dict) and "distribution" in v
@@ -80,7 +82,10 @@ def train(
     views = {"val": (~is_held, "val"), "test": (~is_held, "test"), "test_held": (is_held, "test")}
     views |= {f"test_{name}": (ctl == c, "test") for c, name in hold.items()}
     load_s = time.time() - t0
-    net1, log = fit.fit_net1(spec, dataclasses.replace(steps, split=base), a.seed)
+    if a.eval:
+        net1, log = fit.load_net1(a.eval)[0], {}
+    else:
+        net1, log = fit.fit_net1(spec, dataclasses.replace(steps, split=base), a.seed)
     rows = {k: int((base == k).sum()) for k in ("train", "val", "test", "hold")}
     rep: dict[str, Any] = {"log": log, "rows": rows, "load_s": load_s, "views": {}}
     rep["train_s"] = time.time() - t0 - load_s
@@ -101,7 +106,10 @@ def table(rep: dict[str, Any], lcfs: list[str], title: str) -> str:
     ]
     for name, v in rep["views"].items():
         for model, s in v.items():
-            cells = [f"{s[k]['c90']:.2f} / {s[k]['r2']:.2f}" if k in s else "" for k in lcfs]
+            cells = [
+                f"{s[k]['c90']:.2f} / {s[k]['r2']:.2f} / {s[k]['log_loss']:.2f}" if k in s else ""
+                for k in lcfs
+            ]
             who = "this" if model == "net1" else "compare"
             lines.append(f"| {name} | {who} | " + " | ".join(cells) + " |")
     return "\n".join(lines) + "\n"
@@ -117,6 +125,7 @@ def main() -> None:
     p.add_argument("--compare", type=Path, help="another net1.pt to report on the same views")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--stride", type=int, default=STRIDE, help="keep every Nth step")
+    p.add_argument("--eval", type=Path, help="a trained net1.pt to report instead of training")
     a = p.parse_args()
     raw = json.loads(a.spec.read_text())
     raw |= {k: json.loads(v) for k, v in (x.split("=", 1) for x in a.set)}
@@ -125,7 +134,8 @@ def main() -> None:
     t0 = time.time()
     other = fit.load_net1(a.compare)[0] if a.compare else None
     net1, rep = train(a, spec, other)
-    fit.save_net1(net1, spec, a.out / "net1.pt")
+    if not a.eval:
+        fit.save_net1(net1, spec, a.out / "net1.pt")
     rep |= {"spec": spec.model_dump(mode="json"), "seed": a.seed}
     for name, d in (x.split("=", 1) for x in a.ood):
         o = data.load([Path(d)], seed=1, val=0.0, test=1.0, stride=a.stride, split_by="link")
@@ -135,7 +145,8 @@ def main() -> None:
     (a.out / "report.json").write_text(json.dumps(rep, indent=1, default=float) + "\n")
     title = (
         f"net1, dropout {raw.get('dropout')}, width {raw.get('width')}, seed {a.seed}: 90% coverage"
-        f" / R^2 per LCF; {rep['rows']['train']} training rows, {rep['train_s']:.0f} s to train."
+        f" / R^2 / log loss (nats) per LCF; {rep['rows']['train']} training rows,"
+        f" {rep['train_s']:.0f} s to train."
     )
     (a.out / "summary.md").write_text(table(rep, list(spec.lcfs), title))
     print(f"done in {time.time() - t0:.0f} s")

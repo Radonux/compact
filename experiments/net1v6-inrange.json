@@ -1,0 +1,22 @@
+{
+  "title": "net1 v6 against net1 v5 on net1 v5's own ranges",
+  "description": "Run 149 trained net1 v6 on net1 v5's data plus wider ranges (exp-data-net1-v6-146) and reported it against v5 on the union's validation and test links, where v5 is outside its range on the wide links. The choice rule in experiments/net1v6.json asks first whether v6 is no worse than v5 inside v5's ranges. This reports each of v6's three seeds and v5 (--compare) on the validation and test links of v5's own data only (exp-data-net1-broad-30s-73 and -60s-74, every 12th step, the split by link of net1_train.py, so these are links neither model trained on): 90% coverage, R^2 and log loss per LCF (net1_train.py --eval, no training).",
+  "train": true,
+  "inputs": {
+    "d30": "release:exp-data-net1-broad-30s-73",
+    "d60": "release:exp-data-net1-broad-60s-74",
+    "v6": "release:exp-net1v6-149",
+    "v5": "release:exp-net1v4-recheck-79"
+  },
+  "matrix": {
+    "seed": [
+      0,
+      1,
+      2
+    ]
+  },
+  "run": "uv run python experiments/net1_train.py \"$OUT/net1-v6-s$SEED-in-v5-range\" --spec experiments/specs/net1v4.json --set dropout=0.05 --set width=512 --seed $SEED --data \"$IN/d30/campaign-train30\" \"$IN/d60/campaign-train60\" --eval \"$IN/v6/net1-v6-s$SEED/net1.pt\" --compare \"$IN/v5/net1-d0.05-w512-s0/net1.pt\"",
+  "collect": "for d in \"$OUT\"/net1-*; do cat \"$d/summary.md\"; echo; done > \"$OUT/summary.md\"",
+  "collect_inputs": false,
+  "timeout_minutes": 180
+}
