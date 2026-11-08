@@ -103,6 +103,7 @@ Families (`experiments/heldout.py`, `experiments/copies.py`):
 | cubic-first-60 | a Cubic flow from 0 s | 60 s |
 | held-competitors-60 | a BBRv3 or a Westwood flow from 0 s, competitors held out of net1 v4 and v5's data | 60 s |
 | copies-30s | 2 or 4 copies of the controller | 30 s |
+| dynamic-120 | competitors arriving and leaving mid-episode: Cubic from 30 to 90 s; BBRv1 from 0 to 60 s; Reno from 20 s; Cubic from 0 s and 60 s; Vegas from 15 s; BBRv1 from 40 s with Cubic from 40 to 100 s. Reported beside the gate, not part of it | 120 s |
 
 Scoring. Log utility, differences paired by link, 95% bootstrap intervals
 over links. Most tables give a controller's score minus BBRv3's (or minus

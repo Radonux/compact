@@ -15,7 +15,9 @@ had: "new" (a Cubic flow from 0 s, a BBRv1 flow from 4 s, Cubic flows from
 conditions on the same links with a 2.5 times longer one-way delay, at most
 80 ms, and a buffer of 4 to 16 BDP drawn with seed 31), and
 "held-competitors" (a BBRv3 flow from 0 s, a Westwood flow from 0 s: the
-competitors net1 v4's training data held out).
+competitors net1 v4's training data held out), and "dynamic", for 120 s
+episodes, where competitors arrive and leave mid-episode (DYNAMIC), so that
+a controller must notice each change and the others' reaction to it.
 
 Usage: python experiments/heldout.py OUT_DIR --split test --duration-ms 60000
            --seed 13 [--family training] --stock all --policy NAME=PATH ...
@@ -126,6 +128,23 @@ def deep_long(paths: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+# For 120 s episodes: arrivals and departures throughout, from the common
+# controllers and one delay-based one (Vegas), none of them held out.
+DYNAMIC: list[dict[str, Any]] = [
+    {"cross": [{"kind": "tcp", "cc": "cubic", "start_ms": 30000, "stop_ms": 90000}]},
+    {"cross": [{"kind": "tcp", "cc": "bbr", "start_ms": 0, "stop_ms": 60000}]},
+    {"cross": [{"kind": "tcp", "cc": "reno", "start_ms": 20000}]},
+    {"cross": [{"kind": "tcp", "cc": "cubic", "start_ms": t} for t in (0, 60000)]},
+    {"cross": [{"kind": "tcp", "cc": "vegas", "start_ms": 15000}]},
+    {
+        "cross": [
+            {"kind": "tcp", "cc": "bbr", "start_ms": 40000},
+            {"kind": "tcp", "cc": "cubic", "start_ms": 40000, "stop_ms": 100000},
+        ]
+    },
+]
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("out", type=Path)
@@ -135,7 +154,7 @@ def main() -> None:
     p.add_argument(
         "--family",
         default="training",
-        choices=["training", "new", "cubic-first", "deep-long", "held-competitors"],
+        choices=["training", "new", "cubic-first", "deep-long", "held-competitors", "dynamic"],
     )
     p.add_argument("--stock", default="all", help="comma-separated stock controllers, or all")
     p.add_argument("--policy", action="append", default=[], help="NAME=PATH of an ONNX policy")
@@ -150,6 +169,8 @@ def main() -> None:
         links = deep_long(links)
     elif family == "held-competitors":
         conditions = HELD_COMPETITORS
+    elif family == "dynamic":
+        conditions = DYNAMIC
     elif family != "training":
         conditions = NEW if family == "new" else NEW[:1]
     campaign = {
