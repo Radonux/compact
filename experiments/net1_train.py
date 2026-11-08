@@ -2,8 +2,11 @@
 
 Usage: python experiments/net1_train.py OUT --spec SPEC.json --data DIR... \
            [--set KEY=VALUE ...] [--ood NAME=DIR ...] [--compare NET1.pt] [--seed 0]
+           [--stride 12]
 
-Rows are every 12th step, split by link (seed 1, 15% validation, 15% test).
+Rows are every 12th step (--stride; the stored data keeps every 6th, and
+a runner's 16 GB held net1 v5's 7.2 million rows but not net1 v6's 12.6
+million), split by link (seed 1, 15% validation, 15% test).
 BBRv3, Westwood and threshold-0.3 are held out of training; their rows on
 validation and test links are reported apart. Each --ood dataset is
 reported whole. --compare reports another net1 on the same views, for a
@@ -62,7 +65,7 @@ def train(
     """Fit on the training rows and report on the split's views; the data is
     freed when this returns, before the held-out sets load."""
     t0 = time.time()
-    steps = data.load(a.data, seed=1, val=0.15, test=0.15, stride=STRIDE, split_by="link")
+    steps = data.load(a.data, seed=1, val=0.15, test=0.15, stride=a.stride, split_by="link")
     ctl = controllers(a.data, steps)
     hold = held()
     is_held = np.isin(ctl, list(hold))
@@ -113,6 +116,7 @@ def main() -> None:
     p.add_argument("--ood", action="append", default=[], help="NAME=DIR, reported whole")
     p.add_argument("--compare", type=Path, help="another net1.pt to report on the same views")
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--stride", type=int, default=STRIDE, help="keep every Nth step")
     a = p.parse_args()
     raw = json.loads(a.spec.read_text())
     raw |= {k: json.loads(v) for k, v in (x.split("=", 1) for x in a.set)}
@@ -124,7 +128,7 @@ def main() -> None:
     fit.save_net1(net1, spec, a.out / "net1.pt")
     rep |= {"spec": spec.model_dump(mode="json"), "seed": a.seed}
     for name, d in (x.split("=", 1) for x in a.ood):
-        o = data.load([Path(d)], seed=1, val=0.0, test=1.0, stride=STRIDE, split_by="link")
+        o = data.load([Path(d)], seed=1, val=0.0, test=1.0, stride=a.stride, split_by="link")
         rep["views"][f"ood_{name}"] = {"net1": summary(fit.report_net1(net1, o, "test"))}
         if other is not None:
             rep["views"][f"ood_{name}"]["compare"] = summary(fit.report_net1(other, o, "test"))
