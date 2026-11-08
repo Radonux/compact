@@ -1,0 +1,25 @@
+{
+  "title": "Round 18: round 7's DAgger students (beliefs p and q) on net1 v6",
+  "description": "On net1 v6, PPO learned from the reward clears both competition conditions but loses 0.26 to 0.30 as copies, averaged over seeds or not (exp-net2-eval-v6-159, exp-net2-eval-v6-ens-160): it pushes where a full queue with a low share could be copies or a loss-based flow. The one learned net2 that passed its gate, round 7e on net1 v5, did so with explicit beliefs: DAgger students that learn p, that a stock TCP flow shares the link, and q, that copies do, from a privileged teacher, run as one policy on three seeds' mean beliefs with q vetoing the push. Round 18 trains round 7's students unchanged on net1 v6 (release exp-net1v6-149, its rule at u = 0.25): teacher gain 0.5 and 1, seeds 1 to 3. Their exports are a v6 counterpart of round 7e, and their q can veto a PPO policy's push. Validation links only.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v6": "release:exp-net1v6-149",
+    "models": "release:model-net1v3"
+  },
+  "matrix": {
+    "k": [
+      0.5,
+      1
+    ],
+    "seed": [
+      1,
+      2,
+      3
+    ]
+  },
+  "prepare": "N=\"$IN/v6/net1-v6-s0/net1.pt\"; uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$N\" --models \"$IN/models\" --u 0.25",
+  "run": "S=\"$OUT/spec-r18-k$K-s$SEED.json\"; jq --argjson k \"$K\" --argjson seed \"$SEED\" '.algo = \"dagger\" | .student = \"gate3\" | .base = \"fixed\" | .share_k = $k | .gate_threshold = 0.5 | .critic_warmup = 0 | .lr = 0.001 | .updates_per_iteration = 50 | .replay_iterations = 16 | .tau_s = 1 | .noise_sigma = 0.05 | .group = 1 | .links_per_iteration = 32 | .compete = 0.8 | .copies = [2, 4] | .seed = $seed | .iterations = 60 | .eval_every = 20' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/ppo-r18-k$K-s$SEED\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ppo-*",
+  "timeout_minutes": 360
+}
