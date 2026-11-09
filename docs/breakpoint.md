@@ -31,8 +31,8 @@ and scores are log utility, paired by link, minus the named reference.
   including on links built so that information has value (rounds 22 and
   23, run 184).
 - **The split's lead over a learned black box is its start** (H6).
-- **One evaluation was running at the pause:** run #186, rounds 22 and 23
-  on every family. Its result is recorded [below](#running-at-the-pause).
+- **The last evaluation,** run #186 (rounds 22 and 23 on every family),
+  is recorded [below](#running-at-the-pause).
 
 ## expliCCit as shipped
 
@@ -350,8 +350,42 @@ believed BDP on and off a busy link, and its slopes on net1's believed
 idle share and capacity spread. The policies are in release
 `model-net2-r23`.
 
-Result: pending at the time of writing; recorded here when the run
-returns.
+**Result** ([`exp-net2-eval-r23-186`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-eval-r23-186),
+validation, campaign seed 21). Each policy minus the fixed rule:
+
+| Policy | five-family | cubic-first | copies | rise | info | on/off UDP |
+|---|---|---|---|---|---|---|
+| r18e05 (DAgger, full beliefs) | +0.018 | +0.053 | -0.013 | -0.003 | -0.009 | -0.038 |
+| round 22 (DAgger, means) | +0.016 | +0.053 | -0.032 | -0.004 | -0.002 | -0.006 |
+| round 23, full beliefs, held 200 ms | -0.009 | -0.002 | +0.003 | -0.013, -0.012 | -0.046, -0.004 | -0.056, +0.021 |
+| round 23, full beliefs, held 1 s | -0.082 | -0.140 | +0.431 | -0.074, -0.054 | -0.021, -0.023 | +0.087, +0.088 |
+| round 23, means, held 200 ms | -0.103 | -0.358 | +0.444 | +0.029, +0.047 | +0.034, +0.053 | +0.230, +0.216 |
+| round 23, means, held 1 s | -0.117 | -0.294 | +0.428 | +0.008, +0.016 | +0.038, +0.033 | +0.181, +0.211 |
+
+Round 23's columns for rise, info and on/off UDP give seeds 1 and 2.
+
+- **Full beliefs against means, under imitation:** level (+0.018 against
+  +0.016 on the five-family mean). The stated spread adds nothing to the
+  learned net2 that passed.
+- **Round 23's PPO learned a state-dependent window, not a probe on
+  uncertainty.**
+  - The means-only policies and the full-beliefs policies held 1 s raise
+    their window where net1 believes the link idle: the slope of u on the
+    believed idle share is +0.6 to +2.6 on most families
+    (`probing.md`).
+  - They hold it below the rule's on a busy link: u of -0.38 to -0.10
+    with Cubic from the start.
+  - That wins on the families they trained for, by up to +0.05 on rise
+    and +0.23 under on/off UDP, and as copies (+0.43). It loses against
+    Cubic (-0.29 to -0.36).
+  - The slope of u on net1's capacity spread is negative for nearly
+    every round-23 policy: where net1 is unsure, they back off rather
+    than probe.
+- **The longer hold did not help the full-beliefs arm.** It gives up
+  0.07 on the five-family mean.
+
+No candidate passes the gate (r18e05 is kept, as before). Tuning stops
+here.
 
 ## Open items
 

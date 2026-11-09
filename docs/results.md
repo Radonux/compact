@@ -499,5 +499,17 @@ queue costs. net1 is as unsure of the capacity on any shared link
 (median spread 0.34 to 0.42 with copies or a stock flow), so probing on
 the spread mostly pushes there: it gains against Cubic and loses among
 copies and under on/off UDP. For a window rule, the spread has so far
-added nothing the means do not. net1's honesty still serves the human
-reading of its beliefs.
+added nothing the means do not.
+
+The learned net2 that passed did not need it either: round 18's recipe
+trained on net1 v6's means (round 22) scores as r18e05 on its full
+beliefs (+0.016 against +0.018 on the five-family mean, +0.053 each with
+Cubic from the start, -0.004 and -0.003 on rise;
+[`exp-net2-eval-r23-186`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-eval-r23-186)). PPO trained where
+probing can pay (round 23) learned a window that rises where net1
+believes the link idle and drops below the rule's where it is busy. That
+wins on rise, info and on/off UDP (up to +0.23) and as copies (+0.43),
+and loses with Cubic from the start (-0.29 to -0.36). Where net1 is
+unsure of the capacity, those policies back off: their u falls with the
+spread. Holding exploration 1 s instead of 200 ms did not help. net1's
+honesty still serves the human reading of its beliefs.
