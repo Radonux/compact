@@ -49,9 +49,9 @@ round 5 `exp-net2-r5-gate-115`; round 6 `exp-net2-r6-gate-119`, 6b
 round 14 `exp-net2-r14-v6-154`, round 15 run 156 (no release; its final
 copies-arm policies are in `model-net2-v6-cands`), round 16
 `exp-net2-r16-long-157`, round 14's stage 2 `exp-net2-r14-s2-158`,
-round 17 run 161 (rerun of one cell pending), round 18
+round 17 `exp-net2-r17-copies-161`, round 18
 `exp-net2-r18-gate3-v6-162`, round 19 `exp-net2-r19-blackbox-164`, round 19b `exp-net2-r19b-bbr-165`, round 20a `exp-net2-r20a-clone-170`
-(its clones in `model-net2-r20a-clones`). Evaluations on net1 v6:
+(its clones in `model-net2-r20a-clones`), round 20b `exp-net2-r20b-bb-ppo-171`. Evaluations on net1 v6:
 `exp-net2-eval-v6-159`, `-v6-ens-160`, `-v6-veto-166`; round 18's gate
 `exp-net2-gate-r18e05-s11-167`, test `exp-net2-test-r18e05-168` and net1
 swap `exp-net2-swap-v6-169`.
@@ -60,3 +60,9 @@ Before the gate existed, learning from other controllers' logs failed
 (cloning and IQL on net1 v3: -0.97 to -1.61 on validation, against -0.48
 for BBRv3), and online TD3+BC trailed the rule on net1 v4's validation
 links ([`exp-net2v4-val-16`](https://github.com/Radonux/palaestra/releases/tag/exp-net2v4-val-16)).
+
+Round 19's black box first aimed its window at the guest's 1 s average
+delivery rate, which trails a growing window by about 0.5 s; it started
+2.18 below net1 v6's rule and collapsed to 2.8 to 3.0 below. Round 19b
+gave it BBR's estimate (the per-ACK delivery rate's maximum over 2 s),
+and round 20a a clone of the rule on net1 as its start.

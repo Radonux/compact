@@ -45,8 +45,10 @@ the claims and defines every term used below.
    copies
    ([`exp-net2-test-r18e05-168`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-test-r18e05-168)).
    RL from the reward (PPO) gains more against competitors but pushes
-   among copies, and a black box trained the same way on the raw
-   measurements ends 0.2 to 0.4 below the rule.
+   among copies. A black box trained the same way on the raw measurements
+   ends 0.2 to 0.4 below the rule from its own start, and about 0.05
+   below the split when started from a clone of the split's rule: the
+   split's lead is its start.
 5. None of expliCCit's three checked results reproduced as stated: R^2
    above 0.9 for every LCF, the split's cost against Sage, and its
    case-study diagnosis.

@@ -149,11 +149,11 @@ minus BBRv3:
   utilization on clean links and 1.7 to 2.6 times Sage's under 1% and 3%
   random loss, with up to 70% less queueing delay on deep, long paths.
 
-A learned net2 shows the same order. The same recurrent PPO, mixture and
-budget on three inputs (round 19,
+For a learned net2 the split's lead is its start. The same recurrent
+PPO, mixture and budget on three inputs (rounds 19, 19b and 20b,
 [`exp-net2-r19-blackbox-164`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-r19-blackbox-164),
-and round 19b,
-[`exp-net2-r19b-bbr-165`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-r19b-bbr-165)),
+[`-r19b-bbr-165`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-r19b-bbr-165),
+[`-r20b-bb-ppo-171`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-r20b-bb-ppo-171)),
 minus net1 v6's fixed rule on the new family's validation links, three
 seeds each, at the start and at the last evaluation (iterations 79 to
 119):
@@ -163,16 +163,28 @@ seeds each, at the start and at the last evaluation (iterations 79 to
 | the true LCFs (A1) | +0.040 | -0.034 to -0.015 |
 | net1 v6's beliefs (A3) | -0.008 | -0.040 to +0.017 |
 | the raw measurements, its window on BBR's BDP estimate (A4) | -0.554 | -0.387 to -0.217 |
+| the same, started from a clone of the rule on net1 (A4) | -0.087 to -0.064 | -0.096 to -0.036 |
 
-The black box learned (u rose from 0.25 to 0.5) but stayed 0.2 to 0.4
-behind; with Cubic from the start it ended 0.63 below. A window aimed at
-the flow's own delivery rate shrinks as a competitor takes share, where
-net1's capacity estimate does not (inferred). Its first form, aimed at a
-1 s average of the delivery rate, collapsed to 2.8 to 3.0 below. On the
-true LCFs, the learner lost its start's lead and ended level with the
-arm on net1: what the truth adds, learning from the reward did not use,
-and the drift toward pushing (next sections) is the learner's, not
-net1's errors.
+From its own start, a window of 1.19 times BBR's estimate, the black box
+learned (u rose from 0.25 to 0.5) but stayed 0.2 to 0.4 behind; with
+Cubic from the start it ended 0.63 below. A window aimed at the flow's
+own delivery rate shrinks as a competitor takes share, where net1's
+capacity estimate does not (inferred). Started instead from a clone of
+the rule on net1, learned from the raw measurements by DAgger with that
+rule as the teacher
+([`exp-net2-r20a-clone-170`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-r20a-clone-170):
+40 iterations brought it from 0.554 to 0.064 to 0.087 below the rule),
+the same PPO ended 0.036 to 0.096 below, about 0.05 below the arm on net1
+on average and level with it on one seed. Given the split's start, the
+raw measurements learn from the reward nearly as well; what the split
+gives is that start, a window on an estimate of the path rather than of
+the flow's own throughput, which the black box reached only by imitating
+the split. Inference is the split's cost: a decision of the policy on net1
+v6 takes about 1 ms on one core, the black box's 0.07 ms
+(`tools/policy-bench`, local). On the true LCFs, the learner lost its
+start's lead and ended level with the arm on net1: what the truth adds,
+learning from the reward did not use, and the drift toward pushing (next
+sections) is the learner's, not net1's errors.
 
 Nothing was chosen on two outside benchmarks, ccperf's experiments
 ([`exp-ccperf-77`](https://github.com/Radonux/palaestra/releases/tag/exp-ccperf-77),
