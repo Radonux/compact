@@ -98,8 +98,8 @@ def load_one(out: Path) -> tuple[list[dict[str, Any]], int]:
                 if e["status"] != "ok" or e.get("flow_delay_p95_ms") is None:
                     failed += 1
                     continue
-                name = aliases.get(e["controller"], e["controller"])
-                rows.append(episode(e, name, c.name[2:]))
+                cc = str(e["controller"])
+                rows.append(episode(e, aliases.get(cc, cc), c.name[2:]))
     return rows, failed
 
 
