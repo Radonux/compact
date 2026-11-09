@@ -382,7 +382,14 @@ one seed lost 0.5 or more, never all three; 72% of the loss), and one
 policy on the three seeds' mean beliefs (round 7e) passed. Neither more
 iterations (round 8) nor 16 times the links (round 9) beat it. On net1 v6
 the students separate less sharply (q 0.53 to 0.76 with copies, 0.10 to
-0.52 elsewhere), and the same recipe passed again.
+0.52 elsewhere), and the same recipe passed again. Following the
+cooperative window where q believes copies, instead of the veto, still
+trades Cubic for copies on v6, even averaged over seeds: +0.211 (+0.028
+to +0.398) as copies but -0.156 (-0.288 to -0.037) with Cubic from the
+start
+([`exp-net2-eval-v6-coop-176`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-eval-v6-coop-176)).
+Yielding to Cubic costs more than pushing among copies, so the veto,
+which only withholds the push, is the safer use of an imperfect q.
 
 Every gate, evaluation and training run of each round, on net1 v5 and
 v6, is listed in [rounds.md](rounds.md).
