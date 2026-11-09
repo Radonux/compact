@@ -268,6 +268,21 @@ class SpreadTarget(nn.Module):
         return self.base(z) + self.k * torch.relu(sd - self.s0)
 
 
+class IdleTarget(nn.Module):
+    """WindowTarget plus k times how idle net1 believes the link is, past
+    i0: log2 BDP + k relu(1 - busy - i0), busy the mean of its busy-fraction
+    belief. The arm on means that probes where the flow cannot fill the
+    link, beside SpreadTarget, which probes on the stated spread."""
+
+    def __init__(self, base: WindowTarget, busy: int, k: float, i0: float) -> None:
+        super().__init__()
+        self.base, self.busy, self.k, self.i0 = base, busy, k, i0
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        busy = self.base.means(z)[:, self.busy]
+        return self.base(z) + self.k * torch.relu(1 - busy - self.i0)
+
+
 class ExpliccitActor(nn.Module):
     """LCF beliefs -> a in [-1, 1] (two hidden ReLU layers, tanh)."""
 

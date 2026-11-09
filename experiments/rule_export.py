@@ -2,7 +2,7 @@
 is 2^u times net1's believed bandwidth-delay product.
 
 Usage: python experiments/rule_export.py OUT NET1.pt --u -0.25 0 0.25 [--oracle]
-           [--spread K ... [--s0 S0]]
+           [--spread K ... [--s0 S0]] [--idle K ... [--i0 I0]]
 
 For each u, writes OUT/rule-u{u}.onnx, where net2 reads net1's distributions
 pooled to 32 bins, and OUT/rule-u{u}-actor.pt, the same net2 as an actor (a
@@ -15,7 +15,9 @@ past S0 (train/models.py SpreadTarget), the arm that reads the beliefs'
 uncertainty beside the rule on their means. With --traffic HEAD.pt, net1
 also has its traffic head and each spread rule lifts its target only in
 proportion to 1 - P(copies) (train/traffic.py CopiesGated), written as
-OUT/rule-u{u}-spread{K}-head.onnx.
+OUT/rule-u{u}-spread{K}-head.onnx. --idle K writes OUT/rule-u{u}-idle{K}.onnx:
+the rule with its target raised by K times how idle net1 believes the link
+is past I0 (train/models.py IdleTarget), the probing arm on means alone.
 """
 
 import argparse
@@ -26,7 +28,7 @@ import torch
 
 from expliccit_env.train import fit
 from expliccit_env.train.export import to_onnx
-from expliccit_env.train.models import ExpliccitActor, SpreadTarget, WindowTarget
+from expliccit_env.train.models import ExpliccitActor, IdleTarget, SpreadTarget, WindowTarget
 from expliccit_env.train.traffic import Beliefs, CopiesGated, WithTraffic, load_head
 
 ACTION_MAX = 3.0
@@ -43,6 +45,8 @@ def main() -> None:
     p.add_argument("--spread", type=float, nargs="*", default=[])
     p.add_argument("--s0", type=float, default=0.2)
     p.add_argument("--traffic", type=Path, help="net1's traffic head: gate the spread on copies")
+    p.add_argument("--idle", type=float, nargs="*", default=[])
+    p.add_argument("--i0", type=float, default=0.05)
     a = p.parse_args()
     net1, _ = fit.load_net1(a.net1)
     truth = frozenset(net1.lcfs) if a.oracle else frozenset[str]()
@@ -65,6 +69,10 @@ def main() -> None:
         print(name)
         base = graph.target
         assert isinstance(base, WindowTarget)
+        for k in a.idle:
+            graph.target = IdleTarget(base, net1.lcfs.index("busy_fraction"), k, a.i0)
+            (a.out / f"{name}-idle{k:g}.onnx").write_bytes(to_onnx(graph))
+            print(f"{name}-idle{k:g}")
         if a.traffic is not None:
             graph.net1 = WithTraffic(graph.net1, load_head(a.traffic))
             graph.view = Beliefs(graph.view)
