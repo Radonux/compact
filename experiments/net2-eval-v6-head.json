@@ -1,0 +1,15 @@
+{
+  "title": "r18e05 with its copies belief from net1's traffic head, on every validation family",
+  "description": "net1 v6's beliefs lose what tells copies from a stock competitor (exp-net2-competitor-info-177), so round 18's copies belief q mistakes Cubic for copies: r18e05 can only veto its push (copies -0.022, exp-net2-eval-v6-veto-166), and cooperating with copies gave up the Cubic gain (+0.211 as copies, -0.156 with Cubic from the start, exp-net2-eval-v6-coop-176). net1 now has a traffic head trained on 132 training links (exp-net1-traffic-data-178; 0.900 balanced accuracy on training links held out of its fit). This runs r18e05's students with q from the head (release model-net2-v6-head): vetoing the push where it believes copies (r18e05h) and following the cooperative window there (r18e05hcoop), next to net1 v6's fixed rule, the share rule and BBRv3 on the five validation families and as copies, campaign seed 21 as runs 166 and 176.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "c": "release:model-net2-v6-head",
+    "v6": "release:exp-net1v6-149"
+  },
+  "prepare": "(cd \"$IN/c\" && sha256sum -c SHA256SUMS); N=\"$IN/v6/net1-v6-s0/net1.pt\"; uv run python experiments/rule_export.py \"$OUT/rule6\" \"$N\" --u 0.25; uv run python experiments/share_rule_export.py \"$OUT/share\" \"$N\" --u0 0.25 --k 0.5 1; P=(--policy \"rule-v6=$OUT/rule6/rule-u0.25.onnx\" --policy \"share-k0.5=$OUT/share/share-u0.25-k0.5.onnx\" --policy \"share-k1=$OUT/share/share-u0.25-k1.onnx\"); for f in \"$IN\"/c/ppo-*.onnx; do P+=(--policy \"$(basename \"$f\" .onnx)=$f\"); done; experiments/rule_eval.sh \"$OUT\" val 21 21 bbr3 \"${P[@]}\"; uv run python experiments/copies.py \"$OUT/copies\" --split val --duration-ms 30000 --seed 21 --n 2 4 --stock bbr3 \"${P[@]}\"; mv \"$OUT/copies/c-copies-30s\" \"$OUT/\"; jq -s add \"$OUT/aliases.json\" \"$OUT/copies/aliases.json\" > \"$OUT/a.json\"; mv \"$OUT/a.json\" \"$OUT/aliases.json\"",
+  "shards": 40,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps; done; uv run python experiments/slim_steps.py \"$OUT\"",
+  "collect": "uv run python experiments/rule_report.py \"$OUT\" --apart copies-30s && mv \"$OUT/summary.md\" \"$OUT/against-bbr3.md\" && uv run python experiments/net2_ppo_gate_report.py \"$OUT\" rule-v6",
+  "timeout_minutes": 300
+}
