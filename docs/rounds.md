@@ -54,7 +54,7 @@ round 17 `exp-net2-r17-copies-161`, round 18
 (its clones in `model-net2-r20a-clones`), round 20b `exp-net2-r20b-bb-ppo-171`. Evaluations on net1 v6:
 `exp-net2-eval-v6-159`, `-v6-ens-160`, `-v6-veto-166`; round 18's gate
 `exp-net2-gate-r18e05-s11-167`, test `exp-net2-test-r18e05-168` and net1
-swap `exp-net2-swap-v6-169`, per-LCF truth patch `exp-net2-patch-v6-172`.
+swap `exp-net2-swap-v6-169`, per-LCF truth patch `exp-net2-patch-v6-172`, net1 v6's capacity belief under sharing `exp-net1-belief-share-173`.
 
 Before the gate existed, learning from other controllers' logs failed
 (cloning and IQL on net1 v3: -0.97 to -1.61 on validation, against -0.48

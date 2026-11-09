@@ -224,8 +224,11 @@ number of flows, a rule on the true state handles both.
   net1 v4, validation). Each copy aims at the whole link's BDP, so 2 and 4
   copies of the fixed rule on the truth build queues of 41 and 66 ms and
   score 1.06 below the same rule on net1 v4. net1 believes a shared link
-  smaller than it is (0.4 to 0.9 of it in local runs), which helps by
-  accident. The capacity this flow can take is not among the LCFs.
+  smaller than it is, which helps by accident: net1 v6's capacity belief
+  is 1.03 to 1.04 of the link alone, 0.72 to 0.82 of it with 2 copies and
+  0.46 to 0.61 with 4, between the fair share and the link
+  ([`exp-net1-belief-share-173`](https://github.com/Radonux/palaestra/releases/tag/exp-net1-belief-share-173)).
+  The capacity this flow can take is not among the LCFs.
 - A hand-made switch does not fix it
   ([`exp-mode-val-19`](https://github.com/Radonux/palaestra/releases/tag/exp-mode-val-19)).
   A cooperative window that follows the flow's own share makes copies
