@@ -50,8 +50,8 @@ round 14 `exp-net2-r14-v6-154`, round 15 run 156 (no release; its final
 copies-arm policies are in `model-net2-v6-cands`), round 16
 `exp-net2-r16-long-157`, round 14's stage 2 `exp-net2-r14-s2-158`,
 round 17 run 161 (rerun of one cell pending), round 18
-`exp-net2-r18-gate3-v6-162`, round 19 run 164 (rerun of one cell
-pending), round 19b `exp-net2-r19b-bbr-165`. Evaluations on net1 v6:
+`exp-net2-r18-gate3-v6-162`, round 19 `exp-net2-r19-blackbox-164`, round 19b `exp-net2-r19b-bbr-165`, round 20a `exp-net2-r20a-clone-170`
+(its clones in `model-net2-r20a-clones`). Evaluations on net1 v6:
 `exp-net2-eval-v6-159`, `-v6-ens-160`, `-v6-veto-166`; round 18's gate
 `exp-net2-gate-r18e05-s11-167`, test `exp-net2-test-r18e05-168` and net1
 swap `exp-net2-swap-v6-169`.

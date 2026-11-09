@@ -150,7 +150,9 @@ minus BBRv3:
   random loss, with up to 70% less queueing delay on deep, long paths.
 
 A learned net2 shows the same order. The same recurrent PPO, mixture and
-budget on three inputs (round 19, run 164, and round 19b,
+budget on three inputs (round 19,
+[`exp-net2-r19-blackbox-164`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-r19-blackbox-164),
+and round 19b,
 [`exp-net2-r19b-bbr-165`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-r19b-bbr-165)),
 minus net1 v6's fixed rule on the new family's validation links, three
 seeds each, at the start and at the last evaluation (iterations 79 to
