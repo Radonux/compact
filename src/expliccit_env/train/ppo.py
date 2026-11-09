@@ -91,7 +91,7 @@ from expliccit_env.train.recurrent import (
 )
 from expliccit_env.train.share import ACTION_MAX as SHARE_ACTION_MAX
 from expliccit_env.train.share import CoopRule, ShareRule
-from expliccit_env.train.spec import LCF_UNITS, Net2Spec
+from expliccit_env.train.spec import LCF_UNITS, Inputs, Net2Spec
 from expliccit_env.train.traffic import CLASSES
 from expliccit_env.uml import UmlBuild
 
@@ -282,8 +282,9 @@ class PPOSpec(BaseModel):
     # measurements net1 reads, through net1's input scaler, with the window
     # aimed at a measured BDP (BBR's: the maximum delivery rate over the
     # last 2 s times the minimum RTT) instead of net1's. net1 then serves
-    # only as that scaler and the evaluation's rule.
-    inputs: Literal["net1", "truth", "raw"] = "net1"
+    # only as that scaler and the evaluation's rule. "net1+raw": both, net1's
+    # view first, the window on net1's believed BDP (what the LCFs leave out).
+    inputs: Inputs = "net1"
     share_k: Annotated[float, Field(ge=0)] = 0.5
     alpha: Annotated[float, Field(gt=0)] = 20.0
     updates_per_iteration: PositiveInt = 200
@@ -322,12 +323,12 @@ class PPOSpec(BaseModel):
             raise ValueError("alone, compete and info are shares of the links: at most 1 together")
         if self.inputs != "net1" and (self.algo == "td3bc" or self.base != "fixed"):
             raise ValueError(f'inputs "{self.inputs}" is an arm of algo "ppo" on base "fixed"')
-        if (
-            self.inputs != "net1"
-            and self.algo == "dagger"
-            and (self.inputs != "raw" or self.student != "u")
-        ):
-            raise ValueError('only the black box ("raw") learns from the teacher, and only u')
+        if self.inputs == "truth" and self.algo == "dagger":
+            raise ValueError(
+                'an actor on the truth ("truth") has nothing to learn from the teacher'
+            )
+        if self.inputs == "raw" and self.student != "u":
+            raise ValueError('a gate student mixes rules on net1\'s beliefs: not for "raw"')
         return self
 
     @classmethod
@@ -707,12 +708,9 @@ def front(net1: fit.Net1, spec: PPOSpec, *, traffic: nn.Module | None = None) ->
     """The actor's front end (graph.Front), shared by training and the
     exported graph: net1's beliefs ("net1"), the truth's ("truth", an
     oracle), or the measurements alone ("raw", the black box)."""
-    inputs: fit.Inputs = (
-        "true_lcfs" if spec.inputs == "truth" else "raw" if spec.inputs == "raw" else "net1"
-    )
     return fit.front(
         net1,
-        inputs=inputs,
+        inputs=spec.inputs,
         view=spec.view,
         input_bins=spec.input_bins if spec.view == "bins" else None,
         traffic=traffic,

@@ -83,7 +83,7 @@ once the recurrent learners below superseded it; release
 | `net2` field | Default | Meaning |
 |---|---|---|
 | `algo` | `td3bc` | `iql` (implicit Q-learning), `bc` (cloning), `expliccit-v1` (expliCCit's objective, kept for comparison) |
-| `inputs` | `net1` | `true_lcfs`: train on the labels; the exported policy reads the live truth (an oracle). `raw`: the measurements net1 reads, without net1 (the black box); `net1+raw`: both |
+| `inputs` | `net1` | `truth`: train on the labels; the exported policy reads the live truth (an oracle). `raw`: the measurements net1 reads, without net1 (the black box); `net1+raw`: both |
 | `view`, `input_bins` | `bins`, none | `bins` gives net2 all of net1's output; `means` only each belief's mean (arm A2); `input_bins` pools a distribution's bins |
 | `action` | `multiplier` | `bdp`: net2 outputs u, the window as a log2 multiple of the believed BDP (for `raw`, of BBR's estimate) |
 | `reward` | `sage` | `utility` or `log_utility` (with `delay_weight` 0.5, `loss_weight` 4) |
@@ -183,7 +183,7 @@ refuses incomplete shards. `campaign summary` gives Mahak's metrics.
 
 A policy can read the path's true LCFs at each step through the
 contract's `truth` input, equal to the labels stored with that step. An
-oracle reads all of them (`net2.inputs: "true_lcfs"`, or `--oracle`). A
+oracle reads all of them (`net2.inputs: "truth"`, or `--oracle`). A
 patch takes some from the truth and the rest from net1, to test whether a
 wrong belief explains a fault; a patched belief puts all its probability
 on the true value's bin (net1's own where the truth is NaN):

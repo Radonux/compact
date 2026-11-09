@@ -47,7 +47,10 @@ from expliccit_env.train.models import (
     Value,
 )
 from expliccit_env.train.score import utility
-from expliccit_env.train.spec import EXPLICCIT_LCFS, LCF_UNITS, Net1Spec, Net2Spec
+from expliccit_env.train.spec import EXPLICCIT_LCFS, LCF_UNITS, Inputs, Net1Spec, Net2Spec
+from expliccit_env.train.spec import Bins as BinsOutput
+from expliccit_env.train.spec import Interval as IntervalOutput
+from expliccit_env.train.spec import Point as PointOutput
 
 type F32 = npt.NDArray[np.float32]
 _EVAL_BATCH: Final = 65_536
@@ -401,7 +404,7 @@ def fit_net1(spec: Net1Spec, steps: Steps, seed: int) -> tuple[Net1, dict[str, A
     (xt, yt, mt), (xv, yv, mv) = tensors(tr), tensors(va)
     net = _net1_module(spec)
     log: dict[str, Any]
-    if isinstance(net, BinNet1):
+    if isinstance(net, BinNet1):  # spec.output.kind == "bins"
         net.bounds.copy_(torch.from_numpy(_bin_bounds(y[tr], net.b)))
         with torch.no_grad():  # targets become bin indices
             yt = net.bin_of(torch.from_numpy(np.nan_to_num(y[tr]))).float()
@@ -416,8 +419,12 @@ def fit_net1(spec: Net1Spec, steps: Steps, seed: int) -> tuple[Net1, dict[str, A
         log = {"val_loss": runs[0], "members_val_loss": runs, "ensemble_val_loss": ensemble}
     else:
         log = {"val_loss": _train(net, spec, (xt, yt, mt), (xv, yv, mv), seed)}
-        if isinstance(net, IntervalNet1) and xv.shape[0]:
-            _calibrate(net, xv, yv, mv, spec.coverage)
+        if (
+            isinstance(net, IntervalNet1)
+            and isinstance(spec.output, IntervalOutput)
+            and xv.shape[0]
+        ):
+            _calibrate(net, xv, yv, mv, spec.output.coverage)
     log["epochs"] = len(log["val_loss"])
     return Net1(scaler, net, lcf_scaler, tuple(spec.lcfs)), log
 
@@ -427,12 +434,15 @@ def _loss(
 ) -> torch.Tensor:
     """The training objective: the log score of the true bin for a
     distribution, the pinball loss for an interval, else squared error."""
-    if isinstance(net, BinNet1):
-        lp = net.log_probs(x).gather(2, y.long().unsqueeze(2)).squeeze(2)
-        return -(lp * m).sum() / m.sum().clamp(min=1)
-    if spec.intervals:
-        return _masked_pinball(net(x), y, m, spec.coverage)
-    return _masked_mse(net(x), y, m)
+    match spec.output:
+        case BinsOutput():
+            assert isinstance(net, BinNet1)
+            lp = net.log_probs(x).gather(2, y.long().unsqueeze(2)).squeeze(2)
+            return -(lp * m).sum() / m.sum().clamp(min=1)
+        case IntervalOutput(coverage=coverage):
+            return _masked_pinball(net(x), y, m, coverage)
+        case PointOutput():
+            return _masked_mse(net(x), y, m)
 
 
 @torch.no_grad()
@@ -460,9 +470,11 @@ def _train(
     seed: int,
 ) -> list[float]:
     """Adam with early stopping on the validation loss; leaves ``net`` at its
-    best epoch and returns the validation loss per epoch."""
+    best epoch and returns the validation loss per epoch. Without any
+    validation target it runs every epoch and keeps the last."""
     rng = np.random.default_rng(seed)
     (xt, yt, mt), (xv, yv, mv) = train, val
+    judged = bool(mv.sum() > 0)
     opt = torch.optim.AdamW(net.parameters(), lr=spec.lr, weight_decay=spec.weight_decay)
     best, best_state, stale = float("inf"), copy.deepcopy(net.state_dict()), 0
     history: list[float] = []
@@ -480,7 +492,9 @@ def _train(
             opt.step()
         val_loss = _val_loss(net, spec, xv, yv, mv)
         history.append(val_loss)
-        if val_loss < best:
+        if not judged:
+            best_state = copy.deepcopy(net.state_dict())
+        elif val_loss < best:
             best, best_state, stale = val_loss, copy.deepcopy(net.state_dict()), 0
         else:
             stale += 1
@@ -689,7 +703,6 @@ def window_target(net1: Net1) -> WindowTarget:
 
 
 type View = Literal["bins", "means"]
-type Inputs = Literal["net1", "true_lcfs", "raw", "net1+raw"]
 
 
 def view_of(net1: Net1, view: View, input_bins: int | None = None) -> nn.Module | None:
@@ -709,7 +722,7 @@ def view_of(net1: Net1, view: View, input_bins: int | None = None) -> nn.Module 
 
 _READS: Final[dict[str, Reads]] = {
     "net1": "beliefs",
-    "true_lcfs": "beliefs",
+    "truth": "beliefs",
     "raw": "measurements",
     "net1+raw": "both",
 }
@@ -728,11 +741,11 @@ def front(
 ) -> Front:
     """net2's front end on net1 (graph.Front): the one module both the
     exported graph and training read net2's input through. ``inputs``
-    "true_lcfs" takes every LCF from the truth, ``truth`` names some to
+    "truth" takes every LCF from the truth, ``truth`` names some to
     take (a patched net1); ``faults`` (parse_faults) makes beliefs wrong on
     purpose; ``deployed`` names the LCFs expliCCit's deployed controller
     rounds."""
-    if inputs == "true_lcfs":
+    if inputs == "truth":
         truth = frozenset(net1.lcfs)
     if inputs in ("raw", "net1+raw") and truth:
         raise ValueError(f'inputs "{inputs}" take nothing from the truth')
@@ -897,7 +910,7 @@ def load_net1(path: Path) -> tuple[Net1, Net1Spec]:
     lcf_scaler.load_state_dict(saved["lcf_scaler"])
     net = _net1_module(spec)
     state = saved["net"]
-    if spec.bins is not None:  # saved before ensembles: one member, named "base"
+    if spec.output.kind == "bins":  # saved before ensembles: one member, named "base"
         state = {
             k.replace("base.", "members.0.", 1) if k.startswith("base.") else k: v
             for k, v in state.items()
@@ -907,15 +920,14 @@ def load_net1(path: Path) -> tuple[Net1, Net1Spec]:
 
 
 def _net1_module(spec: Net1Spec) -> nn.Module:
-    k, f = len(spec.lcfs), len(spec.obs_cols)
-    if spec.bins is not None:
-        members = [
-            NET1[spec.arch](f, k, spec.width, spec.dropout, spec.bins) for _ in range(spec.members)
-        ]
-        return BinNet1(members, k, spec.bins)
-    if not spec.intervals:
-        return NET1[spec.arch](f, k, spec.width, spec.dropout)
-    return IntervalNet1(NET1[spec.arch](f, k, spec.width, spec.dropout, 3), k)
+    k, f, arch = len(spec.lcfs), len(spec.obs_cols), NET1[spec.arch]
+    match spec.output:
+        case PointOutput():
+            return arch(f, k, spec.width, spec.dropout)
+        case IntervalOutput():
+            return IntervalNet1(arch(f, k, spec.width, spec.dropout, 3), k)
+        case BinsOutput(bins=b, members=n):
+            return BinNet1([arch(f, k, spec.width, spec.dropout, b) for _ in range(n)], k, b)
 
 
 def policy_graph(

@@ -405,7 +405,7 @@ def test_the_black_box_learns_the_teachers_window_on_its_own_bdp() -> None:
     # The fixed rule's window (share_k 0), as u on net1's BDP and on the measured one.
     assert np.allclose(on_net1, 0.25)
     assert np.allclose(raw, 0.25 + lb_net1 - lb_raw, atol=1e-5)
-    with pytest.raises(ValueError, match="only the black box"):
+    with pytest.raises(ValueError, match="nothing to learn"):
         ppo.PPOSpec(paths_from=Path("u"), net1_from=Path("u"), algo="dagger", inputs="truth")
 
 

@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Final, Literal, Self
+from typing import Annotated, Any, Final, Literal, Self, cast
 
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator, model_validator
 
 from expliccit_env.policy import EXPLICCIT_OBS_COLS, OBS_DIM
 
@@ -63,6 +63,36 @@ class _Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
+class Point(_Frozen):
+    """One value per LCF, trained by squared error (expliCCit's)."""
+
+    kind: Literal["point"] = "point"
+
+
+class Interval(_Frozen):
+    """Per LCF a centre and an interval with the given held-out coverage
+    (docs/training.md), trained by the pinball loss and calibrated on
+    held-out paths. net2 then sees all three."""
+
+    kind: Literal["interval"] = "interval"
+    coverage: Annotated[float, Field(gt=0, lt=1)] = 0.9
+
+
+class Bins(_Frozen):
+    """Per LCF a probability distribution over this many fixed bins,
+    trained with the log score (docs/methodology.md). With members > 1,
+    that many net1s trained on their own (initial weights, batch order),
+    their distributions averaged. net2 then sees every bin's probability."""
+
+    kind: Literal["bins"] = "bins"
+    bins: Annotated[int, Field(ge=4, le=256)] = 64
+    members: Annotated[int, Field(ge=1, le=16)] = 1
+
+
+type Net1Output = Annotated[Point | Interval | Bins, Field(discriminator="kind")]
+_FLAT_OUTPUT: Final = ("intervals", "coverage", "bins", "members")
+
+
 class Net1Spec(_Frozen):
     arch: Literal["expliccit-v1"] = "expliccit-v1"
     obs_cols: Annotated[
@@ -73,17 +103,8 @@ class Net1Spec(_Frozen):
     # so outliers (srtt up to 5 s in expliCCit's data) do not squeeze the rest.
     scaling: Literal["robust", "minmax"] = "robust"
     lcfs: Annotated[tuple[Lcf, ...], Field(min_length=1)] = EXPLICCIT_LCFS
-    # Report an interval per LCF (docs/training.md): centre, lower and
-    # upper bound with the given held-out coverage. net2 then sees all three.
-    intervals: bool = False
-    coverage: Annotated[float, Field(gt=0, lt=1)] = 0.9
-    # Report a probability distribution over this many fixed bins per LCF,
-    # trained with the log score (docs/methodology.md). net2 then sees every
-    # bin's probability.
-    bins: Annotated[int, Field(ge=4, le=256)] | None = None
-    # Distributions only: train this many net1s on their own (different
-    # initial weights and batch order) and average their distributions.
-    members: Annotated[int, Field(ge=1, le=16)] = 1
+    # What net1 states about each LCF (beliefs.py reads each kind).
+    output: Net1Output = Point()
     width: PositiveInt = 512
     dropout: Annotated[float, Field(ge=0, lt=1)] = 0.3
     epochs: PositiveInt = 50
@@ -92,13 +113,35 @@ class Net1Spec(_Frozen):
     lr: Annotated[float, Field(gt=0)] = 1e-3
     weight_decay: Annotated[float, Field(ge=0)] = 1e-4
 
-    @model_validator(mode="after")
-    def _one_output(self) -> Net1Spec:
-        if self.intervals and self.bins is not None:
+    @model_validator(mode="before")
+    @classmethod
+    def _flat_output(cls, data: Any) -> Any:
+        """Specs written before ``output`` (every saved net1.pt up to net1 v6,
+        and the experiment files) name its kind by flat fields; read them as
+        the ``output`` they meant."""
+        if not isinstance(data, dict):
+            return data
+        d = cast(dict[str, Any], dict(data))  # pyright: ignore[reportUnknownArgumentType]
+        if not any(k in d for k in _FLAT_OUTPUT):
+            return d
+        if "output" in d:
+            raise ValueError(f"output replaces {', '.join(_FLAT_OUTPUT)}: give one or the other")
+        intervals, coverage = d.pop("intervals", False), d.pop("coverage", 0.9)
+        bins, members = d.pop("bins", None), d.pop("members", 1)
+        if intervals and bins is not None:
             raise ValueError("net1 reports intervals or bins, not both")
-        if self.members > 1 and self.bins is None:
+        if members != 1 and bins is None:
             raise ValueError("an ensemble (members > 1) needs bins")
-        return self
+        if bins is not None:
+            d["output"] = {"kind": "bins", "bins": bins, "members": members}
+        elif intervals:
+            d["output"] = {"kind": "interval", "coverage": coverage}
+        return d
+
+
+# What net2 reads (Net2Spec and ppo.PPOSpec): net1's beliefs, the truth's
+# (an oracle), the measurements net1 reads (the black box), or both.
+type Inputs = Literal["net1", "truth", "raw", "net1+raw"]
 
 
 class Net2Spec(_Frozen):
@@ -111,14 +154,15 @@ class Net2Spec(_Frozen):
     # et al., 2021): the critic never sees an action outside the data, and
     # the actor regresses the logged actions weighted by exp(beta * advantage).
     algo: Literal["td3bc", "expliccit-v1", "bc", "iql"] = "td3bc"
-    # "true_lcfs" trains on the labels instead of net1's beliefs: the oracle
+    # "truth" trains on the labels instead of net1's beliefs: the oracle
     # arm that splits a policy's loss into the LCF set's cost and net1's
     # error. Its exported policy reads the guest's live truth (policy.py).
+    # ("true_lcfs", its earlier name, still reads.)
     # "raw" gives net2 the measurements net1 reads, scaled by net1's input
     # scaler, and no LCFs: the black box with the same actor, data and
     # training, which prices the LCF bottleneck. "net1+raw" gives it both,
     # net1's output first, which measures what the LCFs leave out.
-    inputs: Literal["net1", "true_lcfs", "raw", "net1+raw"] = "net1"
+    inputs: Inputs = "net1"
     # "bins": net2 sees all of net1's output (each LCF's distribution,
     # interval or value); for a distribution net1, summed into input_bins
     # groups of adjacent bins when set (net1's bin count must be a
@@ -175,6 +219,11 @@ class Net2Spec(_Frozen):
     expectile: Annotated[float, Field(ge=0.5, lt=1)] = 0.7
     beta: Annotated[float, Field(ge=0)] = 3.0
     max_weight: Annotated[float, Field(gt=0)] = 100.0
+
+    @field_validator("inputs", mode="before")
+    @classmethod
+    def _old_name(cls, v: object) -> object:
+        return "truth" if v == "true_lcfs" else v
 
     @model_validator(mode="after")
     def _view(self) -> Net2Spec:

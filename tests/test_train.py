@@ -580,7 +580,7 @@ def test_a_net2_with_memory_takes_its_state_and_returns_the_next() -> None:
 
 def test_an_oracle_net2_on_a_distribution_net1_sees_the_true_bins() -> None:
     steps, net1 = _bdp_net1()
-    states, _ = fit.net2_view(net1, Net2Spec(inputs="true_lcfs"), steps)
+    states, _ = fit.net2_view(net1, Net2Spec(inputs="truth"), steps)
     z = states.reshape(-1, 7, 16)
     cap = net1.net.bin_of(torch.from_numpy(fit.targets(steps, net1.lcfs)))[:, 2].numpy()
     assert np.array_equal(z[:, 2].argmax(axis=1), cap) and np.all(z[:, 2].max(axis=1) == 1)
@@ -682,3 +682,47 @@ def test_an_injected_fault_scales_or_pins_one_belief_in_report_units(intervals: 
     assert torch.allclose(bad[:, others], clean[:, others], atol=1e-6)
     with pytest.raises(ValueError, match="not among"):
         fit.parse_faults(["nonsense*2"], net1.lcfs)
+
+
+def test_net1s_output_is_one_declared_kind_and_old_flat_specs_still_read(tmp_path: Path) -> None:
+    from expliccit_env.train.spec import Bins, Interval, Point  # noqa: PLC0415
+
+    assert Net1Spec().output == Point()
+    assert Net1Spec.model_validate({"bins": 32, "members": 3}).output == Bins(bins=32, members=3)
+    assert Net1Spec.model_validate({"intervals": True, "coverage": 0.8}).output == Interval(
+        coverage=0.8
+    )
+    with pytest.raises(ValueError, match="not both"):
+        Net1Spec.model_validate({"intervals": True, "bins": 16})
+    with pytest.raises(ValueError, match="replaces"):
+        Net1Spec.model_validate({"bins": 16, "output": {"kind": "bins"}})
+    # A net1.pt saved before ``output`` existed loads as the same kind.
+    steps = synthetic(n_episodes=5, steps=60)
+    spec = Net1Spec(width=32, epochs=1, batch_size=128, output=Bins(bins=8))
+    net1, _ = fit.fit_net1(spec, steps, 0)
+    fit.save_net1(net1, spec, tmp_path / "net1.pt")
+    saved = torch.load(tmp_path / "net1.pt", weights_only=True)
+    old = saved["spec"] | {"bins": 8, "members": 1}
+    del old["output"]
+    torch.save(saved | {"spec": old}, tmp_path / "old.pt")
+    again, again_spec = fit.load_net1(tmp_path / "old.pt")
+    assert again_spec.output == Bins(bins=8)
+    assert np.array_equal(again.beliefs(steps.obs[:4]), net1.beliefs(steps.obs[:4]))
+
+
+def test_net1_without_validation_rows_keeps_its_last_epoch_not_its_first() -> None:
+    steps = synthetic(n_episodes=10, steps=100)
+    steps.split[:] = "train"
+    spec = Net1Spec(width=32, epochs=5, batch_size=256, lcfs=("capacity_bps",))
+    torch.manual_seed(0)
+    untrained = fit._net1_module(spec)  # pyright: ignore[reportPrivateUsage]
+    torch.manual_seed(0)
+    net1, log = fit.fit_net1(spec, steps, 0)
+    assert log["epochs"] == 5  # no early stop on a missing validation loss
+    changed = any(
+        not torch.equal(a, b)
+        for a, b in zip(
+            untrained.state_dict().values(), net1.net.state_dict().values(), strict=True
+        )
+    )
+    assert changed

@@ -45,16 +45,16 @@ type View = Literal["bins", "means"]
 
 # net1's output kinds, as Net1Spec fields. "bins" is the distribution.
 KINDS: dict[Kind, dict[str, Any]] = {
-    "point": {},
-    "interval": {"intervals": True},
-    "bins": {"bins": 16},
+    "point": {"output": {"kind": "point"}},
+    "interval": {"output": {"kind": "interval"}},
+    "bins": {"output": {"kind": "bins", "bins": 16}},
 }
 VIEWS: tuple[View, ...] = ("bins", "means")  # "bins": all of net1's output
 
 
 def _net1(kind: Kind, steps: data.Steps, tmp: Path) -> fit.Net1:
     """A small net1 of the kind, saved and loaded back as a run would."""
-    spec = Net1Spec(width=32, epochs=2, batch_size=256, **KINDS[kind])
+    spec = Net1Spec.model_validate({"width": 32, "epochs": 2, "batch_size": 256} | KINDS[kind])
     net1, _ = fit.fit_net1(spec, steps, 0)
     fit.save_net1(net1, spec, tmp / "net1.pt")
     loaded, _ = fit.load_net1(tmp / "net1.pt")

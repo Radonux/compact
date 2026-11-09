@@ -53,13 +53,11 @@ def train(spec: TrainSpec, out: Path) -> dict[str, Any]:
         "net2": net2_log,
     }
     # A net2 on the true LCFs runs on the guest's live truth (an oracle).
-    truth = frozenset(net1.lcfs) if spec.net2.inputs == "true_lcfs" else frozenset[str]()
     graph = fit.policy_graph(
         net1,
         actor,
         spec.net2.action_max,
         spec.net2.action_decimals,
-        truth=truth,
         action=spec.net2.action,
         view=spec.net2.view,
         input_bins=spec.net2.input_bins,
