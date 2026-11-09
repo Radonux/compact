@@ -1,0 +1,15 @@
+{
+  "title": "Rounds 22 and 23 on every validation family and where information has value, with a probing measure",
+  "description": "Two A3-against-A2 comparisons, each where the flow cannot see the capacity as well as on the usual families. Round 22 (exp-net2-r22-means-181): round 18's DAgger students trained on net1 v6's means instead of its pooled bins, one policy on the three seeds' mean beliefs with q vetoing the push (ppo-r22-s0), beside round 18's r18e05 on the full beliefs. Round 23 (exp-net2-r23-probe-185): PPO from the reward on a mixture where probing can pay (half the links with capacity rising 4x every 1 to 5 s, half with a competitor leaving or on/off senders, no copies), on the full beliefs or the means, with exploration held 200 ms or 1 s, two seeds each (ppo-r23-VIEW-hHOLD-sSEED, final policies). Beside net1 v6's fixed rule, the rule that probes on net1's believed idle share (idle1) and BBRv3, on every validation family, as copies and on the info and rise families (experiments/heldout.py), campaign seed 21. probing.md gives each controller's window over the believed BDP on and off a busy link, and its slopes on net1's believed idle share and capacity spread (experiments/probing.py): a policy that probes where it cannot see the capacity raises its window there. Validation only.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v6": "release:exp-net1v6-149",
+    "c": "release:model-net2-r23"
+  },
+  "prepare": "N=\"$IN/v6/net1-v6-s0/net1.pt\"; (cd \"$IN/c\" && sha256sum -c SHA256SUMS); uv run python experiments/rule_export.py \"$OUT/r\" \"$N\" --u 0.25 --idle 1; P=(--policy \"rule-v6=$OUT/r/rule-u0.25.onnx\" --policy \"idle1=$OUT/r/rule-u0.25-idle1.onnx\"); for f in \"$IN\"/c/ppo-*.onnx; do P+=(--policy \"$(basename \"$f\" .onnx)=$f\"); done; RULE_EVAL_FAMILIES=\"training:20 training:60 new:20 deep-long:20 cubic-first:60 info:30 rise:30\" experiments/rule_eval.sh \"$OUT\" val 21 21 bbr3 \"${P[@]}\"; uv run python experiments/copies.py \"$OUT/copies\" --split val --duration-ms 30000 --seed 21 --n 2 4 --stock bbr3 \"${P[@]}\"; mv \"$OUT/copies/c-copies-30s\" \"$OUT/\"; jq -s add \"$OUT/aliases.json\" \"$OUT/copies/aliases.json\" > \"$OUT/a.json\"; mv \"$OUT/a.json\" \"$OUT/aliases.json\"",
+  "shards": 100,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps; done; uv run python experiments/probing.py shard \"$OUT\" \"$IN/v6/net1-v6-s0/net1.pt\"; uv run python experiments/slim_steps.py \"$OUT\"",
+  "collect": "uv run python experiments/rule_report.py \"$OUT\" --apart copies-30s info-30 rise-30 && mv \"$OUT/summary.md\" \"$OUT/against-bbr3.md\" && uv run python experiments/probing.py report \"$OUT\" && uv run python experiments/versus_rule.py \"$OUT\" rule-v6 && uv run python experiments/net2_ppo_gate_report.py \"$OUT\" rule-v6 && mv \"$OUT/summary.md\" \"$OUT/gate.md\" && cat \"$OUT/gate.md\" \"$OUT/probing.md\" \"$OUT/versus-rule-v6.md\" > \"$OUT/summary.md\"",
+  "timeout_minutes": 300
+}
