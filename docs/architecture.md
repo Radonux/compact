@@ -189,7 +189,9 @@ Cubic is Linux 7.0's, copied into `kernel/modules/cubic.h` because the
 kernel exports none of it. `getsockopt(TCP_CC_INFO)` on an `agent_cubic`
 socket returns Orca's statistics for the period since the last read (RTT
 samples, mean rate sample, lost bytes, period length, min RTT) and starts
-a new period.
+a new period; a policy that declares the input `cc_info` gets them at each
+step. An agent may step at its own period (`AgentCC.period_ms`, Orca's
+20 ms) instead of Sage's 10 ms.
 
 `mahak.py` ports Mahak's `mahak_online.py` and its `helper.py`: the grid,
 min-max scaling and PCA, the Gaussian process (RBF, length scale 0.1, 10

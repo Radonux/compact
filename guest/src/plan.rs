@@ -8,7 +8,7 @@ use serde::Deserialize;
 use std::num::{NonZeroU32, NonZeroU64};
 use std::path::{Path, PathBuf};
 
-pub const PLAN_VERSION: u32 = 7;
+pub const PLAN_VERSION: u32 = 8;
 /// Extra base RTT a cross flow may add (sch_flowdelay's FLOWDELAY_MAX_DELAY_NS).
 pub const MAX_EXTRA_DELAY_NS: u64 = 10_000_000_000;
 /// Cross-traffic flows per episode (ports 6000 to 6063), all sender to
@@ -54,6 +54,7 @@ struct RawAgent {
     noise_sigma: f64,
     noise_seed: u64,
     noise_hold: u32,
+    period_ms: u32,
 }
 
 #[derive(Deserialize)]
@@ -112,6 +113,8 @@ pub struct Agent {
     pub policy: PathBuf,
     pub noise: Noise,
     pub mode: Mode,
+    /// The step period: Sage's 10 ms, or the policy's own (Orca's 20 ms).
+    pub period_ms: u32,
 }
 
 /// How an action sets the window, by the socket's controller.
@@ -213,6 +216,9 @@ impl Agent {
                 if a.noise_hold > 1000 {
                     return fail(format!("agent.noise_hold {} above 1000", a.noise_hold));
                 }
+                if !(10..=1000).contains(&a.period_ms) {
+                    return fail(format!("agent.period_ms {} outside [10, 1000]", a.period_ms));
+                }
                 Ok(Some(Agent {
                     policy: dir.join(plain_file_name(&a.policy_file)?),
                     noise: Noise {
@@ -221,6 +227,7 @@ impl Agent {
                         hold: nonzero(a.noise_hold, "agent.noise_hold")?,
                     },
                     mode,
+                    period_ms: a.period_ms,
                 }))
             }
             (Some(_), None) => fail(format!("cc {cc} needs an agent section")),

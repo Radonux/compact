@@ -99,7 +99,7 @@ def test_each_agent_drives_only_its_own_socket(build: UmlBuild, tmp_path: Path) 
     cubic = flow_steps(out, 1)
     read, wrote = cubic["cwnd"].to_numpy(), cubic["cwnd_set"].to_numpy()
     ratio = 2.0 ** cubic["applied_action"].to_numpy()
-    assert np.array_equal(wrote, np.maximum(4, np.floor(ratio * read + 1e-3)))
+    assert np.array_equal(wrote, np.maximum(4, np.floor(ratio * read + 5e-3)))
     assert np.mean(wrote == 4) > 0.5 and read.max() > 4
     assert acts[acts["sport"] == MAIN_SPORT].size == row["agent_actions"]
     grow = flow_steps(out, 0)

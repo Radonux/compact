@@ -11,6 +11,10 @@ and runs the policy:
                    step, columns as in TRUTH_COLUMNS
     input  "cwnd"  float32 [1, 1], optional; the sender's window in packets
                    (TCP_INFO's snd_cwnd, the steps table's cwnd column)
+    input  "cc_info" float32 [1, 5], optional, for mode "cubic" only: Orca's
+                   statistics since the previous step from TCP_CC_INFO (RTT
+                   samples, mean rate sample in bytes/s, lost bytes, the
+                   period in us, min RTT in us)
     output 0       float32 [1, 1], a: the window is multiplied by 2**a
     output 1       float32 [1, S], the next state, present iff "state" is
 
@@ -30,9 +34,13 @@ as is, so a column can be infinite or NaN where sage.cc divides by a zero
 (for example column 68 before any sending rate is known); a policy must not
 let such a column reach its output. |a| must be at most
 MAX_ACTION and finite; anything else fails the episode instead of being
-clamped, so a broken policy cannot silently produce data. The window follows
-Sage: a precise accumulator from 10 packets, rounded up, kept in [4, 20000];
-pacing is cwnd * mss / srtt.
+clamped, so a broken policy cannot silently produce data. How a sets the
+window depends on the agent's mode (spec.AgentCC): in "hold" and "pure" it
+follows Sage, a precise accumulator from 10 packets, rounded up, kept in
+[4, 20000] (pacing cwnd * mss / srtt once a step in "hold", Sage's kernel
+pacing in "pure"); in "cubic" the window is the kernel's current one times
+2**a, rounded down, in [4, 20000], with Cubic in between. An agent may run
+its policy at a longer period than Sage's 10 ms (AgentCC.period_ms).
 """
 
 from __future__ import annotations

@@ -212,12 +212,17 @@ class AgentCC(_Frozen):
     # it derives from the episode's seed. Left out of the canonical form when
     # unset, so specs without it keep their ids.
     noise_seed: Annotated[int, Field(ge=0, lt=U64)] | None = None
+    # The step period: Sage's 10 ms, or the policy's own (Orca's 20 ms). Left
+    # out of the canonical form at 10, so specs without it keep their ids.
+    period_ms: Annotated[int, Field(ge=10, le=1000)] = 10
 
     @model_serializer(mode="wrap")
     def _omit_unset_seed(self, handler: SerializerFunctionWrapHandler) -> dict[str, object]:
         out: dict[str, object] = handler(self)
         if self.noise_seed is None:
             out.pop("noise_seed", None)
+        if self.period_ms == 10:
+            out.pop("period_ms", None)
         return out
 
     @property
@@ -226,8 +231,10 @@ class AgentCC(_Frozen):
 
     @property
     def label(self) -> str:
-        """The controller in tables: its mode and the policy's hash."""
-        return f"{self.name}:{self.policy.sha256[:12]}"
+        """The controller in tables: its mode, the policy's hash, and its
+        period when not Sage's."""
+        period = "" if self.period_ms == 10 else f"@{self.period_ms}ms"
+        return f"{self.name}:{self.policy.sha256[:12]}{period}"
 
 
 type CongestionControl = Annotated[StockCC | AgentCC, Field(discriminator="kind")]
@@ -372,7 +379,9 @@ class EpisodeSpec(_Frozen):
 
         def agent_plan(cc: AgentCC, seed: int) -> AgentPlan:
             own = seed if cc.noise_seed is None else cc.noise_seed
-            return AgentPlan(cc.policy.read(), cc.noise_sigma, own, cc.noise_hold_steps)
+            return AgentPlan(
+                cc.policy.read(), cc.noise_sigma, own, cc.noise_hold_steps, cc.period_ms
+            )
 
         def cross(i: int, c: TcpCross | UdpCross) -> CrossPlan:
             stop = self.duration_ms if c.stop_ms is None else c.stop_ms

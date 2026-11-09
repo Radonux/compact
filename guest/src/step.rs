@@ -26,6 +26,10 @@
 //!   input  "cwnd"  float32 [1, 1], optional; the sender's window in packets
 //!                  (TCP_INFO's snd_cwnd, the steps table's cwnd column), so
 //!                  a policy can set an absolute window as a multiplier
+//!   input  "cc_info" float32 [1, 5], optional, agent_cubic only; Orca's
+//!                  statistics since the previous step, from TCP_CC_INFO
+//!                  (kernel/modules/tcp_agent.c): RTT samples, mean rate
+//!                  sample (bytes/s), lost bytes, the period (us), min RTT (us)
 //!   output 0       float32 [1, 1], a: the window is multiplied by 2^a
 //!   output 1       float32 [1, S], the next state, when "state" exists
 //! a must be finite with |a| <= 8; anything else fails the episode. Under
@@ -37,7 +41,9 @@
 //! delivery as Sage's kernel does (kernel/modules/tcp_agent.c). Under
 //! "agent_cubic" the window is the kernel's current one (the cwnd input)
 //! times 2^a, rounded down and kept in [4, 20000], as Orca sets it; a = 0
-//! leaves Cubic's window as it is, and the stack paces.
+//! leaves Cubic's window as it is, and the stack paces. A policy may ask for
+//! its own step period (Orca's is 20 ms); the message's features keep
+//! Sage's definitions whatever the period.
 //! ponytail: pacing is refreshed per step, not per ACK as Sage's patched
 //! kernel may do (its source is not public); move it into tcp_agent if it
 //! matters.
@@ -235,6 +241,23 @@ impl Info {
     fn bytes_sent(&self) -> u64 {
         self.u64_at(200)
     }
+}
+
+/// agent_cubic's statistics since the last read (struct agent_cubic_info);
+/// the read starts a new period.
+fn read_cc_info(stream: &TcpStream) -> Result<[f64; CC_INFO]> {
+    let mut b = [0u8; 4 * CC_INFO];
+    let n = sys::getsockopt_bytes(stream.as_fd(), libc::IPPROTO_TCP, libc::TCP_CC_INFO, &mut b)
+        .ctx("TCP_CC_INFO")?;
+    if n != b.len() {
+        return fail(format!("TCP_CC_INFO returned {n} bytes, need {}", b.len()));
+    }
+    let mut out = [0f64; CC_INFO];
+    for (v, c) in out.iter_mut().zip(b.chunks_exact(4)) {
+        let w: [u8; 4] = c.try_into().ctx("TCP_CC_INFO field")?;
+        *v = f64::from(u32::from_ne_bytes(w));
+    }
+    Ok(out)
 }
 
 fn read_info(stream: &TcpStream) -> Result<Info> {
@@ -487,12 +510,17 @@ enum Input {
     State,
     Truth,
     Cwnd,
+    CcInfo,
 }
+
+/// TCP_CC_INFO of agent_cubic (struct agent_cubic_info), as policy input.
+pub const CC_INFO: usize = 5;
 
 /// An ONNX policy under contract sage-v1, with optional exploration noise.
 pub struct Policy {
     plan: TypedRunnableModel<TypedModel>,
     mode: Mode,
+    period_us: u64,
     inputs: Vec<Input>,
     state: Option<Tensor>,
     sigma: f64,
@@ -502,7 +530,7 @@ pub struct Policy {
 }
 
 impl Policy {
-    pub fn load(path: &Path, noise: crate::plan::Noise, mode: Mode) -> Result<Policy> {
+    pub fn load(path: &Path, noise: crate::plan::Noise, mode: Mode, period_ms: u32) -> Result<Policy> {
         let mut model =
             tract_onnx::onnx().model_for_path(path).ctx(format!("loading ONNX policy {}", path.display()))?;
         let names: Vec<String> = model.inputs.iter().map(|o| model.node(o.node).name.clone()).collect();
@@ -512,6 +540,8 @@ impl Policy {
                 "obs" => (Input::Obs, OBS),
                 "truth" => (Input::Truth, truth::N),
                 "cwnd" => (Input::Cwnd, 1),
+                "cc_info" if matches!(mode, Mode::Cubic) => (Input::CcInfo, CC_INFO),
+                "cc_info" => return fail("policy input cc_info needs cc agent_cubic"),
                 "state" => {
                     let fact = model.input_fact(i).ctx("state input")?;
                     let dims: Option<Vec<usize>> = fact
@@ -529,7 +559,9 @@ impl Policy {
                         _ => return fail("policy state input must have a fixed shape [1, S]"),
                     }
                 }
-                other => return fail(format!("policy input {other:?} is not obs, state, truth or cwnd")),
+                other => {
+                    return fail(format!("policy input {other:?} is not obs, state, truth, cwnd or cc_info"));
+                }
             };
             model = model.with_input_fact(i, f32::fact([1, width]).into()).ctx(format!("{name} input"))?;
             inputs.push(input);
@@ -539,8 +571,11 @@ impl Policy {
             || count(|i| matches!(i, Input::State)) > 1
             || count(|i| matches!(i, Input::Truth)) > 1
             || count(|i| matches!(i, Input::Cwnd)) > 1
+            || count(|i| matches!(i, Input::CcInfo)) > 1
         {
-            return fail(format!("policy inputs {names:?}: need one obs, at most one state, truth and cwnd"));
+            return fail(format!(
+                "policy inputs {names:?}: need one obs, at most one state, truth, cwnd and cc_info"
+            ));
         }
         let plan = model
             .into_optimized()
@@ -549,6 +584,7 @@ impl Policy {
         Ok(Policy {
             plan,
             mode,
+            period_us: u64::from(period_ms) * 1000,
             inputs,
             state,
             sigma: noise.sigma,
@@ -559,7 +595,19 @@ impl Policy {
     }
 
     #[allow(clippy::cast_possible_truncation)]
-    fn act(&mut self, obs: &[f64; OBS], truth: &[f64; truth::N], cwnd: u32) -> Result<f32> {
+    /// Whether the policy reads TCP_CC_INFO (read only then: reading starts
+    /// a new period).
+    fn reads_cc_info(&self) -> bool {
+        self.inputs.iter().any(|i| matches!(i, Input::CcInfo))
+    }
+
+    fn act(
+        &mut self,
+        obs: &[f64; OBS],
+        truth: &[f64; truth::N],
+        cwnd: u32,
+        cc: &[f64; CC_INFO],
+    ) -> Result<f32> {
         let row = |v: &[f64]| -> Result<TValue> {
             let x: Vec<f32> = v.iter().map(|&v| v as f32).collect();
             let t: Tensor =
@@ -572,6 +620,7 @@ impl Policy {
                 Input::Obs => row(obs)?,
                 Input::Truth => row(truth)?,
                 Input::Cwnd => row(&[f64::from(cwnd)])?,
+                Input::CcInfo => row(cc)?,
                 Input::State => match self.state.take() {
                     Some(s) => s.into(),
                     None => return fail("policy state was not returned by the previous step"),
@@ -622,11 +671,12 @@ impl Window {
 }
 
 /// Orca's window: the kernel's current one times `ratio`, rounded down
-/// (Orca's integer arithmetic; the margin absorbs float error when the
-/// product is a whole number), kept in [4, 20000].
+/// (Orca's integer arithmetic), kept in [4, 20000]. Orca's ratios are whole
+/// percents, so the product is a multiple of 0.01; the margin absorbs the
+/// float32 error of a = log2(ratio), at most 0.0035 at the largest window.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn on_kernel_window(ratio: f64, snd_cwnd: u32) -> u32 {
-    let w = (ratio * f64::from(snd_cwnd) + 1e-3).floor();
+    let w = (ratio * f64::from(snd_cwnd) + 5e-3).floor();
     (w.clamp(f64::from(MIN_CWND), f64::from(MAX_CWND))) as u32
 }
 
@@ -712,7 +762,8 @@ impl Loop {
             let mut ratio = 1.0f64;
             let mut pre_cwnd = CWND_INIT;
             let (mut count, mut actions) = (0u64, 0u64);
-            let mut poll = start_us + REPORT_PERIOD_US;
+            let period = policy.as_ref().map_or(REPORT_PERIOD_US, |p| p.period_us);
+            let mut poll = start_us + period;
             while poll < end_us && !stop.load(Ordering::Acquire) {
                 sys::sleep_until(poll * 1000);
                 let info = read_info(stream)?;
@@ -740,7 +791,8 @@ impl Loop {
                 let true_state = truth.at(now * 1000, base_ns, sport)?;
                 let (mut a, mut cwnd) = (f64::NAN, 0u32);
                 if let (Some(p), Some(dev)) = (policy.as_mut(), dev.as_mut()) {
-                    let act = f64::from(p.act(&obs, &true_state, info.snd_cwnd())?);
+                    let cc = if p.reads_cc_info() { read_cc_info(stream)? } else { [0.0; CC_INFO] };
+                    let act = f64::from(p.act(&obs, &true_state, info.snd_cwnd(), &cc)?);
                     // The noise is drawn every step whatever sigma and hold
                     // are, so the stream does not depend on them; each
                     // block of `hold` actions keeps its first draw. The
@@ -771,7 +823,7 @@ impl Loop {
                 }
                 w.write_all(&rec).ctx("steps.bin")?;
                 count += 1;
-                poll = feat.t0() + REPORT_PERIOD_US;
+                poll = feat.t0() + period;
             }
             w.flush().ctx("steps.bin")?;
             Ok(Steps { count, actions })

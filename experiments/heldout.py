@@ -114,19 +114,23 @@ def keep_only(
 
 def controllers(stock: str, policies: list[str]) -> tuple[list[dict[str, Any]], dict[str, str]]:
     """The stock controllers (comma-separated, or all) and the policies
-    (NAME=PATH, run as "hold" agents, or NAME=PATH@MODE), and each agent's
-    label (MODE:SHA12, spec.AgentCC.label) -> NAME."""
+    (NAME=PATH, run as "hold" agents, or NAME=PATH@MODE, or
+    NAME=PATH@MODE:PERIOD_MS), and each agent's label (spec.AgentCC.label)
+    -> NAME."""
     names = list(STOCK_NAMES) if stock == "all" else [n for n in stock.split(",") if n]
     ccs: list[dict[str, Any]] = [{"kind": "stock", "name": n} for n in names]
     aliases: dict[str, str] = {}
     for name, rest in (x.split("=", 1) for x in policies):
-        path, _, mode = rest.partition("@")
+        path, _, how = rest.partition("@")
+        mode, _, period = how.partition(":")
         sha = hashlib.sha256(Path(path).read_bytes()).hexdigest()
-        cc = {
+        cc: dict[str, Any] = {
             "kind": "agent",
             "mode": mode or "hold",
             "policy": {"path": str(Path(path).resolve()), "sha256": sha},
         }
+        if period:
+            cc["period_ms"] = int(period)
         ccs.append(cc)
         aliases[AgentCC.model_validate(cc).label] = name
     return ccs, aliases
@@ -300,7 +304,7 @@ def main() -> None:
         "--policy",
         action="append",
         default=[],
-        help="NAME=PATH[@MODE] of an ONNX policy (mode hold, pure or cubic; default hold)",
+        help="NAME=PATH[@MODE[:PERIOD_MS]] of an ONNX policy (mode hold, pure or cubic)",
     )
     a = p.parse_args()
     source = json.loads(SOURCE.read_text())

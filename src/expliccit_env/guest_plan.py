@@ -15,7 +15,7 @@ from typing import Final
 import numpy as np
 import numpy.typing as npt
 
-PLAN_VERSION: Final = 7
+PLAN_VERSION: Final = 8
 AGENT_CCS: Final = ("agent", "agent_pure", "agent_cubic")
 U32: Final = 2**32
 # The largest trace the guest's qdisc reads from its file (sch_mmlink.h
@@ -50,14 +50,15 @@ class LinkPlan:
 
 @dataclass(frozen=True, slots=True)
 class AgentPlan:
-    """An ONNX policy (sage-v1 contract, see policy.py) run every step, with
-    Gaussian exploration noise of ``noise_sigma`` added to each action, each
-    draw kept for ``noise_hold`` steps."""
+    """An ONNX policy (sage-v1 contract, see policy.py) run every step (every
+    ``period_ms``), with Gaussian exploration noise of ``noise_sigma`` added
+    to each action, each draw kept for ``noise_hold`` steps."""
 
     policy_onnx: bytes
     noise_sigma: float = 0.0
     noise_seed: int = 0
     noise_hold: int = 1
+    period_ms: int = 10
 
     def __post_init__(self) -> None:
         if not self.policy_onnx:
@@ -66,6 +67,8 @@ class AgentPlan:
             raise ValueError("noise_sigma must be in [0, 2] and noise_seed a u64")
         if not 1 <= self.noise_hold <= 1000:
             raise ValueError("noise_hold must be in [1, 1000]")
+        if not 10 <= self.period_ms <= 1000:
+            raise ValueError("period_ms must be in [10, 1000]")
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,6 +160,7 @@ def _agent_json(a: AgentPlan, directory: Path) -> dict[str, object]:
         "noise_sigma": a.noise_sigma,
         "noise_seed": a.noise_seed,
         "noise_hold": a.noise_hold,
+        "period_ms": a.period_ms,
     }
 
 

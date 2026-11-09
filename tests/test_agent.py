@@ -28,12 +28,14 @@ from tests import onnx_policies
 pytestmark = pytest.mark.uml
 
 
-def agent_spec(tmp: Path, policy: bytes, mode: str) -> EpisodeSpec:
+def agent_spec(tmp: Path, policy: bytes, mode: str, period_ms: int = 10) -> EpisodeSpec:
+    tmp.mkdir(parents=True, exist_ok=True)
     path = tmp / "policy.onnx"
     path.write_bytes(policy)
     cc = AgentCC(
         mode=mode,  # type: ignore[arg-type]
         policy=OnnxPolicy(path=path, sha256=hashlib.sha256(policy).hexdigest()),
+        period_ms=period_ms,
     )
     return EpisodeSpec(
         path=PathSpec(
@@ -107,6 +109,29 @@ def test_pure_agent_paces_every_delivery_as_sages_kernel(build: UmlBuild, tmp_pa
     want = obs["snd_cwnd"].astype(np.uint64) * 1500 * 1_000_000 // obs["srtt_us"]
     assert np.mean(obs["pacing_rate"] == want) > 0.95
     assert outcome.row["utilization"] > 0.5
+
+
+def test_cubic_agent_reads_orca_statistics_every_period(build: UmlBuild, tmp_path: Path) -> None:
+    # a = 1e-7 * the period in us: 0.002 for Orca's 20 ms, a window change
+    # too small to round to anything at these windows.
+    spec = agent_spec(tmp_path / "t", onnx_policies.on_cc_info(3, 1e-7), "cubic", 20)
+    outcome, _ = run_raw(build, tmp_path / "t", spec)
+    period = steps_of(outcome)["applied_action"].to_numpy()[1:] / 1e-7
+    assert 120 <= period.size <= 150  # one step per 20 ms over 3 s
+    assert period.min() >= 19_999 and np.median(period) < 21_000
+    # a = 1e-9 * the mean rate sample: about the 20 Mbit/s link's rate.
+    spec = agent_spec(tmp_path / "r", onnx_policies.on_cc_info(1, 1e-9), "cubic", 20)
+    outcome, _ = run_raw(build, tmp_path / "r", spec)
+    rate = steps_of(outcome)["applied_action"].to_numpy()[50:] / 1e-9 * 8
+    assert 0.8 * 20e6 < np.median(rate) < 1.05 * 20e6
+
+
+def test_cc_info_needs_the_cubic_agent(build: UmlBuild, tmp_path: Path) -> None:
+    outcome = run_episode(
+        agent_spec(tmp_path, onnx_policies.on_cc_info(0, 0.0), "hold"), build, tmp_path / "work"
+    )
+    assert not isinstance(outcome, EpisodeOk)
+    assert "cc_info needs cc agent_cubic" in str(outcome.row.get("failure"))
 
 
 def test_policy_reads_the_observation(build: UmlBuild, tmp_path: Path) -> None:

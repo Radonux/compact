@@ -85,6 +85,20 @@ def on_truth(column: int, slope: float, bias: float) -> bytes:
     )
 
 
+def on_cc_info(column: int, slope: float) -> bytes:
+    """a = slope * cc_info[column] (agent_cubic's TCP_CC_INFO)."""
+    return _model(
+        [
+            helper.make_node("Gather", ["cc_info", "col"], ["x"], axis=1),
+            helper.make_node("Mul", ["x", "k"], ["a"]),
+        ],
+        [_obs(), _tensor("cc_info", 5)],
+        [_tensor("a", 1)],
+        {"k": np.array([[slope]])},
+        ints={"col": np.array([column])},
+    )
+
+
 def window_target(target: float) -> bytes:
     """a = log2(target) - log2(cwnd): sets the window to target packets."""
     return _model(
