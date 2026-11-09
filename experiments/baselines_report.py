@@ -2,8 +2,9 @@
 each controller of a baselines campaign (experiments/baselines.json).
 
 A scenario is a family (one campaign, c-FAMILY-SECONDS) and a condition (its
-cross traffic and loss, score.condition); a copies campaign's scenario is
-its number of flows. For each scenario and controller, over the links (95%
+cross traffic and loss, score.condition, with "itself" named, so Cubic's run
+against Cubic sits with the others' runs against Cubic); a copies
+campaign's scenario is its number of flows. For each scenario and controller, over the links (95%
 bootstrap intervals):
 
 - the observed flow's throughput through the bottleneck (Mbit/s) and its
@@ -15,9 +16,11 @@ bootstrap intervals):
 - for copies: Jain's index over the copies, the link's utilization by all
   of them, and their mean queueing delay.
 
-Writes OUT/baselines.md and OUT/baselines.csv (one row per episode).
+Writes OUT/baselines.md and OUT/baselines.csv (one row per episode), from
+the campaigns of every DIR (each with its aliases.json), so a later run of
+more controllers on the same links joins an earlier one.
 
-Usage: python experiments/baselines_report.py OUT
+Usage: python experiments/baselines_report.py OUT DIR...
 """
 
 import csv
@@ -59,7 +62,9 @@ def episode(e: dict[str, Any], name: str, family: str) -> dict[str, Any]:
     copies = family.startswith("copies")
     return {
         "family": family,
-        "scenario": f"{nbytes.size} flows" if copies else condition(e["spec_json"]),
+        "scenario": f"{nbytes.size} flows"
+        if copies
+        else condition(e["spec_json"]).replace("itself", name),
         "controller": name,
         "link": link_key(e["spec_json"]),
         "throughput_mbps": thr,
@@ -73,7 +78,17 @@ def episode(e: dict[str, Any], name: str, family: str) -> dict[str, Any]:
     }
 
 
-def load(out: Path) -> tuple[list[dict[str, Any]], int]:
+def load(dirs: list[Path]) -> tuple[list[dict[str, Any]], int]:
+    rows: list[dict[str, Any]] = []
+    failed = 0
+    for d in dirs:
+        r, f = load_one(d)
+        rows += r
+        failed += f
+    return rows, failed
+
+
+def load_one(out: Path) -> tuple[list[dict[str, Any]], int]:
     aliases: dict[str, str] = json.loads((out / "aliases.json").read_text())
     rows: list[dict[str, Any]] = []
     failed = 0
@@ -96,8 +111,8 @@ def per_link(rows: list[dict[str, Any]], metric: str) -> Vec:
     return np.asarray([np.mean(v) for v in by.values()], np.float64)
 
 
-def main(out: Path) -> None:
-    rows, failed = load(out)
+def main(out: Path, dirs: list[Path]) -> None:
+    rows, failed = load(dirs)
     groups: dict[tuple[str, str], dict[str, list[dict[str, Any]]]] = defaultdict(
         lambda: defaultdict(list)
     )
@@ -180,4 +195,4 @@ def main(out: Path) -> None:
 
 
 if __name__ == "__main__":
-    main(Path(sys.argv[1]))
+    main(Path(sys.argv[1]), [Path(d) for d in sys.argv[2:]])

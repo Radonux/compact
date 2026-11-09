@@ -9,6 +9,6 @@
   "prepare": "SAGE=\"$IN/sage/sage/sage.onnx\"; echo \"fc0d6f1da45e4948ee3d96784642793954ed5e52adc1eddd0c9883d5d8fe2f9e  $SAGE\" | sha256sum -c; uv run expliccit train import-expliccit third_party/expliccit-models \"$OUT/expliccit\" --as-deployed; P=(--policy \"expliccit=$OUT/expliccit/policy.onnx\" --policy \"sage=$SAGE\"); S=bbr,bbr3,cubic,vegas; for fd in training:30 new:30 deep-long:30 cubic-first:60 rise:30 cellular:30 case-studies:80; do f=${fd%:*} d=${fd#*:}; uv run python experiments/heldout.py \"$OUT/spec-$f-$d\" --split test --family \"$f\" --duration-ms \"${d}000\" --seed 31 --stock \"$S\" \"${P[@]}\"; uv run expliccit campaign plan \"$OUT/spec-$f-$d/campaign.json\" \"$OUT/c-$f-$d\"; done; uv run python experiments/copies.py \"$OUT/copies\" --split test --duration-ms 30000 --seed 31 --n 2 4 --stock \"$S\" \"${P[@]}\"; mv \"$OUT/copies/c-copies-30s\" \"$OUT/\"; cp \"$OUT/spec-training-30/aliases.json\" \"$OUT/aliases.json\"",
   "shards": 30,
   "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables flow_seconds; done",
-  "collect": "uv run python experiments/baselines_report.py \"$OUT\"",
+  "collect": "uv run python experiments/baselines_report.py \"$OUT\" \"$OUT\"",
   "timeout_minutes": 180
 }
