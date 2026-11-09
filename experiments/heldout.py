@@ -51,7 +51,6 @@ from typing import Any
 
 import numpy as np
 
-from expliccit_env.guest_plan import MAX_TRACE_BYTES
 from expliccit_env.spec import (
     STOCK_NAMES,
     AgentCC,
@@ -212,13 +211,9 @@ CELLULAR: list[dict[str, Any]] = [{}, {"cross": [{"kind": "tcp", "cc": "cubic", 
 def trace_slice(src: Path, start_ms: int, length_ms: int, dest: Path) -> dict[str, Any]:
     """A Mahimahi trace from start_ms on, length_ms long, as a pinned trace
     file: each line is the ms of one delivery opportunity, shifted so the
-    slice starts at 0 (Mahimahi replays a trace from its start when it ends).
-    A slice denser than the guest takes (MAX_TRACE_BYTES entries) is cut to
-    its longest whole-ms prefix that fits, so it loops within the episode."""
+    slice starts at 0 (Mahimahi replays a trace from its start when it ends)."""
     ts = np.array([int(x) for x in src.read_text().split()], np.int64)
     kept = ts[(ts > start_ms) & (ts <= start_ms + length_ms)] - start_ms
-    if kept.size > MAX_TRACE_BYTES:
-        kept = kept[kept < kept[MAX_TRACE_BYTES]]  # the last whole ms that fits
     if kept.size < 2:
         raise ValueError(f"{src.name} from {start_ms} ms: fewer than two opportunities")
     dest.parent.mkdir(parents=True, exist_ok=True)
