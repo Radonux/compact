@@ -1,0 +1,24 @@
+{
+  "title": "Round 20a: the black box cloned from the split's start (arm A4, H6, stage 1)",
+  "description": "Round 19b's black box (net2's recurrent PPO on the 78 raw measurements, its window on BBR's BDP estimate) started 0.554 below net1 v6's fixed rule on validation and ended 0.22 to 0.39 below after 120 iterations, while the arm on net1 started at the rule. To separate the start from the inputs, this gives the black box the split's start: DAgger with a teacher that is net1 v6's fixed rule (share_k 0, u = 0.25 on net1's believed BDP), which the student, reading only the raw measurements, learns as a u on its own measured BDP. Round 15's copies mixture as in round 19 (competition on 60% of the links, the flow alone on 35%), round 18's DAgger settings (32 links per iteration, sigma 0.05, learning rate 0.001), 40 iterations, seeds 1 to 3. Stage 2 runs round 19's PPO from these clones.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v6": "release:exp-net1v6-149",
+    "models": "release:model-net1v3"
+  },
+  "matrix": {
+    "arm": [
+      "raw"
+    ],
+    "seed": [
+      1,
+      2,
+      3
+    ]
+  },
+  "prepare": "N=\"$IN/v6/net1-v6-s0/net1.pt\"; uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$N\" --models \"$IN/models\" --u 0.25 --paths net2-train-xl",
+  "run": "S=\"$OUT/spec-r20a-$ARM-s$SEED.json\"; jq --arg arm \"$ARM\" --argjson seed \"$SEED\" '.algo = \"dagger\" | .student = \"u\" | .base = \"fixed\" | .inputs = $arm | .share_k = 0 | .critic_warmup = 0 | .critic_flows = true | .lr = 0.001 | .updates_per_iteration = 50 | .replay_iterations = 16 | .tau_s = 1 | .noise_sigma = 0.05 | .group = 1 | .links_per_iteration = 32 | .copies = [2, 4] | .competition = \"diverse\" | .alone = 0.35 | .compete = 0.6 | .seed = $seed | .iterations = 40 | .eval_every = 10' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/ppo-r20a-$ARM-s$SEED\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ppo-*",
+  "timeout_minutes": 360
+}

@@ -10,10 +10,12 @@ from typing import Literal
 
 import numpy as np
 import onnx
+import pyarrow as pa
 import pytest
 
 torch = pytest.importorskip("torch")
 
+from expliccit_env.policy import OBS_DIM  # noqa: E402
 from expliccit_env.spec import AgentCC, EpisodeSpec, OnnxPolicy, TcpCross  # noqa: E402
 from expliccit_env.train import fit, ppo  # noqa: E402
 from expliccit_env.train.export import to_onnx  # noqa: E402
@@ -330,6 +332,60 @@ def test_the_oracle_reads_the_live_truth_as_its_trajectories_do() -> None:
     assert abs(believed - lb) > 0.2  # the truth's bins, not net1's belief
     m = onnx.load_from_string(to_onnx(graph))
     assert [i.name for i in m.graph.input] == ["obs", "state", "truth", "cwnd"]
+
+
+def test_the_black_box_learns_the_teachers_window_on_its_own_bdp() -> None:
+    steps, net1 = _bdp_net1()
+    obs = steps.obs[steps.episode == 0][:80]
+    n = obs.shape[0]
+    cols = {
+        "step": pa.array(np.arange(n, dtype=np.int32)),
+        "t_ns": pa.array((np.arange(n) * 10_000_000).astype(np.uint64)),
+        "obs": pa.FixedSizeListArray.from_arrays(pa.array(obs.reshape(-1)), OBS_DIM),
+        "cwnd": pa.array(np.full(n, 20, np.uint32)),
+        **{
+            f"label_{k}": pa.array(steps.labels[k][steps.episode == 0][:n].astype(np.float64))
+            for k in net1.lcfs
+        },
+    }
+    table = pa.table(cols)
+    rivals = np.zeros((0, 3))
+
+    def teacher(inputs: Literal["net1", "raw"]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        spec = ppo.PPOSpec(
+            paths_from=Path("u"),
+            net1_from=Path("u"),
+            u_rule=0.25,
+            input_bins=4,
+            algo="dagger",
+            share_k=0.0,
+            inputs=inputs,
+        )
+        encode, view, target = ppo._views(net1, spec)  # pyright: ignore[reportPrivateUsage]
+        tr = ppo._trajectory(  # pyright: ignore[reportPrivateUsage]
+            table,
+            np.zeros(n, np.float32),
+            net1,
+            encode=encode,
+            view=view,
+            target=target,
+            spec=spec,
+            group=(0, 0),
+            rivals=rivals,
+        )
+        assert tr is not None and tr.teacher is not None
+        d = decision_steps(obs[:, OBS_MIN_RTT])
+        d = d[d + 1 < n]
+        return tr.teacher, target(encode(obs[d], np.zeros((d.size, 7), np.float32))).numpy(), d
+
+    on_net1, _, _ = teacher("net1")
+    raw, lb_raw, d = teacher("raw")
+    lb_net1 = fit.window_target(net1)(torch.from_numpy(net1.beliefs(obs[d]))).numpy()
+    # The fixed rule's window (share_k 0), as u on net1's BDP and on the measured one.
+    assert np.allclose(on_net1, 0.25)
+    assert np.allclose(raw, 0.25 + lb_net1 - lb_raw, atol=1e-5)
+    with pytest.raises(ValueError, match="only the black box"):
+        ppo.PPOSpec(paths_from=Path("u"), net1_from=Path("u"), algo="dagger", inputs="truth")
 
 
 def _traj(group: tuple[int, int], reward: np.ndarray) -> ppo.Trajectory:

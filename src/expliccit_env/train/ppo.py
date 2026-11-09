@@ -272,8 +272,14 @@ class PPOSpec(BaseModel):
             raise ValueError('init_critic continues algo "ppo" only')
         if self.alone + self.compete > 1:
             raise ValueError("alone and compete are shares of the links: at most 1 together")
-        if self.inputs != "net1" and (self.algo != "ppo" or self.base != "fixed"):
+        if self.inputs != "net1" and (self.algo == "td3bc" or self.base != "fixed"):
             raise ValueError(f'inputs "{self.inputs}" is an arm of algo "ppo" on base "fixed"')
+        if (
+            self.inputs != "net1"
+            and self.algo == "dagger"
+            and (self.inputs != "raw" or self.student != "u")
+        ):
+            raise ValueError('only the black box ("raw") learns from the teacher, and only u')
         return self
 
     @classmethod
@@ -754,14 +760,19 @@ def _trajectory(
     critic = np.concatenate(parts, axis=1).astype(np.float32)
     if spec.algo != "dagger":
         return Trajectory(group, inp, critic, u, reward, gamma, base)
-    share_u = _ShareOffset(net1, spec).eval()(z).numpy().astype(np.float32)
-    coop_u = _CoopOffset(net1, spec).eval()(z).numpy().astype(np.float32)
+    # The teacher reads net1's beliefs, also for the black box ("raw"),
+    # whose u is then the teacher's window on its own measured BDP.
+    z1 = z if spec.inputs == "net1" else torch.from_numpy(net1.beliefs(obs[d]))
+    share_u = _ShareOffset(net1, spec).eval()(z1).numpy().astype(np.float32)
+    coop_u = _CoopOffset(net1, spec).eval()(z1).numpy().astype(np.float32)
     tcp = (counts[:, 1] > 0).astype(np.float32)
     copies = (counts[:, 0] > 0).astype(np.float32)
     if spec.student == "gate3" and spec.gate3_copies == "coop":
         teacher = teacher3_u(share_u, coop_u, counts, spec.u_rule)
     else:
         teacher = teacher_u(share_u, counts, spec.u_rule)
+    if spec.inputs == "raw":
+        teacher = (teacher + fit.window_target(net1)(z1).numpy() - lb).astype(np.float32)
     return Trajectory(
         group, inp, critic, u, reward, gamma, base, teacher, tcp, share_u, copies, coop_u
     )
