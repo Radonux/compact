@@ -487,7 +487,37 @@ A net2 on the means of net1's beliefs (arm A2) did at least as well as
 one on the full beliefs (A3). Over 60 iterations of online TD3+BC on net1
 v3, scored every 10 iterations on the validation links, A3 minus A2 stayed
 between -0.030 and +0.001; the one interval that excluded zero favoured
-the means (one seed each, local runs, not run on test). A likely reason,
-not tested: a window target from the believed BDP needs mostly the means,
-and these runs keep the link busy, where capacity is identifiable.
-net1's honesty still serves the human reading of its beliefs.
+the means (one seed each, local runs, not run on test).
+
+Those links left the spread little to say. The fixed rule alone keeps 96%
+of validation steps on a fully busy link, where net1's capacity belief is
+narrow (median log2 sd 0.14). Off a busy link the spread widens 3 to 6
+times, stays honest (90% coverage 0.95 to 0.98) and tracks the error
+(correlation 0.82; run 177's steps, local). Two families put the flow
+where it cannot see the capacity: rise (alone, the capacity alternating
+between half and twice its level every 2 s) and info (a Cubic or BBRv1
+flow leaving at 10 s, UDP at half the capacity on and off every 2 s,
+Cubic on and off every 3 s). There, rules that probe above the believed
+BDP did no better than the fixed rule, whether they read the spread or
+only the means. Each raises the window target by k times a signal: the
+spread of log2 capacity past s0, or how idle net1 believes the link is
+(1 minus its mean busy fraction, past 0.05). Minus the fixed rule
+([`exp-net2-info-val-184`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-info-val-184), validation):
+
+| Rule probes on | rise-30 | info-30 | on/off UDP | five-family mean | cubic-first-60 | copies-30s |
+|---|---|---|---|---|---|---|
+| believed idle share, k 1 (means) | -0.008 | -0.006 | -0.005 | +0.001 | +0.034 | +0.035 |
+| believed idle share, k 2 (means) | -0.021 | -0.007 | -0.016 | -0.004 | +0.036 | -0.027 |
+| spread, k 1, s0 0.2 | -0.087 | -0.035 | -0.131 | +0.022 | +0.138 | -0.389 |
+| spread, k 2, s0 0.4 | -0.117 | -0.028 | -0.070 | +0.008 | +0.121 | -0.379 |
+| spread, k 1, s0 0.2, times 1 - P(copies) | -0.051 | -0.021 | -0.059 | +0.007 | +0.091 | -0.049 |
+| (BBRv3, for scale) | -0.627 | -0.161 | -0.115 | -0.142 | -0.007 | +0.100 |
+
+The fixed rule's margin of 19% over a capacity net1 keeps re-estimating
+already follows each fourfold rise; extra probing buys less than its
+queue costs. net1 is as unsure of the capacity on any shared link
+(median spread 0.34 to 0.42 with copies or a stock flow), so probing on
+the spread mostly pushes there: it gains against Cubic and loses among
+copies and under on/off UDP. For a window rule, the spread has so far
+added nothing the means do not. net1's honesty still serves the human
+reading of its beliefs.
