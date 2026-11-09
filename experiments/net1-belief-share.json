@@ -1,0 +1,15 @@
+{
+  "title": "net1 v6's capacity belief on a shared link",
+  "description": "Rules on the true LCFs fail among copies, and the learned net2 r18e05 with the true capacity in place of net1's collapses as copies (-1.247, exp-net2-patch-v6-172): each copy aims at the whole link. Local runs on net1 v4 put its capacity belief on a shared link at 0.4 to 0.9 of the link. This measures it for net1 v6: the fixed rule on net1 v6 (u = 0.25) and BBRv3, alone and as 2 and 4 copies for 30 s on the validation links (campaign seed 11), with the observations kept, and experiments/belief_share.py reports the median believed capacity over the link's capacity and over the fair share (capacity over the number of flows), with the flow's receive rate beside them.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v6": "release:exp-net1v6-149"
+  },
+  "prepare": "N=\"$IN/v6/net1-v6-s0/net1.pt\"; uv run python experiments/rule_export.py \"$OUT/rule6\" \"$N\" --u 0.25; uv run python experiments/copies.py \"$OUT/copies\" --split val --duration-ms 30000 --seed 11 --n 1 2 4 --stock bbr3 --policy \"rule-v6=$OUT/rule6/rule-u0.25.onnx\"; mv \"$OUT/copies/c-copies-30s\" \"$OUT/\"; cp \"$OUT/copies/aliases.json\" \"$OUT/aliases.json\"",
+  "shards": 10,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps; done",
+  "collect": "uv run python experiments/belief_share.py \"$OUT\" \"$IN/v6/net1-v6-s0/net1.pt\"",
+  "collect_inputs": true,
+  "timeout_minutes": 120
+}
