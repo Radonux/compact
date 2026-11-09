@@ -76,3 +76,27 @@ def test_versus_rule_pairs_by_link_and_groups_udp_rates(
     # The two UDP rates are one condition, paired over both links.
     assert "| info-30 | UDP from 2 s | +0.500 (+0.500 to +0.500) |" in text
     assert "| info-30 | cubic from 0 s | +0.100 (+0.100 to +0.100) |" in text
+
+
+def test_a_trace_slice_starts_at_zero_and_keeps_the_window(tmp_path: Path) -> None:
+    src = tmp_path / "t.down"
+    src.write_text("".join(f"{t}\n" for t in (5, 10, 10, 20, 35, 40, 60)))
+    spec = heldout.trace_slice(src, 10, 30, tmp_path / "s.down")
+    assert (tmp_path / "s.down").read_text().split() == ["10", "25", "30"]
+    assert spec["kind"] == "mahimahi_file" and len(spec["sha256"]) == 64
+
+
+def test_cellular_links_keep_delay_and_buffer_in_bdps(tmp_path: Path) -> None:
+    p = {
+        "trace": {"kind": "periodic_levels", "levels_mbps": [24.0], "level_ms": 1000},
+        "delay": {"mahak_compat_mrtt_ms": 40},
+        "buffer": {"packets": 320},  # 2 BDPs of 24 Mbit/s at 80 ms (160 packets each)
+    }
+    links = heldout.cellular([p] * 9, 30000, tmp_path)
+    names = [Path(x["trace"]["path"]).name for x in links]
+    assert names[0] == "ATT-LTE-driving-0.down" and names[8] == "ATT-LTE-driving-37000.down"
+    assert all(x["delay"] == p["delay"] for x in links)
+    assert all(Path(x["uplink_trace"]["path"]).name.endswith(".up") for x in links)
+    first = heldout.CELLULAR_DIR / "ATT-LTE-driving.down"
+    bdp = heldout.mean_mbps(first) * 1e6 * 0.08 / 12000
+    assert links[0]["buffer"]["packets"] == max(10, round(2 * bdp))

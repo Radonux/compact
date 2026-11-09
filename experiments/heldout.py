@@ -24,7 +24,13 @@ Cubic or a BBRv1 flow that leaves at 10 s, UDP at half the link's mean
 capacity on for 2 s and off for 2 s, and Cubic flows on for 3 s and off for
 3 s (INFO); and "rise", the flow alone on each link with its capacity
 alternating between half and twice its first level every 2 s, a fourfold
-rise every 4 s.
+rise every 4 s. "cellular" replays real cellular traces (Mahimahi's,
+third_party/mahimahi/traces: AT&T, T-Mobile and Verizon, LTE, UMTS and
+EVDO, measured while driving or still): each link keeps its one-way delay
+and its buffer in BDPs, and takes one of the eight traces from an offset
+that differs from link to link, with the matching uplink trace for the
+ACKs; alone and against a Cubic flow from 0 s. The slices are written
+under OUT_DIR/traces.
 
 Usage: python experiments/heldout.py OUT_DIR --split test --duration-ms 60000
            --seed 13 [--family training] --stock all --policy NAME=PATH ...
@@ -185,6 +191,70 @@ def rise(paths: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+CELLULAR_TRACES: tuple[str, ...] = (
+    "ATT-LTE-driving",
+    "ATT-LTE-driving-2016",
+    "TMobile-LTE-driving",
+    "TMobile-LTE-short",
+    "TMobile-UMTS-driving",
+    "Verizon-EVDO-driving",
+    "Verizon-LTE-driving",
+    "Verizon-LTE-short",
+)
+CELLULAR_DIR = ROOT / "third_party/mahimahi/traces"
+CELLULAR: list[dict[str, Any]] = [{}, {"cross": [{"kind": "tcp", "cc": "cubic", "start_ms": 0}]}]
+
+
+def trace_slice(src: Path, start_ms: int, length_ms: int, dest: Path) -> dict[str, Any]:
+    """A Mahimahi trace from start_ms on, length_ms long, as a pinned trace
+    file: each line is the ms of one delivery opportunity, shifted so the
+    slice starts at 0 (Mahimahi replays a trace from its start when it ends)."""
+    ts = np.array([int(x) for x in src.read_text().split()], np.int64)
+    kept = ts[(ts > start_ms) & (ts <= start_ms + length_ms)] - start_ms
+    if kept.size < 2:
+        raise ValueError(f"{src.name} from {start_ms} ms: fewer than two opportunities")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text("".join(f"{t}\n" for t in kept))
+    sha = hashlib.sha256(dest.read_bytes()).hexdigest()
+    return {"kind": "mahimahi_file", "path": str(dest.resolve()), "sha256": sha}
+
+
+def mean_mbps(trace: Path) -> float:
+    ts = [int(x) for x in trace.read_text().split()]
+    return 12.0 * len(ts) / ts[-1]  # one 1500-byte packet per entry, in ms
+
+
+def cellular(paths: list[dict[str, Any]], duration_ms: int, out: Path) -> list[dict[str, Any]]:
+    """Family "cellular": link i takes trace i mod 8 from an offset of
+    (i // 8) * 37 s (modulo what the trace leaves), its delay, and its
+    buffer in BDPs at the trace's mean capacity."""
+    links = []
+    for i, p in enumerate(paths):
+        name = CELLULAR_TRACES[i % len(CELLULAR_TRACES)]
+        down, up = CELLULAR_DIR / f"{name}.down", CELLULAR_DIR / f"{name}.up"
+        span = int(down.read_text().split()[-1]) - duration_ms
+        start = ((i // len(CELLULAR_TRACES)) * 37_000) % max(span, 1)
+        ow = p["delay"]["mahak_compat_mrtt_ms"]
+        bdp = p["trace"]["levels_mbps"][0] * 1e6 * 2 * ow / 1e3 / 12000
+        in_bdp = p["buffer"]["packets"] / bdp
+        cap = mean_mbps(down)
+        packets = int(np.clip(round(in_bdp * cap * 1e6 * 2 * ow / 1e3 / 12000), 10, 8000))
+        sliced = out / "traces"
+        links.append(
+            p
+            | {
+                "trace": trace_slice(
+                    down, start, duration_ms + 5000, sliced / f"{name}-{start}.down"
+                ),
+                "uplink_trace": trace_slice(
+                    up, start, duration_ms + 5000, sliced / f"{name}-{start}.up"
+                ),
+                "buffer": {"packets": packets},
+            }
+        )
+    return links
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("out", type=Path)
@@ -203,6 +273,7 @@ def main() -> None:
             "dynamic",
             "info",
             "rise",
+            "cellular",
         ],
     )
     p.add_argument("--stock", default="all", help="comma-separated stock controllers, or all")
@@ -224,6 +295,8 @@ def main() -> None:
         conditions = info(a.duration_ms)
     elif family == "rise":
         links, conditions = rise(links), [{}]
+    elif family == "cellular":
+        links, conditions = cellular(links, a.duration_ms, a.out), CELLULAR
     elif family != "training":
         conditions = NEW if family == "new" else NEW[:1]
     campaign = {
