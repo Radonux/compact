@@ -51,7 +51,7 @@ copies-arm policies are in `model-net2-v6-cands`), round 16
 `exp-net2-r16-long-157`, round 14's stage 2 `exp-net2-r14-s2-158`,
 round 17 `exp-net2-r17-copies-161`, round 18
 `exp-net2-r18-gate3-v6-162`, round 19 `exp-net2-r19-blackbox-164`, round 19b `exp-net2-r19b-bbr-165`, round 20a `exp-net2-r20a-clone-170`
-(its clones in `model-net2-r20a-clones`), round 20b `exp-net2-r20b-bb-ppo-171`. Evaluations on net1 v6:
+(its clones in `model-net2-r20a-clones`), round 20b `exp-net2-r20b-bb-ppo-171`, round 20c `exp-net2-r20c-clone-more-175`. Evaluations on net1 v6:
 `exp-net2-eval-v6-159`, `-v6-ens-160`, `-v6-veto-166`; round 18's gate
 `exp-net2-gate-r18e05-s11-167`, test `exp-net2-test-r18e05-168` and net1
 swap `exp-net2-swap-v6-169`, per-LCF truth patch `exp-net2-patch-v6-172`, net1 v6's capacity belief under sharing `exp-net1-belief-share-173`, the three inputs on every family `exp-net2-eval-ladder-174`, round 18's ensembles cooperating with copies `exp-net2-eval-v6-coop-176`.

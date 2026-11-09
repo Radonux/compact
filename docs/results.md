@@ -168,7 +168,9 @@ capacity estimate does not (inferred). Started instead from a clone of
 the rule on net1, learned from the raw measurements by DAgger with that
 rule as the teacher
 ([`exp-net2-r20a-clone-170`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-r20a-clone-170):
-40 iterations brought it from 0.554 to 0.064 to 0.087 below the rule),
+40 iterations brought it from 0.554 to 0.064 to 0.087 below the rule,
+and 80 more only to 0.031 to 0.067 below,
+[`exp-net2-r20c-clone-more-175`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-r20c-clone-more-175)),
 the same PPO ended 0.036 to 0.096 below, about 0.05 below the arm on net1
 on average and level with it on one seed. Given the split's start, the
 raw measurements learn from the reward nearly as well; what the split
