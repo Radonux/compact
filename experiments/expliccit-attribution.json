@@ -1,0 +1,11 @@
+{
+  "title": "Exact attribution of expliCCit's released policy's decisions to its LCFs, on its case studies and three families",
+  "description": "expliCCit's released net1 and actor (third_party/expliccit-models), as deployed, alone on the links of its two case studies (24 and 48 Mbit/s every 7 s, 40 ms one way, 1000 packets; 24 Mbit/s halving to 12 at 40 s, 20 ms, 300 packets; 80 s) and on the validation links under the new family, real cellular traces and a capacity rising fourfold every 4 s (experiments/heldout.py), observations kept. Each decision is split into exact Shapley values over its seven LCFs against the mean LCF vector of the same campaign's steps, on the deployed beliefs (clamped and rounded), with the leave-one-out intervention beside them (experiments/attribution.py, src/expliccit_env/train/attribution.py). The summary gives, per campaign, each LCF's mean share of |value|, the share the largest three hold (and Others), and how closely the intervention tracks the value.",
+  "uml": true,
+  "train": true,
+  "prepare": "uv run expliccit train import-expliccit third_party/expliccit-models \"$OUT/m\" --as-deployed; P=(--policy \"expliccit=$OUT/m/policy.onnx\"); for fd in case-studies:80 new:20 cellular:30 rise:30; do f=${fd%:*} d=${fd#*:}; uv run python experiments/heldout.py \"$OUT/spec-$f-$d\" --split val --family \"$f\" --duration-ms \"${d}000\" --seed 21 --stock \"\" \"${P[@]}\"; uv run expliccit campaign plan \"$OUT/spec-$f-$d/campaign.json\" \"$OUT/c-$f-$d\"; done",
+  "shards": 20,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps; done",
+  "collect": "for c in \"$OUT\"/c-*; do uv run python experiments/attribution.py \"$OUT/attr-${c##*/c-}\" \"$c\" --models third_party/expliccit-models --as-deployed --stride 5; done; for f in \"$OUT\"/attr-*/attribution.md; do echo \"## ${f%/attribution.md}\" | sed \"s|.*/attr-|## |\"; echo; cat \"$f\"; echo; done > \"$OUT/summary.md\"",
+  "timeout_minutes": 120
+}

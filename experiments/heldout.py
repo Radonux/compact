@@ -30,7 +30,10 @@ EVDO, measured while driving or still): each link keeps its one-way delay
 and its buffer in BDPs, and takes one of the eight traces from an offset
 that differs from link to link, with the matching uplink trace for the
 ACKs; alone and against a Cubic flow from 0 s. The slices are written
-under OUT_DIR/traces.
+under OUT_DIR/traces. "case-studies" is not a split's links but the two
+links of expliCCit's case studies, alone: 24 and 48 Mbit/s alternating
+every 7 s with a 40 ms one-way delay and a 1000-packet buffer, and 24
+Mbit/s halving to 12 at 40 s with 20 ms and 300 packets.
 
 Usage: python experiments/heldout.py OUT_DIR --split test --duration-ms 60000
            --seed 13 [--family training] --stock all --policy NAME=PATH ...
@@ -255,6 +258,20 @@ def cellular(paths: list[dict[str, Any]], duration_ms: int, out: Path) -> list[d
     return links
 
 
+CASE_STUDIES: list[dict[str, Any]] = [
+    {
+        "trace": {"kind": "periodic_levels", "levels_mbps": [24, 48], "level_ms": 7000},
+        "delay": {"mahak_compat_mrtt_ms": 40},
+        "buffer": {"packets": 1000},
+    },
+    {
+        "trace": {"kind": "periodic_levels", "levels_mbps": [24, 12], "level_ms": 40000},
+        "delay": {"mahak_compat_mrtt_ms": 20},
+        "buffer": {"packets": 300},
+    },
+]
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("out", type=Path)
@@ -274,6 +291,7 @@ def main() -> None:
             "info",
             "rise",
             "cellular",
+            "case-studies",
         ],
     )
     p.add_argument("--stock", default="all", help="comma-separated stock controllers, or all")
@@ -297,6 +315,8 @@ def main() -> None:
         links, conditions = rise(links), [{}]
     elif family == "cellular":
         links, conditions = cellular(links, a.duration_ms, a.out), CELLULAR
+    elif family == "case-studies":
+        links, conditions = CASE_STUDIES, [{}]
     elif family != "training":
         conditions = NEW if family == "new" else NEW[:1]
     campaign = {

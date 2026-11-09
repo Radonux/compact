@@ -7,7 +7,10 @@ a = h(c), into exact Shapley values over the LCFs
 REFERENCE's steps (default: DATA's). Also the intervention an operator
 can run on the deployed function: a minus h with one LCF set to the
 reference (leave one out), which equals the Shapley value where h is
-additive.
+additive. With --as-deployed the LCFs are first transformed as its
+deployed controller does (beliefs clamped at 0, the first six rounded),
+so the values explain the function that ran; the action's own rounding to
+three decimals is left out.
 
 Usage: python experiments/attribution.py OUT DATA... --models MODELS
            [--reference DIR ...] [--stride N]
@@ -53,12 +56,23 @@ def main() -> None:
     p.add_argument("--models", type=Path, required=True, help="expliCCit's released models")
     p.add_argument("--reference", type=Path, nargs="*", default=[])
     p.add_argument("--stride", type=int, default=10)
+    p.add_argument("--as-deployed", action="store_true")
     a = p.parse_args()
     net1, actor = fit.load_expliccit(a.models)
     ids, ts, obs = observations(a.data, a.stride)
     _, _, ref_obs = observations(a.reference or a.data, a.stride)
-    c = torch.from_numpy(net1.beliefs(obs))
-    ref = torch.from_numpy(net1.beliefs(ref_obs)).mean(0)
+
+    def beliefs(o: np.ndarray) -> torch.Tensor:
+        z = torch.from_numpy(net1.beliefs(o))
+        if not a.as_deployed:
+            return z
+        with torch.no_grad():  # as models.PolicyGraph.step does when as_deployed
+            v = torch.relu(net1.lcf_scaler.inverse(z))
+            v = torch.where(torch.arange(v.shape[1]) < 6, torch.round(v), v)
+            return (v - net1.lcf_scaler.center) / net1.lcf_scaler.spread
+
+    c = beliefs(obs)
+    ref = beliefs(ref_obs).mean(0)
 
     def h(z: torch.Tensor) -> torch.Tensor:
         return actor(z).reshape(-1)
