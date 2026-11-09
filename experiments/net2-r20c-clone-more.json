@@ -1,0 +1,25 @@
+{
+  "title": "Round 20c: the black box's clone of the rule, 80 more DAgger iterations",
+  "description": "Round 20a cloned net1 v6's fixed rule into the black box (raw measurements only) by DAgger for 40 iterations, to 0.064 to 0.087 below the rule on validation, still improving (exp-net2-r20a-clone-170). Round 20c continues each clone by seed (release model-net2-r20a-clones as init_actor) for 80 more iterations, otherwise as round 20a, to see whether the black box can reach the split's start by imitation or stays short of it.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v6": "release:exp-net1v6-149",
+    "models": "release:model-net1v3",
+    "a": "release:model-net2-r20a-clones"
+  },
+  "matrix": {
+    "arm": [
+      "raw"
+    ],
+    "seed": [
+      1,
+      2,
+      3
+    ]
+  },
+  "prepare": "(cd \"$IN/a\" && sha256sum -c SHA256SUMS); N=\"$IN/v6/net1-v6-s0/net1.pt\"; uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$N\" --models \"$IN/models\" --u 0.25 --paths net2-train-xl",
+  "run": "S=\"$OUT/spec-r20c-$ARM-s$SEED.json\"; jq --arg arm \"$ARM\" --argjson seed \"$SEED\" --arg actor \"$IN/a/ppo-r20a-raw-s$SEED.actor.pt\" '.algo = \"dagger\" | .student = \"u\" | .base = \"fixed\" | .inputs = $arm | .share_k = 0 | .critic_warmup = 0 | .critic_flows = true | .lr = 0.001 | .updates_per_iteration = 50 | .replay_iterations = 16 | .tau_s = 1 | .noise_sigma = 0.05 | .group = 1 | .links_per_iteration = 32 | .copies = [2, 4] | .competition = \"diverse\" | .alone = 0.35 | .compete = 0.6 | .seed = $seed | .iterations = 80 | .eval_every = 20 | .init_actor = $actor' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/ppo-r20c-$ARM-s$SEED\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ppo-*",
+  "timeout_minutes": 360
+}
