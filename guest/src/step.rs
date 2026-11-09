@@ -65,7 +65,9 @@ use tract_onnx::prelude::*;
 use tract_onnx::tract_hir::infer::Factoid;
 
 pub const OBS: usize = 78;
-/// struct tcp_info up to tcpi_reord_seen, the layout Sage reads.
+/// Linux 7.0's struct tcp_info up to tcpi_reord_seen: the fields Sage
+/// reads. tcp_info only grows at its end, so they sit where Sage's 4.19
+/// headers put them; their values are this kernel's.
 pub const INFO_LEN: usize = 224;
 /// t_us, tcp_info, obs, action, cwnd, pad, truth: see src/expliccit_env/steps.py.
 pub const RECORD_LEN: usize = 8 + INFO_LEN + 8 * OBS + 8 + 4 + 4 + 8 * truth::N;

@@ -9,11 +9,13 @@
  *   "agent"       Sage-style. cong_control holds snd_cwnd and the pacing rate
  *                 at the latest action on every delivery. Until the first
  *                 action the initial window is held.
- *   "agent_pure"  Sage's kernel as deployed (Sage's 4.19.112-0062 "pure" with
- *                 DeepCC pacing, read from its binary): each new action sets
- *                 snd_cwnd once, nothing changes it in between, and every
- *                 delivery paces at max(cwnd, packets_out) * MTU / srtt;
- *                 the send buffer autotunes at three windows, as there.
+ *   "agent_pure"  Sage's own controller ("pure" with DeepCC pacing, as Sage
+ *                 ships it in its 4.19.112-0062 kernel; read from that
+ *                 binary), on this kernel's stack: each new action sets
+ *                 snd_cwnd once, and every delivery paces at
+ *                 max(cwnd, packets_out) * MTU / srtt; its hooks ask for a
+ *                 send buffer of three windows, as pure's do. Nothing below
+ *                 the controller is changed.
  *   "agent_cubic" Orca-style. Each new action sets snd_cwnd once, at the
  *                 next ACK; between actions Cubic (Linux 7.0's, with
  *                 HyStart, vendored in cubic.h) evolves the window and the

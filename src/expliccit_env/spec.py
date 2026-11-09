@@ -192,8 +192,9 @@ class OnnxPolicy(_Frozen):
 class AgentCC(_Frozen):
     """A sage-v1 policy (policy.py) driving tcp_agent after every step.
     "hold" is Sage-style (the window and pacing stay as the policy set
-    them); "pure" is Sage's kernel as deployed (the same window, paced by
-    the kernel at every delivery); "cubic" is Orca-style (each action
+    them); "pure" is Sage's own controller on Linux 7.0's
+    stack (the same window, paced by the module at every delivery, as
+    Sage's "pure" with DeepCC pacing does); "cubic" is Orca-style (each action
     multiplies the kernel's current window, and Cubic evolves it until the
     next action)."""
 

@@ -177,12 +177,22 @@ by file descriptor (agent ABI 2); `tcp_agent` keeps it in that socket's
 congestion-control state and applies it at the next ACK, so any number of
 agents share a bottleneck. `agent` holds window and pacing (Sage-style),
 with the pacing computed by the guest once a step as cwnd * MSS / srtt.
-`agent_pure` is Sage's kernel as deployed, read from its binary (Sage's
-4.19.112-0062 "pure" with DeepCC pacing): the same window, set once per
-action, and the kernel paces every delivery at max(cwnd, packets_out) *
-MTU / srtt, with the send buffer autotuned at three windows. Sage's and
-expliCCit's faithful runs use `agent_pure`; our own policies were trained
-and evaluated under `agent`, which paces 3.5% slower and less often.
+`agent_pure` is Sage's own controller ("pure" with DeepCC pacing, as
+Sage ships it in its 4.19.112-0062 kernel and as `sage.cc` configures it;
+read from that kernel's binary, whose source is not public): the same
+window, set once per action, paced at every delivery at max(cwnd,
+packets_out) * MTU / srtt, with a send buffer of three windows. Sage's
+and expliCCit's runs use `agent_pure`; our own policies were trained and
+evaluated under `agent`, which paces 3.5% slower and less often.
+
+Every model runs on Linux 7.0's stack as it is: `tcp_info`, loss
+detection, rate sampling and the rest are mainline's, and nothing of 4.x
+is emulated, so results may differ from the models' 4.x deployments as
+the kernel has changed since. What a model needs beyond the stock
+interfaces lives in its controller in `tcp_agent`: Sage's pacing in
+`agent_pure`, and Orca's per-period statistics in `agent_cubic`, read
+through `TCP_CC_INFO`.
+
 `agent_cubic` (Orca-style) sets the window once per action, to the
 kernel's current window times 2^a, and lets Cubic grow it in between. The
 Cubic is Linux 7.0's, copied into `kernel/modules/cubic.h` because the
