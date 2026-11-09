@@ -1,0 +1,15 @@
+{
+  "title": "net2 gate on net1 v6: round 18's ensemble at teacher gain 0.5 on validation campaign seed 11",
+  "description": "On every validation family against net1 v6's rule with campaign seed 21 (exp-net2-eval-v6-veto-166), one of seven candidates met every gate condition: r18e05, round 7e's recipe on v6 (round 18's three gate3 DAgger students at teacher gain 0.5 as one policy on their mean beliefs, the stock-flow switch at 0.5, q unsharpened, copies handled by the fixed rule; release model-net2-v6-veto). Five-family mean +0.017, cubic-first-60 +0.049 (+0.017 to +0.085), new-20 competition +0.031 (+0.006 to +0.056), copies -0.022 (-0.058 to +0.017). It was chosen on those episodes, so this runs it alone, unchanged, through the gate (experiments/net2_ppo_gate_report.py, the rule fixed before the first gate) on the same validation links with campaign seed 11, new episodes chosen by nothing, next to the fixed rule on net1 v6 (u = 0.25), the share rule (k = 0.5 and 1) and BBRv3, on the five validation families and as 2 and 4 copies for 30 s. If it passes, it goes to its one run on the test links.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "c": "release:model-net2-v6-veto",
+    "v6": "release:exp-net1v6-149"
+  },
+  "prepare": "(cd \"$IN/c\" && sha256sum -c SHA256SUMS); N=\"$IN/v6/net1-v6-s0/net1.pt\"; uv run python experiments/rule_export.py \"$OUT/rule6\" \"$N\" --u 0.25; uv run python experiments/share_rule_export.py \"$OUT/share\" \"$N\" --u0 0.25 --k 0.5 1; P=(--policy \"rule-v6=$OUT/rule6/rule-u0.25.onnx\" --policy \"share-k0.5=$OUT/share/share-u0.25-k0.5.onnx\" --policy \"share-k1=$OUT/share/share-u0.25-k1.onnx\"); for f in \"$IN\"/c/ppo-r18e05-*.onnx; do P+=(--policy \"$(basename \"$f\" .onnx)=$f\"); done; experiments/rule_eval.sh \"$OUT\" val 11 11 bbr3 \"${P[@]}\"; uv run python experiments/copies.py \"$OUT/copies\" --split val --duration-ms 30000 --seed 11 --n 2 4 --stock bbr3 \"${P[@]}\"; mv \"$OUT/copies/c-copies-30s\" \"$OUT/\"; jq -s add \"$OUT/aliases.json\" \"$OUT/copies/aliases.json\" > \"$OUT/a.json\"; mv \"$OUT/a.json\" \"$OUT/aliases.json\"",
+  "shards": 40,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps; done; uv run python experiments/slim_steps.py \"$OUT\"",
+  "collect": "uv run python experiments/rule_report.py \"$OUT\" --apart copies-30s && mv \"$OUT/summary.md\" \"$OUT/against-bbr3.md\" && uv run python experiments/net2_ppo_gate_report.py \"$OUT\" rule-v6",
+  "timeout_minutes": 300
+}
