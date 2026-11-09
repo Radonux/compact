@@ -100,3 +100,13 @@ def test_cellular_links_keep_delay_and_buffer_in_bdps(tmp_path: Path) -> None:
     first = heldout.CELLULAR_DIR / "ATT-LTE-driving.down"
     bdp = heldout.mean_mbps(first) * 1e6 * 0.08 / 12000
     assert links[0]["buffer"]["packets"] == max(10, round(2 * bdp))
+
+
+def test_a_slice_denser_than_the_guest_takes_is_cut_to_whole_ms(tmp_path: Path) -> None:
+    limit = heldout.MAX_TRACE_BYTES
+    src = tmp_path / "dense.up"
+    src.write_text("".join(f"{1 + i // 10}\n" for i in range(limit + 500)))  # 10 per ms
+    heldout.trace_slice(src, 0, 10**9, tmp_path / "s.up")
+    out = [int(x) for x in (tmp_path / "s.up").read_text().split()]
+    assert len(out) <= limit and len(out) % 10 == 0  # whole ms only
+    assert out[-1] == out[-10] and out[0] == 1
