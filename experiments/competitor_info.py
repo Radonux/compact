@@ -48,12 +48,19 @@ def traffic(condition: str) -> int:
     return CLASSES.index("none")
 
 
+def senders(condition: str) -> str:
+    """The other senders an episode's condition names (``cubic``,
+    ``itself``, ...), or the condition itself when it names none."""
+    parts = {p.split(" from ")[0] for p in condition.split(", ") if " from " in p}
+    return ", ".join(sorted(parts)) or condition
+
+
 def load(
     out: Path, net1: fit.Net1
-) -> tuple[F32, F32, npt.NDArray[np.int64], npt.NDArray[np.int64]]:
-    """Per kept step: the scaled measurements, net1's beliefs, the class
-    and the link (an index)."""
-    raw, bel, cls, link = [], [], [], []
+) -> tuple[F32, F32, npt.NDArray[np.int64], npt.NDArray[np.int64], npt.NDArray[np.str_]]:
+    """Per kept step: the scaled measurements, net1's beliefs, the class,
+    the link (an index) and the other senders."""
+    raw, bel, cls, link, who = [], [], [], [], []
     links: dict[str, int] = {}
     for shard in sorted(out.glob("c-*/shards/*")):
         eps = pq.read_table(
@@ -61,7 +68,7 @@ def load(
         )
         meta = {
             e["episode_id"]: (
-                traffic(score.condition(e["spec_json"])),
+                score.condition(e["spec_json"]),
                 links.setdefault(score.link_key(e["spec_json"]), len(links)),
             )
             for e in eps.to_pylist()
@@ -81,13 +88,15 @@ def load(
             with torch.no_grad():
                 raw.append(net1.scaler(torch.from_numpy(obs[rows])).numpy())
             bel.append(net1.beliefs(obs[rows]))
-            cls.append(np.full(rows.size, meta[eid][0]))
+            cls.append(np.full(rows.size, traffic(meta[eid][0])))
             link.append(np.full(rows.size, meta[eid][1]))
+            who.append(np.full(rows.size, senders(meta[eid][0])))
     return (
         np.concatenate(raw),
         np.concatenate(bel),
         np.concatenate(cls).astype(np.int64),
         np.concatenate(link).astype(np.int64),
+        np.concatenate(who),
     )
 
 
@@ -127,7 +136,7 @@ def _share(hits: npt.NDArray[np.bool_]) -> float:
 
 def main(out: Path, net1_path: Path) -> None:
     net1, _ = fit.load_net1(net1_path)
-    raw, bel, y, link = load(out, net1)
+    raw, bel, y, link, _ = load(out, net1)
     counts = defaultdict(int)
     for c in y.tolist():
         counts[CLASSES[c]] += 1

@@ -13,21 +13,19 @@ Writes OUT/summary.md and OUT/traffic_head.pt.
 import sys
 from pathlib import Path
 
-import torch
-
 sys.path.insert(0, str(Path(__file__).parent))
 from competitor_info import FOLDS, held_out, load
 
 from expliccit_env.train import fit
-from expliccit_env.train.traffic import CLASSES, fit_head
+from expliccit_env.train.traffic import CLASSES, fit_head, save_head
 
 
 def main(out: Path, net1_path: Path) -> None:
     net1, _ = fit.load_net1(net1_path)
-    raw, _, y, link = load(out, net1)
+    raw, _, y, link, _ = load(out, net1)
     m = held_out(raw, y, link)
     head = fit_head(raw, y)
-    torch.save({"width": raw.shape[1], "state": head.state_dict()}, out / "traffic_head.pt")
+    save_head(head, out / "traffic_head.pt")
     counts = {c: int((y == i).sum()) for i, c in enumerate(CLASSES)}
     text = (
         f"net1's traffic head ({', '.join(CLASSES)}) on training links: "

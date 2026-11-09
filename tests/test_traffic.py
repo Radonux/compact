@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -15,6 +17,8 @@ from expliccit_env.train.traffic import (  # noqa: E402
     TrafficHead,
     WithTraffic,
     fit_head,
+    load_head,
+    save_head,
 )
 
 
@@ -52,3 +56,14 @@ def test_with_traffic_appends_the_head_and_beliefs_strip_it() -> None:
     assert z.shape == (3, 6 + len(CLASSES))
     assert torch.allclose(Beliefs(None)(z), net1(x))
     assert torch.allclose(Beliefs(torch.nn.Identity())(z), net1(x))
+
+
+def test_a_saved_head_loads_unchanged(tmp_path: Path) -> None:
+    rng = np.random.default_rng(1)
+    x = rng.normal(size=(200, 4)).astype(np.float32)
+    head = fit_head(x, rng.integers(0, len(CLASSES), 200).astype(np.int64), epochs=1)
+    save_head(head, tmp_path / "head.pt")
+    with torch.no_grad():
+        assert torch.equal(
+            load_head(tmp_path / "head.pt")(torch.from_numpy(x)), head(torch.from_numpy(x))
+        )

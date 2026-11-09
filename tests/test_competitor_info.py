@@ -31,3 +31,17 @@ _spec.loader.exec_module(competitor_info)
 )
 def test_other_traffic_classes(condition: str, expected: str) -> None:
     assert competitor_info.CLASSES[competitor_info.traffic(condition)] == expected
+
+
+@pytest.mark.parametrize(
+    ("condition", "expected"),
+    [
+        ("clean", "clean"),
+        ("loss 3%", "loss 3%"),
+        ("itself from 0 s, itself from 0 s", "itself"),
+        ("cubic from 2 s, cubic from 10 s", "cubic"),
+        ("UDP 3 Mbit/s from 5 s, cubic from 8 s", "UDP 3 Mbit/s, cubic"),
+    ],
+)
+def test_senders_name_the_other_traffic_without_start_times(condition: str, expected: str) -> None:
+    assert competitor_info.senders(condition) == expected

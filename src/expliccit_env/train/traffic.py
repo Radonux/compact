@@ -15,6 +15,7 @@ net1's input scaler and states the probability of each class.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Final
 
 import numpy as np
@@ -67,6 +68,18 @@ def fit_head(x: F32, y: npt.NDArray[np.int64], *, epochs: int = 30, seed: int = 
             opt.zero_grad()
             loss_fn(head.logits(xt[b]), yt[b]).backward()
             opt.step()
+    return head.eval()
+
+
+def save_head(head: TrafficHead, path: Path) -> None:
+    torch.save({"width": head.mu.shape[0], "state": head.state_dict()}, path)
+
+
+def load_head(path: Path) -> TrafficHead:
+    """A head saved by save_head (experiments/traffic_head.py)."""
+    saved = torch.load(path, weights_only=True)
+    head = TrafficHead(int(saved["width"]))
+    head.load_state_dict(saved["state"])
     return head.eval()
 
 

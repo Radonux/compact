@@ -32,7 +32,7 @@ import torch
 from expliccit_env.train import fit, ppo
 from expliccit_env.train.export import to_onnx
 from expliccit_env.train.recurrent import EnsembleActor, RecurrentActor
-from expliccit_env.train.traffic import Beliefs, HeadQ, TrafficHead, WithTraffic
+from expliccit_env.train.traffic import Beliefs, HeadQ, WithTraffic, load_head
 
 
 def _same_outputs(a: fit.Net1, b: fit.Net1) -> bool:
@@ -98,10 +98,7 @@ def main() -> None:
     if args.traffic is not None:
         if spec.student != "gate3" or graph.gate is None:
             raise SystemExit("--traffic replaces a gate3 student's q")
-        saved = torch.load(args.traffic, weights_only=True)
-        head = TrafficHead(int(saved["width"]))
-        head.load_state_dict(saved["state"])
-        graph.net1 = WithTraffic(graph.net1, head.eval())
+        graph.net1 = WithTraffic(graph.net1, load_head(args.traffic))
         graph.view = Beliefs(graph.view)
         graph.target = Beliefs(graph.target)
         graph.gate = HeadQ(graph.gate)

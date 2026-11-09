@@ -1,0 +1,13 @@
+{
+  "title": "net1's traffic head on validation links, against the classifiers of run 177",
+  "description": "net1's traffic head was trained on the fixed rule's steps on the 132 training links, without BBRv3 or Westwood (exp-net1-traffic-data-178; release model-net2-v6-head). This scores it, unchanged, on the 21 validation links of exp-net2-competitor-info-177, where a classifier fitted on held-out folds of those links reached 0.753 balanced accuracy from the raw measurements and 0.496 from net1 v6's beliefs. It reports the balanced accuracy, the confusions between copies and a stock flow, and per competitor the share of steps called each class and the mean P(copies) that a policy's copies belief reads; BBRv3 and Westwood are competitors the head never saw.",
+  "train": true,
+  "inputs": {
+    "v6": "release:exp-net1v6-149",
+    "data": "release:exp-net2-competitor-info-177",
+    "head": "release:model-net2-v6-head"
+  },
+  "shards": 1,
+  "run": "uv run python experiments/traffic_head_val.py \"$OUT\" \"$IN/data\" \"$IN/v6/net1-v6-s0/net1.pt\" \"$IN/head/traffic_head.pt\"",
+  "timeout_minutes": 60
+}
