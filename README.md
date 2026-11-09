@@ -153,6 +153,7 @@ are in `AGENTS.md` (also `CLAUDE.md`); agent skills come from the
 | [docs/rounds.md](docs/rounds.md) | Every learned-net2 round: its gates, evaluations and training runs |
 | [docs/breakpoint.md](docs/breakpoint.md) | Where net1 and net2 tuning stood when it paused (2026-11-09), and how to resume |
 | [docs/training.md](docs/training.md) | How to produce data, train net1 and net2, and run and score a policy |
+| [docs/staged-net2.md](docs/staged-net2.md) | The next architecture: net2 taught, then trained by RL, on a distributional net1; and the plan for real paths |
 | [docs/architecture.md](docs/architecture.md) | How an episode runs and why; known limits; decisions; extending |
 | [docs/validation.md](docs/validation.md) | What was checked, how, and what was not |
 | [kernel/modules/README.md](kernel/modules/README.md) | The kernel modules and their ABIs |

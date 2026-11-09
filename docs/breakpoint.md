@@ -409,6 +409,9 @@ here.
 ## How to resume
 
 - **Checks before pushing:** run the list in `CLAUDE.md`.
+- **Staged training.** Tuning resumes as teach, then RL:
+  [staged-net2.md](staged-net2.md) has the design, the recipe
+  (`init_from`, `anchor`, `teacher_from`) and the first two experiments.
 - **Running experiments.** Every experiment is a file under
   `experiments/`, dispatched with
   `gh workflow run experiment.yml --ref main -f experiment=experiments/NAME.json`.

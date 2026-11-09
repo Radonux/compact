@@ -133,12 +133,15 @@ LCFs.
 | Field | Default | Meaning |
 |---|---|---|
 | `algo` | `ppo` | `td3bc` (from a replay of recent iterations, weight `alpha`), `dagger` (imitation of a privileged teacher) |
-| `student` | `u` | with `dagger`: `u` learns the teacher's u; `gate` learns p, the probability that a stock TCP flow shares the link, and sets u = u_rule + p (share rule's u - u_rule); `gate3` also learns q for copies and cooperates with them |
+| `student` | `u` | with `dagger`: `u` learns the teacher's u; `gate` learns p, the probability that a stock TCP flow shares the link, and sets u = u_rule + p (share rule's u - u_rule); `gate3` also learns q for copies and cooperates with them. `ppo` continues any of them on the reward (base `fixed`) |
 | `base` | `fixed` | `share`: the actor learns a residual on the share rule (gain `share_k`) |
 | `u_rule`, `share_k` | 0.125, 0.5 | the fixed rule's u, and the share rule's gain (the teacher's gain for `dagger`) |
 | `gate_threshold`, `gate_threshold_q` | 0, none | act on a belief only past t: p' = clamp((p - t) / (1 - t), 0, 1); `gate3`'s q uses `gate_threshold_q` when set |
 | `gate3_copies` | `coop` | `gate3` where it believes copies: `coop` moves toward the cooperative window by q; `rule` lets q veto the push, u = u_rule + p (1 - q) (share - u_rule) |
 | `init_actor`, `init_critic` | none | start from a saved `actor.pt`, and PPO's value network from a `critic.pt` |
+| `init_from` | none | continue an earlier run's directory (in place of the two above): its actor, and for `ppo` its value network where it reads the same inputs; refuses another net1 or another actor shape ([staged-net2.md](staged-net2.md)) |
+| `anchor` | 0 | `ppo`: weight of the KL divergence to the policy it started from, added to the loss |
+| `teacher_from` | none | `dagger`, student `u`: a run on the true LCFs (`inputs` "truth") as the teacher, in place of the rules |
 | `alone`, `compete`, `copies`, `copies_share`, `competition` | 0, 0.5, (2, 3, 4), none, `at-start` | share of training links where the flow runs alone (no cross flows, the link's loss kept), share with competition (the rest keep the paths' conditions), the copies drawn there, the share of competition links with copies (none: as likely as each of Cubic and BBRv1), and when stock competitors start (`broad`: within the first 10 s, a second one half the time; `diverse`: the same with any controller but the held-out BBRv3 and Westwood; `dynamic`: as `diverse`, arriving anywhere in the first 60% of the episode, and 30% leaving early) |
 | `copies_reward`, `critic_flows` | `own`, false | `team`: copies learn from their mean utility; the critic also counts the flows on the link |
 | `iterations`, `links_per_iteration`, `group` | 40, 8, 4 | rollouts per iteration are links times group (K rollouts per link) |
@@ -146,9 +149,11 @@ LCFs.
 | `updates_per_iteration`, `replay_iterations` | 200, 8 | `td3bc` and `dagger` batches per iteration, and the replay's length |
 | `time_budget_s` | none | stop before an iteration would cross it |
 
-Output: `policy.onnx`, `actor.pt`, `critic.pt`, and `history.json` (each
-iteration's rollouts and diagnostics, and every `eval_every` iterations
-the policy against the rule). The gate experiments
+Output: `policy.onnx`, `actor.pt`, `critic.pt` (PPO's value network, or
+the one `dagger` trains for PPO to continue from), and `history.json`
+(each iteration's rollouts and diagnostics, and every `eval_every`
+iterations the policy against the rule). A taught run continues by PPO
+with `init_from`; [staged-net2.md](staged-net2.md) has the recipe. The gate experiments
 (`experiments/net2-gate-*.json`) apply `experiments/net2_ppo_gate_report.py`;
 `gate_threshold_export.py` and `gate_ensemble_export.py` there re-export
 gate students at a threshold or as one policy on their mean belief.
