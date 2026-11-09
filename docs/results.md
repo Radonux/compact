@@ -174,7 +174,17 @@ on average and level with it on one seed. Given the split's start, the
 raw measurements learn from the reward nearly as well; what the split
 gives is that start, a window on an estimate of the path rather than of
 the flow's own throughput, which the black box reached only by imitating
-the split. Inference is the split's cost: a decision of the policy on net1
+the split. Off the family they trained on, the inputs part ways. On every
+validation family
+([`exp-net2-eval-ladder-174`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-eval-ladder-174),
+final policies, campaign seed 21) the black box trailed the arm on net1 in
+each family, by 0.046 on the five-family mean (-0.063 against -0.017;
+-0.015 on the truth), and gained less with Cubic from the start (+0.045
+against +0.130), but as copies it beat the rule (+0.183, +0.009 to +0.351)
+where the arms on net1 and on the truth lost (-0.256 and -0.706): a
+window on the flow's own delivery rate cooperates with copies and yields
+to Cubic, the trade-off of the rules in the next section. Inference is the
+split's cost: a decision of the policy on net1
 v6 takes about 1 ms on one core, the black box's 0.07 ms
 (`tools/policy-bench`, local). On the true LCFs, the learner lost its
 start's lead and ended level with the arm on net1: what the truth adds,
