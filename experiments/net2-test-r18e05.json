@@ -1,0 +1,15 @@
+{
+  "title": "net2 r18e05 on net1 v6: test links, once",
+  "description": "The one test-link run of the first learned net2 on net1 v6 to pass its gate: r18e05, round 7e's recipe on v6 (round 18's three gate3 DAgger students at teacher gain 0.5, exp-net2-r18-gate3-v6-162, seeds 1 to 3, as one policy on their mean beliefs, the stock-flow switch at 0.5, q unsharpened, copies handled by the fixed rule; release model-net2-v6-veto, named seed 0). It was chosen among seven candidates on validation campaign seed 21 (exp-net2-eval-v6-veto-166), then passed the gate alone on new validation episodes, campaign seed 11 (exp-net2-gate-r18e05-s11-167): five-family mean +0.018, cubic-first-60 +0.056 (+0.023 to +0.092), new-20 competition +0.027 (+0.008 to +0.044), copies -0.003 (-0.036 to +0.034). It runs next to the fixed rule on net1 v6 (u = 0.25, exported here as rule-v6 from exp-net1v6-149) and BBRv3 on the five test families (campaign seeds 13 and 31, as exp-final-test-100 and round 7e's test), the held-out competitors for 60 s, and 2 and 4 copies for 30 s. Reported: log utility against BBRv3 per family (experiments/rule_report.py), and per link the net2 minus the rule with 95% intervals (experiments/net2_ppo_gate_report.py, as at the gate). Run once; the result is reported whatever it is.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "c": "release:model-net2-v6-veto",
+    "v6": "release:exp-net1v6-149"
+  },
+  "prepare": "(cd \"$IN/c\" && sha256sum -c SHA256SUMS); N=\"$IN/v6/net1-v6-s0/net1.pt\"; uv run python experiments/rule_export.py \"$OUT/rule6\" \"$N\" --u 0.25; P=(--policy \"rule-v6=$OUT/rule6/rule-u0.25.onnx\"); for f in \"$IN\"/c/ppo-r18e05-s*.onnx; do P+=(--policy \"$(basename \"$f\" .onnx)=$f\"); done; experiments/rule_eval.sh \"$OUT\" test 13 31 bbr3 \"${P[@]}\"; uv run python experiments/heldout.py \"$OUT/spec-held-competitors-60\" --split test --family held-competitors --duration-ms 60000 --seed 31 --stock bbr3 \"${P[@]}\"; uv run expliccit campaign plan \"$OUT/spec-held-competitors-60/campaign.json\" \"$OUT/c-held-competitors-60\"; uv run python experiments/copies.py \"$OUT/copies\" --split test --duration-ms 30000 --seed 31 --n 2 4 --stock bbr3 \"${P[@]}\"; mv \"$OUT/copies/c-copies-30s\" \"$OUT/\"; jq -s add \"$OUT/aliases.json\" \"$OUT/copies/aliases.json\" > \"$OUT/a.json\"; mv \"$OUT/a.json\" \"$OUT/aliases.json\"",
+  "shards": 40,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps; done; uv run python experiments/slim_steps.py \"$OUT\"",
+  "collect": "uv run python experiments/rule_report.py \"$OUT\" --apart held-competitors-60 copies-30s && mv \"$OUT/summary.md\" \"$OUT/against-bbr3.md\" && uv run python experiments/net2_ppo_gate_report.py \"$OUT\" rule-v6",
+  "timeout_minutes": 300
+}
