@@ -11,6 +11,10 @@ Usage: python experiments/gate_ensemble_export.py OUT NAME RUN_DIR... [--t 0.5]
 Each RUN_DIR is an `expliccit train ppo` output (ppo_spec.json, net1.pt,
 actor.pt) of the same setting but its seed; writes OUT/NAME.onnx.
 
+--truth LCF... takes those LCFs from the guest's live truth instead of
+net1 (all probability on the true value's bin), to measure what each
+LCF's estimation error costs this net2.
+
 --net1 NET1.pt runs the actors on another net1 than the one they were
 trained on, unchanged (no leakage, H4; repair without retraining net2,
 H5). It must give the same outputs in the same bins: the same LCFs, bin
@@ -52,6 +56,7 @@ def main() -> None:
     a.add_argument("--tq", type=float)
     a.add_argument("--copies", choices=["coop", "rule"])
     a.add_argument("--net1", type=Path, help="run the actors on this net1 instead")
+    a.add_argument("--truth", nargs="+", default=[], help="LCFs to take from the live truth")
     args = a.parse_args()
     specs = [ppo.PPOSpec.parse((r / "ppo_spec.json").read_text()) for r in args.runs]
     free = {"seed": 0, "init_actor": None, "init_critic": None}
@@ -79,7 +84,10 @@ def main() -> None:
         actor.load_state_dict(torch.load(r / "actor.pt", weights_only=True))
         members.append(actor)
     args.out.mkdir(parents=True, exist_ok=True)
-    graph = ppo.policy_graph(net1, EnsembleActor(members), spec)
+    unknown = sorted(set(args.truth) - set(net1.lcfs))
+    if unknown:
+        raise SystemExit(f"--truth {unknown}: not among net1's LCFs {list(net1.lcfs)}")
+    graph = ppo.policy_graph(net1, EnsembleActor(members), spec, frozenset(args.truth))
     (args.out / f"{args.name}.onnx").write_bytes(to_onnx(graph))
     print(f"{args.name}.onnx")
 

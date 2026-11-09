@@ -1211,8 +1211,13 @@ def _make_learner(
 
 
 def policy_graph(
-    net1: fit.Net1, actor: RecurrentActor | EnsembleActor, spec: PPOSpec
+    net1: fit.Net1,
+    actor: RecurrentActor | EnsembleActor,
+    spec: PPOSpec,
+    truth: frozenset[str] = frozenset(),
 ) -> HeldPolicyGraph:
+    """The exported net2; the LCFs in ``truth`` come from the guest's live
+    truth instead of net1 (all of them for inputs "truth")."""
     if spec.inputs == "raw":
         n = OBS_DIM
         identity = Scaler(
@@ -1229,7 +1234,7 @@ def policy_graph(
         net1,
         actor,
         spec.action_max,
-        truth=frozenset(net1.lcfs) if spec.inputs == "truth" else frozenset(),
+        truth=frozenset(net1.lcfs) if spec.inputs == "truth" else truth,
         action="bdp",
         view=spec.view,
         input_bins=spec.input_bins if spec.view == "bins" else None,

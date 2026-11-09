@@ -332,6 +332,11 @@ def test_the_oracle_reads_the_live_truth_as_its_trajectories_do() -> None:
     assert abs(believed - lb) > 0.2  # the truth's bins, not net1's belief
     m = onnx.load_from_string(to_onnx(graph))
     assert [i.name for i in m.graph.input] == ["obs", "state", "truth", "cwnd"]
+    # One LCF from the truth, the rest from net1 (a patched net1).
+    net1_spec = spec.model_copy(update={"inputs": "net1"})
+    one = ppo.policy_graph(net1, actor, net1_spec, frozenset({"capacity_bps"}))
+    assert one.from_truth.tolist() == [n == "capacity_bps" for n in net1.lcfs]
+    assert not ppo.policy_graph(net1, actor, net1_spec).uses_truth
 
 
 def test_the_black_box_learns_the_teachers_window_on_its_own_bdp() -> None:
