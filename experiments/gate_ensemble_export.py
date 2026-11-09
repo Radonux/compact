@@ -30,7 +30,7 @@ from pathlib import Path
 
 import torch
 
-from expliccit_env.train import fit, ppo
+from expliccit_env.train import actors, fit, ppo
 from expliccit_env.train.export import to_onnx
 from expliccit_env.train.recurrent import EnsembleActor, RecurrentActor
 from expliccit_env.train.traffic import load_head
@@ -85,7 +85,7 @@ def main() -> None:
         if not _same_outputs(net1, other):
             raise SystemExit(f"{args.net1}: not the same LCFs, bins and input scaler")
         net1 = other
-    width = ppo._width(net1, spec)  # pyright: ignore[reportPrivateUsage]
+    width = actors.width(net1, spec)
     members: list[RecurrentActor] = []
     for r in args.runs:
         outputs = 2 if spec.student == "gate3" else 1
@@ -109,7 +109,7 @@ def main() -> None:
         traffic=head,
         head=None
         if head is None
-        else ppo.Head(net1, spec, traffic_q=True, traffic_p=args.traffic_p),
+        else actors.Head(net1, spec, traffic_q=True, traffic_p=args.traffic_p),
     )
     (args.out / f"{args.name}.onnx").write_bytes(to_onnx(graph))
     print(f"{args.name}.onnx")

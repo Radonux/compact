@@ -269,3 +269,235 @@ class TrainSpec(_Frozen):
     @classmethod
     def parse(cls, text: str) -> TrainSpec:
         return cls.model_validate_json(text)
+
+
+class PPOSpec(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    spec_version: Literal[1] = 1
+    paths_from: Path  # training arms: a campaign's sweep and conditions
+    eval_from: Path | None = None  # validation arms, every path under every condition
+    net1_from: Path  # a training run's net1.pt, kept frozen
+    # The fixed rule's exported policy, run once on the evaluation arms so
+    # every evaluation is paired with it by link and condition.
+    rule_policy: Path | None = None
+    # The fixed rule's u: where the actor starts, and what the teachers and
+    # gate students fall back to.
+    u_rule: float = 0.125
+    view: Literal["bins", "means"] = "bins"  # "means": the ablation without distributions
+    input_bins: Annotated[int, Field(ge=2, le=256)] | None = 32
+    action_max: Annotated[float, Field(gt=0, le=8)] = 3.0
+    hidden: PositiveInt = 64
+    memory: bool = True  # False: the ablation without memory
+    critic_hidden: PositiveInt = 256
+    critic_truth: bool = True  # False: the ablation with a plain critic
+    # Iterations before the actor's first update, so it does not follow a
+    # blank critic; the critics learn alone ("dagger" only gathers labels).
+    critic_warmup: Annotated[int, Field(ge=0)] = 3
+    iterations: PositiveInt = 40
+    links_per_iteration: PositiveInt = 8
+    group: PositiveInt = 4  # K rollouts per link
+    duration_ms: PositiveInt = 30_000
+    noise_sigma: Annotated[float, Field(gt=0, le=2)] = 0.1  # exploration, log2 of the window
+    tau_s: Annotated[float, Field(gt=0)] = 3.0
+    gae_lambda: Annotated[float, Field(ge=0, le=1)] = 0.95
+    lr: Annotated[float, Field(gt=0)] = 3e-4
+    critic_lr: Annotated[float, Field(gt=0)] = 1e-3
+    clip: Annotated[float, Field(gt=0, lt=1)] = 0.2
+    epochs: PositiveInt = 4
+    batch_trajectories: PositiveInt = 16
+    max_grad_norm: Annotated[float, Field(gt=0)] = 0.5
+    # Share of links whose condition is replaced by competition: Cubic or
+    # BBRv1 from 0 s, or n copies of the policy in all, n drawn from copies.
+    compete: Annotated[float, Field(ge=0, le=1)] = 0.5
+    # A share of the links where the flow runs alone (the link's random
+    # loss kept, no cross flows), drawn before compete; the rest keep the
+    # paths' own conditions. With compete high, a flow is alone on few
+    # training links (round 10: 8%) but on about half the evaluation's, and
+    # a policy that pushes everywhere is the optimum of the wrong mixture.
+    alone: Annotated[float, Field(ge=0, le=1)] = 0.0
+    # A share of the links, drawn after compete, whose traffic leaves the
+    # flow unable to see the capacity part of the time (info_traffic): a stock flow
+    # that leaves, UDP that switches on and off, or a stock TCP flow that
+    # does. Where the flow keeps the link busy (96% of validation steps for
+    # the fixed rule alone), net1's beliefs are narrow and a probe rarely
+    # pays; these links are where it can.
+    info: Annotated[float, Field(ge=0, le=1)] = 0.0
+    # A share of the links, drawn on its own, whose capacity alternates
+    # between half and twice the link's mean, each level held 1 to 5 s
+    # (uniform), so the capacity often rises above what the flow last saw.
+    rise: Annotated[float, Field(ge=0, le=1)] = 0.0
+    copies: tuple[int, ...] = (2, 3, 4)
+    # The share of competition links that hold copies rather than a stock
+    # flow; None keeps the original draw (copies as likely as each of Cubic
+    # and BBRv1, one in four or two in four). Where copies and a stock flow
+    # look alike to net1, this share is the prior the shared policy weighs.
+    copies_share: Annotated[float, Field(ge=0, le=1)] | None = None
+    # When the competing stock flows start. "at-start": one Cubic or BBRv1
+    # flow from 0 s. "broad": that flow starts at a uniform time in the
+    # first 10 s, and half the time a second one (Cubic, BBRv1 or Reno)
+    # joins at its own such time, as the evaluation's competition does
+    # (BBRv1 from 4 s, Cubic from 2 s and 10 s). "diverse": as "broad", but
+    # each stock flow is any controller except the held-out BBRv3 and
+    # Westwood, the common ones more often (DIVERSE_WEIGHT). "dynamic": as
+    # "diverse", but each stock flow starts at 0 s or anywhere in the first
+    # 60% of the episode and a third of them leave early (stock_window), as in
+    # net1's broad data, so longer episodes hold arrivals and departures.
+    # Copies start at 0 s in all four.
+    competition: Literal["at-start", "broad", "diverse", "dynamic"] = "at-start"
+    # Hold each exploration draw for this many steps (10 ms each), so that a
+    # push lasting several RTTs, and the others' response to it, can be
+    # sampled; 1 draws anew at every step.
+    noise_hold_steps: Annotated[int, Field(ge=1, le=1000)] = 1
+    # What a flow learns from where several flows run the policy (copies):
+    # its own utility, or the mean of theirs at each step. A flow facing
+    # other controllers always learns from its own.
+    copies_reward: Literal["own", "team"] = "own"
+    # The value network also sees, at each decision, how many other copies
+    # of the policy, stock TCP flows and UDP flows share the link then:
+    # privileged, like the true LCFs, and never shown to the actor.
+    critic_flows: bool = False
+    # The learner. "ppo": the clipped policy gradient on the rollouts of
+    # each iteration. "td3bc": TD3+BC (Fujimoto and Gu, 2021) off a replay
+    # of the last replay_iterations iterations' rollouts: twin Q networks
+    # on the value network's inputs and the action, and the recurrent actor
+    # following the gradient of Q at each state, weighted alpha, against its
+    # squared distance to the actions taken in units of the exploration
+    # noise, (mu - u)^2 / (2 sigma^2). A return here is a discounted mean
+    # utility, so Q needs no rescaling (TD3+BC's alpha / mean |Q| would
+    # blow up where utilities are near 0), and each iteration moves the
+    # actor by about alpha sigma^2 dQ/du: small steps around the data.
+    # "dagger": DAgger (Ross, Gordon and Bagnell, 2011) with a privileged
+    # teacher. The actor acts in every rollout; each of its decisions is
+    # labelled with the teacher's u, and the actor learns from the labels
+    # of the last replay_iterations iterations (updates_per_iteration
+    # batches). For students "u" and "gate" the teacher is the share rule
+    # (share_k) while a stock TCP flow shares the link and the fixed rule
+    # (u_rule) otherwise; "gate3" has its own teacher (below). The teacher
+    # knows the other flows, which the actor must infer from net1's output.
+    algo: Literal["ppo", "td3bc", "dagger"] = "ppo"
+    # What a "dagger" student learns. "u": u itself, by squared error on the
+    # teacher's u. "gate": only the probability p that a stock TCP flow
+    # shares the link, by cross-entropy on that label at every decision;
+    # its u is u_rule + p (share rule's u - u_rule), the teacher's u with
+    # its switch replaced by the student's belief. It starts at p = 0.02.
+    # "gate3": two beliefs, p of a stock TCP flow and q of copies of this
+    # policy, each by cross-entropy on its label; the teacher is the share
+    # rule with stock TCP, the mode rule's cooperative window with copies
+    # only (train/share.py CoopRule), and the fixed rule otherwise. Its u
+    # is u_rule + p (share - u_rule) + (1 - p) q (coop - u_rule); both
+    # beliefs start at 0.02.
+    student: Literal["u", "gate", "gate3"] = "u"
+    # A gate student's policy ("gate" or "gate3") acts on each belief p
+    # only past this threshold t: p' = clamp((p - t) / (1 - t), 0, 1), as
+    # copies lose more per unit of push than a flow against Cubic gains. Set
+    # at export (experiments/gate_threshold_export.py), or here so that the
+    # rollouts DAgger labels come from the policy that would be deployed;
+    # the beliefs themselves are learned without it.
+    gate_threshold: Annotated[float, Field(ge=0, lt=1)] = 0.0
+    # A "gate3" student's threshold for q, its belief in copies, where it
+    # differs from p's; None applies gate_threshold to both.
+    gate_threshold_q: Annotated[float, Field(ge=0, lt=1)] | None = None
+    # What a "gate3" student does where it believes copies share the link.
+    # "coop": moves toward the cooperative window by q. "rule": q vetoes
+    # the push instead, u = u_rule + p (1 - q) (share - u_rule), so taking
+    # a buffer-filling flow for copies costs at most the push, while the
+    # cooperative window yields to it. The beliefs train the same either
+    # way (cross-entropy on their labels); this sets the policy that acts.
+    gate3_copies: Literal["coop", "rule"] = "coop"
+    # Start the actor from a saved state (an earlier run's actor.pt) instead
+    # of the rule; its width and hidden size must match this spec's.
+    init_actor: Path | None = None
+    # Start PPO's value network from an earlier run's critic.pt, to continue
+    # training across runs.
+    init_critic: Path | None = None
+    # Continue an earlier run (its output directory), the handoff from a
+    # taught stage to an RL one: the actor from its actor.pt and, for
+    # "ppo", the value network from its critic.pt where it has one (a
+    # "dagger" run trains one on its rollouts, so PPO does not start from a
+    # blank critic). The run must have used the same net1, and the same
+    # view, input_bins, hidden, memory, student, base, inputs and
+    # action_max, so the actor computes the same function here; the value
+    # network also needs the same critic_truth, critic_flows and
+    # critic_hidden. In place of init_actor and init_critic.
+    init_from: Path | None = None
+    # "ppo" only: the weight of a penalty on the policy's distance from the
+    # one it started from, the KL divergence between their Gaussians
+    # (mu - mu_start)^2 / (2 sigma^2) per decision. A taught start is worth
+    # keeping until the value network can say what improves on it: on the
+    # true LCFs, PPO lost its start's lead of 0.04 within 80 iterations
+    # (round 19). 0 leaves PPO's objective unchanged.
+    anchor: Annotated[float, Field(ge=0)] = 0.0
+    # "dagger" only: a run directory whose actor reads the true LCFs
+    # (inputs "truth", student "u", base "fixed", the same net1), the
+    # teacher in place of the rules. At each decision of a rollout it reads
+    # the truth's bins and the window the student actually set, and the
+    # student learns the window it would set, as u on the student's own
+    # believed (or, for "raw", measured) BDP: the student learns to act as
+    # if it knew the path, from what net1 says about it.
+    teacher_from: Path | None = None
+    # What the actor's output is added to. "fixed": nothing; the actor starts
+    # as the fixed rule, u_rule everywhere. "share": the share rule on net1's
+    # mean beliefs, u = u_rule + share_k * busy * max(0, 1 - share)
+    # (train/share.py); the actor starts at 0, so training starts from the
+    # share rule and learns a residual on it.
+    base: Literal["fixed", "share"] = "fixed"
+    # What the actor reads. "net1": net1's beliefs (the split). "truth": the
+    # oracle (arm A1): net1's output with all probability on the true
+    # LCF's bin, from the guest's live truth, so the actor and the window
+    # read the true path state. "raw": the black box (arm A4): the
+    # measurements net1 reads, through net1's input scaler, with the window
+    # aimed at a measured BDP (BBR's: the maximum delivery rate over the
+    # last 2 s times the minimum RTT) instead of net1's. net1 then serves
+    # only as that scaler and the evaluation's rule. "net1+raw": both, net1's
+    # view first, the window on net1's believed BDP (what the LCFs leave out).
+    inputs: Inputs = "net1"
+    share_k: Annotated[float, Field(ge=0)] = 0.5
+    alpha: Annotated[float, Field(gt=0)] = 20.0
+    updates_per_iteration: PositiveInt = 200
+    replay_iterations: PositiveInt = 8
+    target_tau: Annotated[float, Field(gt=0, le=1)] = 0.005
+    policy_noise: Annotated[float, Field(ge=0)] = 0.05  # target smoothing, log2 of the window
+    noise_clip: Annotated[float, Field(ge=0)] = 0.1
+    policy_delay: PositiveInt = 2
+    eval_every: PositiveInt = 5
+    seed: Annotated[int, Field(ge=0)] = 0
+    keep_rollouts: bool = False
+    time_budget_s: PositiveInt | None = None
+
+    @model_validator(mode="after")
+    def _dagger_from_the_rule(self) -> PPOSpec:
+        if self.algo == "dagger" and self.base != "fixed":
+            raise ValueError('algo "dagger" learns the whole u: base must be "fixed"')
+        if self.student != "u" and (self.algo == "td3bc" or self.base != "fixed"):
+            raise ValueError(
+                f'student "{self.student}" is taught by algo "dagger" and continued by "ppo",'
+                ' on base "fixed"'
+            )
+        if self.init_from is not None and (self.init_actor or self.init_critic):
+            raise ValueError("init_from replaces init_actor and init_critic: set one or the other")
+        if self.anchor > 0 and self.algo != "ppo":
+            raise ValueError('anchor is a penalty in algo "ppo" only')
+        if self.teacher_from is not None and (self.algo != "dagger" or self.student != "u"):
+            raise ValueError('teacher_from teaches u to a student "u" of algo "dagger" only')
+        if self.gate_threshold_q is not None and self.student != "gate3":
+            raise ValueError('gate_threshold_q is the threshold of student "gate3" only')
+        if self.gate3_copies != "coop" and self.student != "gate3":
+            raise ValueError('gate3_copies is a choice of student "gate3" only')
+        if self.init_critic is not None and self.algo != "ppo":
+            raise ValueError('init_critic continues algo "ppo" only')
+        if self.alone + self.compete + self.info > 1:
+            raise ValueError("alone, compete and info are shares of the links: at most 1 together")
+        if self.inputs != "net1" and (self.algo == "td3bc" or self.base != "fixed"):
+            raise ValueError(f'inputs "{self.inputs}" is an arm of algo "ppo" on base "fixed"')
+        if self.inputs == "truth" and self.algo == "dagger":
+            raise ValueError(
+                'an actor on the truth ("truth") has nothing to learn from the teacher'
+            )
+        if self.inputs == "raw" and self.student != "u":
+            raise ValueError('a gate student mixes rules on net1\'s beliefs: not for "raw"')
+        return self
+
+    @classmethod
+    def parse(cls, text: str) -> PPOSpec:
+        return cls.model_validate_json(text)

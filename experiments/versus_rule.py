@@ -21,7 +21,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
-from net2_ppo_gate_report import _interval, difference, load  # pyright: ignore[reportPrivateUsage]
+from net2_ppo_gate_report import _interval, difference, load
 
 
 def group(condition: str) -> str:

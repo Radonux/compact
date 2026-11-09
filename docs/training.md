@@ -122,7 +122,7 @@ the baseline), the training paths (600 broad links of their own, 9,600 with
 `--paths net2-train-xl`; MODELS
 is release `model-net1v3`, whose rule some of their episodes run), the
 validation set scored during training, and `ppo-base.json`, which each
-run edits. `train ppo` takes a `PPOSpec` (`train/ppo.py`). The actor is a
+run edits. `train ppo` takes a `PPOSpec` (`train/spec.py`). The actor is a
 GRU that sees net1's pooled beliefs and its own last u, decides once per
 min RTT (clamped to 10 to 50 ms) and holds u between decisions while the
 window follows each step's believed BDP. The critic also sees the true

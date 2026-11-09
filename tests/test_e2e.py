@@ -33,7 +33,7 @@ torch = pytest.importorskip("torch")
 from onnx.reference import ReferenceEvaluator  # noqa: E402
 
 from expliccit_env.policy import OBS_DIM, TRUTH_DIM  # noqa: E402
-from expliccit_env.train import data, fit, ppo  # noqa: E402
+from expliccit_env.train import actors, data, fit, handoff, learners, ppo, trajectories  # noqa: E402
 from expliccit_env.train.export import to_onnx  # noqa: E402
 from expliccit_env.train.graph import PolicyGraph  # noqa: E402
 from expliccit_env.train.spec import Net1Spec, Net2Spec  # noqa: E402
@@ -151,14 +151,18 @@ def test_a_recurrent_net2_on_every_net1_is_taught_continued_and_exported(
         "epochs": 1,
     }
     taught_spec = ppo.PPOSpec.model_validate(common | {"algo": "dagger", "student": "gate3"})
-    width = ppo._width(net1, taught_spec)  # pyright: ignore[reportPrivateUsage]
+    width = actors.width(net1, taught_spec)
     critic_width = width + 2 + len(net1.lcfs)
 
-    def trajectories(spec: ppo.PPOSpec) -> list[ppo.Trajectory]:
-        front, target, rules = ppo.front(net1, spec), ppo.target(net1, spec), ppo.Rules(net1, spec)
+    def decisions(spec: ppo.PPOSpec) -> list[trajectories.Trajectory]:
+        front, target, rules = (
+            actors.front(net1, spec),
+            actors.target(net1, spec),
+            actors.Rules(net1, spec),
+        )
         out = []
         for e in range(4):
-            tr = ppo._trajectory(  # pyright: ignore[reportPrivateUsage]
+            tr = trajectories.trajectory(
                 _flow(steps, e),
                 rng.normal(size=120).astype(np.float32),
                 net1,
@@ -173,8 +177,8 @@ def test_a_recurrent_net2_on_every_net1_is_taught_continued_and_exported(
             out.append(tr)
         return out
 
-    taught = ppo._make_learner(taught_spec, width, critic_width)  # pyright: ignore[reportPrivateUsage]
-    logs = taught.update(trajectories(taught_spec), rng)
+    taught = learners.make_learner(taught_spec, width, critic_width)
+    logs = taught.update(decisions(taught_spec), rng)
     assert np.isfinite(logs["imitation_loss"]) and np.isfinite(logs["value_loss"])
     run = tmp_path / "taught"
     run.mkdir()
@@ -184,11 +188,11 @@ def test_a_recurrent_net2_on_every_net1_is_taught_continued_and_exported(
     torch.save(taught.critic.state_dict(), run / "critic.pt")
 
     rl_spec = taught_spec.model_copy(update={"algo": "ppo", "init_from": run, "anchor": 1.0})
-    source = ppo.earlier_run(run, net1)
-    rl = ppo._make_learner(rl_spec, width, critic_width, source)  # pyright: ignore[reportPrivateUsage]
+    source = handoff.earlier_run(run, net1)
+    rl = learners.make_learner(rl_spec, width, critic_width, source)
     start = ppo.policy_graph(net1, rl.actor, rl_spec)
     assert to_onnx(start) == to_onnx(ppo.policy_graph(net1, taught.actor, taught_spec))
-    logs = rl.update(trajectories(rl_spec), rng)
+    logs = rl.update(decisions(rl_spec), rng)
     assert np.isfinite(logs["policy_loss"]) and logs["kl_to_start"] >= 0
     _onnx_matches(ppo.policy_graph(net1, rl.actor, rl_spec), steps.obs)
 

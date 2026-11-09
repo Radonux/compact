@@ -59,7 +59,7 @@ gap, without losing the start.
 ## The invariants of the handoff
 
 The handoff takes no conversion step: a stage's output is the next
-stage's input. Five invariants make that hold, all in `train/ppo.py`.
+stage's input. Five invariants make that hold, in `train/actors.py`, `learners.py` and `handoff.py`.
 
 | Invariant | How it holds |
 |---|---|

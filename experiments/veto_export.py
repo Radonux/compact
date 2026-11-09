@@ -15,7 +15,7 @@ from pathlib import Path
 import torch
 from torch import nn
 
-from expliccit_env.train import fit, ppo
+from expliccit_env.train import actors, fit, ppo
 from expliccit_env.train.export import to_onnx
 from expliccit_env.train.recurrent import ConcatActor, EnsembleActor, RecurrentActor
 
@@ -59,7 +59,7 @@ def main() -> None:
     if any(getattr(s, k) != getattr(spec, k) for s in qspecs for k in keys):
         raise SystemExit(f"the runs must agree on {', '.join(keys)}")
     net1, _ = fit.load_net1(args.policy / "net1.pt")
-    width = ppo._width(net1, spec)  # pyright: ignore[reportPrivateUsage]
+    width = actors.width(net1, spec)
     beliefs = EnsembleActor([_actor(r, width, s, 2) for r, s in zip(args.q, qspecs, strict=True)])
     actor = ConcatActor([_actor(args.policy, width, spec, 1), beliefs])
     veto = Veto(spec.u_rule, spec.action_max, args.tq)

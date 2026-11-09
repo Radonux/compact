@@ -20,7 +20,7 @@ from pathlib import Path
 
 import torch
 
-from expliccit_env.train import fit, ppo
+from expliccit_env.train import actors, fit, ppo
 from expliccit_env.train.export import to_onnx
 from expliccit_env.train.recurrent import RecurrentActor
 
@@ -44,7 +44,7 @@ def main() -> None:
         if m is None:
             raise SystemExit(f"{run}: name does not end in -s<seed>")
         net1, _ = fit.load_net1(run / "net1.pt")
-        width = ppo._width(net1, spec)  # pyright: ignore[reportPrivateUsage]
+        width = actors.width(net1, spec)
         outputs = 2 if spec.student == "gate3" else 1
         actor = RecurrentActor(width, spec.hidden, memory=spec.memory, outputs=outputs)
         actor.load_state_dict(torch.load(run / "actor.pt", weights_only=True))

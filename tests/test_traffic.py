@@ -1,5 +1,5 @@
 """net1's traffic head (train/traffic.py) and the policy parts that read
-it: the front end (graph.Front) and a gate3 head (ppo.Head)."""
+it: the front end (graph.Front) and a gate3 head (actors.Head)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from expliccit_env.train import fit, ppo  # noqa: E402
+from expliccit_env.train import actors, fit, ppo  # noqa: E402
 from expliccit_env.train.traffic import (  # noqa: E402
     CLASSES,
     TrafficHead,
@@ -38,18 +38,18 @@ def test_a_gate3_head_takes_its_beliefs_from_the_traffic_head() -> None:
     spec = ppo.PPOSpec(
         paths_from=Path("x"), net1_from=Path("x"), algo="dagger", student="gate3", u_rule=0.25
     )
-    plain = ppo.Head(net1, spec)
+    plain = actors.Head(net1, spec)
     z = torch.from_numpy(net1.beliefs(np.zeros((1, 78), np.float32)))
     head = torch.tensor([[0.2, 0.7, 0.1]])  # none, copies, stock
     a = torch.tensor([[0.5, -1.0]])
     # q = 2 P(copies) - 1 replaces the student's; p stays the student's.
     want = plain(torch.tensor([[0.5, 0.4]]), z, None)
-    assert torch.allclose(ppo.Head(net1, spec, traffic_q=True)(a, z, head), want)
+    assert torch.allclose(actors.Head(net1, spec, traffic_q=True)(a, z, head), want)
     # With p from the head too, p = 2 P(stock) - 1: no learned output is left.
     want = plain(torch.tensor([[-0.8, 0.4]]), z, None)
-    assert torch.allclose(ppo.Head(net1, spec, traffic_q=True, traffic_p=True)(a, z, head), want)
+    assert torch.allclose(actors.Head(net1, spec, traffic_q=True, traffic_p=True)(a, z, head), want)
     with pytest.raises(ValueError, match="gate3"):
-        ppo.Head(net1, spec.model_copy(update={"student": "u"}), traffic_q=True)
+        actors.Head(net1, spec.model_copy(update={"student": "u"}), traffic_q=True)
 
 
 def test_the_front_end_states_the_traffic_beside_the_beliefs() -> None:
