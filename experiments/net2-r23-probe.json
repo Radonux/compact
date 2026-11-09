@@ -1,0 +1,28 @@
+{
+  "title": "Round 23: PPO where information has value, on net1's full beliefs or its means, exploration held 200 ms or 1 s",
+  "description": "Two questions. Does RL learn to probe once probing can pay, and does a short exploration hold keep it from finding a probe? And does a learned net2 use net1's stated uncertainty where information has value (A3, the full beliefs) better than one on its means (A2)? On the links net2 has trained on, the fixed rule alone keeps 96% of steps on a fully busy link, where a probe costs queue at once and rarely pays back. Round 23 trains round 14's PPO (base the fixed rule on net1 v6, sigma 0.2, tau 1 s, privileged critic) on a mixture where the flow often cannot see the capacity: half the links have their capacity alternating between half and twice the mean every 1 to 5 s (rise 0.5), and half the links' traffic is a stock flow that leaves, on/off UDP at 0.3 to 0.7 of the capacity, or an on/off stock TCP flow (info 0.5); a quarter are alone and a quarter face a stock competitor from the start (no copies, so that the question stays information). Arms: view bins (A3) or means (A2), noise held 20 steps (200 ms, as rounds 10 to 17) or 100 (1 s), seeds 1 and 2, 80 iterations. Validation links only; the policies are evaluated afterwards on the info and rise families beside the fixed rule and the probing rules of exp-net2-info-val.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v6": "release:exp-net1v6-149",
+    "models": "release:model-net1v3"
+  },
+  "matrix": {
+    "view": [
+      "bins",
+      "means"
+    ],
+    "hold": [
+      20,
+      100
+    ],
+    "seed": [
+      1,
+      2
+    ]
+  },
+  "prepare": "N=\"$IN/v6/net1-v6-s0/net1.pt\"; uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$N\" --models \"$IN/models\" --u 0.25 --paths net2-train-xl",
+  "run": "S=\"$OUT/spec-r23-$VIEW-h$HOLD-s$SEED.json\"; jq --arg view \"$VIEW\" --argjson hold \"$HOLD\" --argjson seed \"$SEED\" '.algo = \"ppo\" | .base = \"fixed\" | .view = $view | .critic_flows = true | .noise_sigma = 0.2 | .noise_hold_steps = $hold | .tau_s = 1 | .group = 4 | .links_per_iteration = 8 | .lr = 0.0003 | .alone = 0.25 | .compete = 0.25 | .info = 0.5 | .rise = 0.5 | .copies_share = 0 | .competition = \"diverse\" | .seed = $seed | .iterations = 80 | .eval_every = 20' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/ppo-r23-$VIEW-h$HOLD-s$SEED\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ppo-*",
+  "timeout_minutes": 360
+}

@@ -66,14 +66,17 @@ from torch import nn
 
 from expliccit_env.policy import OBS_COLUMNS, OBS_DIM
 from expliccit_env.spec import (
+    MAX_CROSS,
     STOCK_NAMES,
     AgentCC,
     Condition,
     EpisodeSpec,
     OnnxPolicy,
     PathSpec,
+    PeriodicLevels,
     StockName,
     TcpCross,
+    Trace,
     UdpCross,
 )
 from expliccit_env.train import fit, score
@@ -146,6 +149,17 @@ class PPOSpec(BaseModel):
     # training links (round 10: 8%) but on about half the evaluation's, and
     # a policy that pushes everywhere is the optimum of the wrong mixture.
     alone: Annotated[float, Field(ge=0, le=1)] = 0.0
+    # A share of the links, drawn after compete, whose traffic leaves the
+    # flow unable to see the capacity part of the time (_info): a stock flow
+    # that leaves, UDP that switches on and off, or a stock TCP flow that
+    # does. Where the flow keeps the link busy (96% of validation steps for
+    # the fixed rule alone), net1's beliefs are narrow and a probe rarely
+    # pays; these links are where it can.
+    info: Annotated[float, Field(ge=0, le=1)] = 0.0
+    # A share of the links, drawn on its own, whose capacity alternates
+    # between half and twice the link's mean, each level held 1 to 5 s
+    # (uniform), so the capacity often rises above what the flow last saw.
+    rise: Annotated[float, Field(ge=0, le=1)] = 0.0
     copies: tuple[int, ...] = (2, 3, 4)
     # The share of competition links that hold copies rather than a stock
     # flow; None keeps the original draw (copies as likely as each of Cubic
@@ -270,8 +284,8 @@ class PPOSpec(BaseModel):
             raise ValueError('gate3_copies is a choice of student "gate3" only')
         if self.init_critic is not None and self.algo != "ppo":
             raise ValueError('init_critic continues algo "ppo" only')
-        if self.alone + self.compete > 1:
-            raise ValueError("alone and compete are shares of the links: at most 1 together")
+        if self.alone + self.compete + self.info > 1:
+            raise ValueError("alone, compete and info are shares of the links: at most 1 together")
         if self.inputs != "net1" and (self.algo == "td3bc" or self.base != "fixed"):
             raise ValueError(f'inputs "{self.inputs}" is an arm of algo "ppo" on base "fixed"')
         if (
@@ -388,6 +402,40 @@ def _competition(
     return [TcpCross(cc=copy, start_ms=0) for _ in range(n - 1)]
 
 
+def _info(rng: np.random.Generator, trace: Trace, duration_ms: int) -> list[TcpCross | UdpCross]:
+    """Traffic under which the flow cannot see the capacity part of the
+    time, one of three alike: a stock flow (DIVERSE_WEIGHT) from 0 s that
+    leaves at a uniform time in [20%, 60%] of the episode; UDP at a uniform
+    0.3 to 0.7 of the link's mean capacity, on and off for uniform 1 to 4 s
+    each; or a stock TCP flow on and off for uniform 2 to 6 s each."""
+    kind = int(rng.integers(3))
+    if kind == 0:
+        stop = int(rng.uniform(0.2, 0.6) * duration_ms)
+        return [TcpCross(cc=_diverse(rng), start_ms=0, stop_ms=max(stop, 1))]
+    lo, hi = (1000, 4000) if kind == 1 else (2000, 6000)
+    on, off = int(rng.uniform(lo, hi)), int(rng.uniform(lo, hi))
+    starts = range(int(rng.uniform(0, off)), duration_ms - 1, on + off)
+    windows = [(t, min(t + on, duration_ms)) for t in starts][:MAX_CROSS]
+    if kind == 1:
+        rate = round(float(rng.uniform(0.3, 0.7)) * _mean_mbps(trace), 3)
+        return [UdpCross(rate_mbps=rate, start_ms=a, stop_ms=b) for a, b in windows]
+    cc = _diverse(rng)
+    return [TcpCross(cc=cc, start_ms=a, stop_ms=b) for a, b in windows]
+
+
+def _mean_mbps(trace: Trace) -> float:
+    ts = trace.timestamps()  # one 1500-byte packet per entry, in ms
+    return 12.0 * ts.size / float(ts[-1])
+
+
+def _rising(rng: np.random.Generator, path: PathSpec) -> PathSpec:
+    """The link with its capacity alternating between half and twice its
+    mean, each level held a uniform 1 to 5 s."""
+    m = _mean_mbps(path.trace)
+    trace = PeriodicLevels(levels_mbps=[m / 2, 2 * m], level_ms=int(rng.uniform(1000, 5000)))
+    return path.model_copy(update={"trace": trace})
+
+
 def _group_episodes(
     arm: tuple[PathSpec, Condition],
     policy: Path,
@@ -398,10 +446,13 @@ def _group_episodes(
     """K rollouts of one link: the same seed, different noise seeds. The
     uniform ``draw`` picks the link's traffic: alone below spec.alone, then
     competition (_competition) for the next spec.compete, else the paths'
-    own condition."""
+    own condition, unless spec.info takes the next share (_info). Then
+    spec.rise of the links get a rising capacity (_rising)."""
     path, cond = arm
     seed, base = int(rng.integers(0, 2**63)), int(rng.integers(0, 2**62))
     template = _agent(policy, spec.noise_sigma, None, spec.noise_hold_steps)
+    if spec.rise and rng.random() < spec.rise:
+        path = _rising(rng, path)
     if draw < spec.alone:
         cross: list[TcpCross | UdpCross] = []
     elif draw < spec.alone + spec.compete:
@@ -413,6 +464,8 @@ def _group_episodes(
             spec.duration_ms,
             copies_share=spec.copies_share,
         )
+    elif draw < spec.alone + spec.compete + spec.info:
+        cross = _info(rng, path.trace, spec.duration_ms)
     else:
         cross = cond.flows(path.trace)
 

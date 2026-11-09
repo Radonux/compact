@@ -778,6 +778,53 @@ def test_alone_links_have_no_cross_flows_and_shares_add_up(tmp_path: Path) -> No
     assert all([c.cc for c in e.cross] == ["cubic"] for e in eps[0.9])  # pyright: ignore[reportAttributeAccessIssue]
 
 
+def test_info_traffic_hides_the_capacity_part_of_the_time() -> None:
+    trace = ppo.PeriodicLevels(levels_mbps=[10.0, 20.0], level_ms=3000)
+    rng = np.random.default_rng(5)
+    draws = [ppo._info(rng, trace, 30_000) for _ in range(300)]  # pyright: ignore[reportPrivateUsage]
+    kinds = {"leave": 0, "udp": 0, "tcp": 0}
+    for flows in draws:
+        assert 1 <= len(flows) <= ppo.MAX_CROSS
+        for f in flows:
+            assert f.stop_ms is not None and 0 <= f.start_ms < f.stop_ms <= 30_000
+        if isinstance(flows[0], ppo.UdpCross):
+            kinds["udp"] += 1
+            # 0.3 to 0.7 of the mean capacity, 15 Mbit/s here.
+            assert all(4.5 <= f.rate_mbps <= 10.5 for f in flows)  # pyright: ignore[reportAttributeAccessIssue]
+        elif len(flows) == 1 and flows[0].start_ms == 0 and flows[0].stop_ms <= 18_000:
+            kinds["leave"] += 1
+        else:
+            kinds["tcp"] += 1
+            assert len(flows) > 1
+    assert all(n > 60 for n in kinds.values())
+
+
+def test_info_and_rise_shares_draw_nothing_when_off(tmp_path: Path) -> None:
+    pol = tmp_path / "p.onnx"
+    pol.write_bytes(b"x")
+    with pytest.raises(ValueError, match="at most 1"):
+        ppo.PPOSpec(paths_from=Path("x"), net1_from=Path("x"), alone=0.5, compete=0.3, info=0.3)
+    path = ppo.PathSpec.model_validate(
+        {
+            "trace": {"kind": "periodic_levels", "levels_mbps": [10.0], "level_ms": 2000},
+            "delay": {"mahak_compat_mrtt_ms": 20},
+            "buffer": {"packets": 100},
+        }
+    )
+    cond = ppo.Condition()
+    off = ppo.PPOSpec(paths_from=Path("x"), net1_from=Path("x"), alone=0.4, compete=0.4)
+    a = ppo._group_episodes((path, cond), pol, off, np.random.default_rng(3), 0.9)  # pyright: ignore[reportPrivateUsage]
+    b = ppo._group_episodes((path, cond), pol, off, np.random.default_rng(3), 0.9)  # pyright: ignore[reportPrivateUsage]
+    assert a == b and all(e.path.trace == path.trace and e.cross == [] for e in a)
+    on = off.model_copy(update={"compete": 0.2, "info": 0.4, "rise": 1.0})
+    eps = ppo._group_episodes((path, cond), pol, on, np.random.default_rng(3), 0.7)  # pyright: ignore[reportPrivateUsage]
+    trace = eps[0].path.trace
+    assert isinstance(trace, ppo.PeriodicLevels)
+    assert trace.levels_mbps == pytest.approx([5.0, 20.0], rel=1e-3)  # the trace's packet mean
+    assert 1000 <= trace.level_ms <= 5000
+    assert all(e.cross for e in eps)
+
+
 def test_copies_share_sets_how_often_competition_is_copies() -> None:
     copy = AgentCC(policy=OnnxPolicy(path=Path("p.onnx"), sha256="0" * 64))
     rng = np.random.default_rng(11)
