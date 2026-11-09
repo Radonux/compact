@@ -244,6 +244,30 @@ class WindowTarget(nn.Module):
         return torch.log2(torch.clamp(bdp, min=1.0))
 
 
+class SpreadTarget(nn.Module):
+    """WindowTarget plus k times net1's stated spread of capacity past s0:
+    log2 BDP + k relu(sd - s0), sd the standard deviation of log2 capacity
+    under the belief. Where the flow keeps the link busy, net1's spread is
+    small (median 0.14 on validation) and this is WindowTarget; where it
+    cannot see the capacity, the spread widens and the window probes above
+    the believed BDP in proportion. k = 0 is WindowTarget."""
+
+    log_mid: torch.Tensor
+
+    def __init__(self, base: WindowTarget, k: float, s0: float) -> None:
+        super().__init__()
+        self.base, self.k, self.s0 = base, k, s0
+        mid = base.means.mid[base.capacity]
+        self.register_buffer("log_mid", torch.log2(torch.clamp(mid, min=1e-3)))
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        k, b = self.base.means.mid.shape
+        p = z.reshape(-1, k, b)[:, self.base.capacity, :]
+        mean = (p * self.log_mid).sum(dim=1, keepdim=True)
+        sd = torch.sqrt(torch.clamp((p * (self.log_mid - mean) ** 2).sum(dim=1), min=0.0))
+        return self.base(z) + self.k * torch.relu(sd - self.s0)
+
+
 class ExpliccitActor(nn.Module):
     """LCF beliefs -> a in [-1, 1] (two hidden ReLU layers, tanh)."""
 

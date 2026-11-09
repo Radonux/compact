@@ -1,0 +1,78 @@
+"""experiments/heldout.py: the families where information has value."""
+
+import importlib.util
+from pathlib import Path
+
+import pytest
+
+_PATH = Path(__file__).resolve().parents[1] / "experiments" / "heldout.py"
+_spec = importlib.util.spec_from_file_location("heldout", _PATH)
+assert _spec is not None and _spec.loader is not None
+heldout = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(heldout)
+
+
+@pytest.mark.parametrize("duration_ms", [20000, 30000, 60000])
+def test_info_windows_lie_inside_the_episode(duration_ms: int) -> None:
+    conditions = heldout.info(duration_ms)
+    assert len(conditions) == 4
+    for c in conditions:
+        for f in c["cross"]:
+            assert 0 <= f["start_ms"] < f["stop_ms"] <= duration_ms
+    on_off_udp, on_off_tcp = conditions[2]["cross"], conditions[3]["cross"]
+    assert all(f["stop_ms"] - f["start_ms"] == 2000 for f in on_off_udp)
+    assert all(f["stop_ms"] - f["start_ms"] == 3000 for f in on_off_tcp)
+    assert len(on_off_udp) == (duration_ms - 4000) // 4000 + 1  # from 2 s, every 4 s
+
+
+def test_rise_alternates_half_and_twice_the_first_level() -> None:
+    p = {"trace": {"kind": "periodic_levels", "levels_mbps": [24.0, 48.0], "level_ms": 7000}}
+    (out,) = heldout.rise([p])
+    assert out["trace"] == {
+        "kind": "periodic_levels",
+        "levels_mbps": [12.0, 48.0],
+        "level_ms": 2000,
+    }
+    assert p["trace"]["level_ms"] == 7000  # the source link is not changed
+
+
+_VPATH = Path(__file__).resolve().parents[1] / "experiments" / "versus_rule.py"
+_vspec = importlib.util.spec_from_file_location("versus_rule", _VPATH)
+assert _vspec is not None and _vspec.loader is not None
+versus_rule = importlib.util.module_from_spec(_vspec)
+_vspec.loader.exec_module(versus_rule)
+
+
+def test_conditions_group_without_their_udp_rates() -> None:
+    a = versus_rule.group("UDP 12.5 Mbit/s from 2 s, UDP 12.5 Mbit/s from 6 s")
+    b = versus_rule.group("UDP 3 Mbit/s from 2 s, UDP 3 Mbit/s from 6 s")
+    assert a == b == "UDP from 2 s, UDP from 6 s"
+    assert versus_rule.group("cubic from 0 s, loss 1%") == "cubic from 0 s, loss 1%"
+
+
+def test_versus_rule_pairs_by_link_and_groups_udp_rates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # campaign -> controller -> condition -> link -> score
+    scores = {
+        "info-30": {
+            "rule-v6": {
+                "UDP 4 Mbit/s from 2 s": {"a": 1.0},
+                "UDP 8 Mbit/s from 2 s": {"b": 2.0},
+                "cubic from 0 s": {"a": 0.0, "b": 0.0},
+            },
+            "spread1": {
+                "UDP 4 Mbit/s from 2 s": {"a": 1.5},
+                "UDP 8 Mbit/s from 2 s": {"b": 2.5},
+                "cubic from 0 s": {"a": 0.1, "b": 0.1},
+            },
+        }
+    }
+    monkeypatch.setattr(versus_rule, "load", lambda out: (scores, set()))
+    versus_rule.main(tmp_path, "rule-v6")
+    text = (tmp_path / "versus-rule-v6.md").read_text()
+    # Per link, the mean over its conditions: (+0.5 + 0.1) / 2 on both links.
+    assert "| info-30 | all | +0.300 (+0.300 to +0.300) |" in text
+    # The two UDP rates are one condition, paired over both links.
+    assert "| info-30 | UDP from 2 s | +0.500 (+0.500 to +0.500) |" in text
+    assert "| info-30 | cubic from 0 s | +0.100 (+0.100 to +0.100) |" in text

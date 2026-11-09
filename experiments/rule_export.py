@@ -2,12 +2,20 @@
 is 2^u times net1's believed bandwidth-delay product.
 
 Usage: python experiments/rule_export.py OUT NET1.pt --u -0.25 0 0.25 [--oracle]
+           [--spread K ... [--s0 S0]]
 
 For each u, writes OUT/rule-u{u}.onnx, where net2 reads net1's distributions
 pooled to 32 bins, and OUT/rule-u{u}-actor.pt, the same net2 as an actor (a
 starting point for online training). --oracle writes OUT/rule-u{u}-oracle.onnx
 instead: the same rule on the true LCFs, read from the guest's live truth.
 The actor's last layer is zero and its bias atanh(u / 3), 3 being action_max.
+--spread K also writes OUT/rule-u{u}-spread{K}.onnx for each K: the same rule
+with its window target raised by K times net1's stated spread of capacity
+past S0 (train/models.py SpreadTarget), the arm that reads the beliefs'
+uncertainty beside the rule on their means. With --traffic HEAD.pt, net1
+also has its traffic head and each spread rule lifts its target only in
+proportion to 1 - P(copies) (train/traffic.py CopiesGated), written as
+OUT/rule-u{u}-spread{K}-head.onnx.
 """
 
 import argparse
@@ -18,7 +26,8 @@ import torch
 
 from expliccit_env.train import fit
 from expliccit_env.train.export import to_onnx
-from expliccit_env.train.models import ExpliccitActor
+from expliccit_env.train.models import ExpliccitActor, SpreadTarget, WindowTarget
+from expliccit_env.train.traffic import Beliefs, CopiesGated, WithTraffic, load_head
 
 ACTION_MAX = 3.0
 BINS = 32
@@ -31,6 +40,9 @@ def main() -> None:
     p.add_argument("net1", type=Path)
     p.add_argument("--u", type=float, nargs="+", required=True)
     p.add_argument("--oracle", action="store_true")
+    p.add_argument("--spread", type=float, nargs="*", default=[])
+    p.add_argument("--s0", type=float, default=0.2)
+    p.add_argument("--traffic", type=Path, help="net1's traffic head: gate the spread on copies")
     a = p.parse_args()
     net1, _ = fit.load_net1(a.net1)
     truth = frozenset(net1.lcfs) if a.oracle else frozenset[str]()
@@ -51,6 +63,17 @@ def main() -> None:
         if not a.oracle:
             torch.save(actor.state_dict(), a.out / f"{name}-actor.pt")
         print(name)
+        base = graph.target
+        assert isinstance(base, WindowTarget)
+        if a.traffic is not None:
+            graph.net1 = WithTraffic(graph.net1, load_head(a.traffic))
+            graph.view = Beliefs(graph.view)
+        for k in a.spread:
+            raised = SpreadTarget(base, k, a.s0)
+            graph.target = raised if a.traffic is None else CopiesGated(raised, base)
+            spread = f"{name}-spread{k:g}" + ("" if a.traffic is None else "-head")
+            (a.out / f"{spread}.onnx").write_bytes(to_onnx(graph))
+            print(spread)
 
 
 if __name__ == "__main__":

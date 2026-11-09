@@ -124,3 +124,22 @@ class HeadQ(nn.Module):
         stock = z[:, CLASSES.index("stock") - len(CLASSES)]
         p = 2 * stock - 1 if self.p_too else a[:, 0]
         return self.gate(z[:, : -len(CLASSES)], torch.stack([p, 2 * copies - 1], dim=1))
+
+
+class CopiesGated(nn.Module):
+    """A raised window target on net1's output with its traffic head
+    (WithTraffic): ``raised`` (train/models.py SpreadTarget) lifts its base
+    target where net1 is unsure of the capacity, which it also is on any
+    shared link; this applies the lift in proportion to 1 - P(copies), so a
+    flow probes where the capacity is unseen but not among copies of
+    itself, where a push only deepens the queue."""
+
+    def __init__(self, raised: nn.Module, base: nn.Module) -> None:
+        super().__init__()
+        self.raised, self.base = raised, base
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        b = z[:, : -len(CLASSES)]
+        copies = z[:, CLASSES.index("copies") - len(CLASSES)]
+        base = self.base(b)
+        return base + (self.raised(b) - base) * (1 - copies)

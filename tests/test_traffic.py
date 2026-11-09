@@ -13,6 +13,7 @@ torch = pytest.importorskip("torch")
 from expliccit_env.train.traffic import (  # noqa: E402
     CLASSES,
     Beliefs,
+    CopiesGated,
     HeadQ,
     TrafficHead,
     WithTraffic,
@@ -70,3 +71,23 @@ def test_a_saved_head_loads_unchanged(tmp_path: Path) -> None:
         assert torch.equal(
             load_head(tmp_path / "head.pt")(torch.from_numpy(x)), head(torch.from_numpy(x))
         )
+
+
+class _Plus(torch.nn.Module):
+    """A target that adds a constant to the first column."""
+
+    def __init__(self, c: float) -> None:
+        super().__init__()
+        self.c = c
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        return z[:, 0] + self.c
+
+
+def test_copies_gated_lifts_the_target_by_one_minus_p_copies() -> None:
+    gated = CopiesGated(_Plus(1.0), _Plus(0.0))
+    beliefs = torch.tensor([[3.0], [3.0], [3.0]])
+    head = torch.tensor([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.25, 0.75]])
+    out = gated(torch.cat([beliefs, head], dim=1))
+    # No other traffic: the full lift; copies: none; P(copies) 0.25: 0.75 of it.
+    assert torch.allclose(out, torch.tensor([4.0, 3.0, 3.75]))

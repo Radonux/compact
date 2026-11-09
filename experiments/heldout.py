@@ -18,6 +18,13 @@ conditions on the same links with a 2.5 times longer one-way delay, at most
 competitors net1 v4's training data held out), and "dynamic", for 120 s
 episodes, where competitors arrive and leave mid-episode (DYNAMIC), so that
 a controller must notice each change and the others' reaction to it.
+Two families hold links where the flow cannot keep the link busy, so that
+what it does not know has value: "info", the links' own capacity under a
+Cubic or a BBRv1 flow that leaves at 10 s, UDP at half the link's mean
+capacity on for 2 s and off for 2 s, and Cubic flows on for 3 s and off for
+3 s (INFO); and "rise", the flow alone on each link with its capacity
+alternating between half and twice its first level every 2 s, a fourfold
+rise every 4 s.
 
 Usage: python experiments/heldout.py OUT_DIR --split test --duration-ms 60000
            --seed 13 [--family training] --stock all --policy NAME=PATH ...
@@ -145,6 +152,39 @@ DYNAMIC: list[dict[str, Any]] = [
 ]
 
 
+def info(duration_ms: int) -> list[dict[str, Any]]:
+    """Family "info": competitors that leave and senders that switch on and
+    off, all through the episode."""
+    leave = min(10000, duration_ms // 2)
+    return [
+        {"cross": [{"kind": "tcp", "cc": "cubic", "start_ms": 0, "stop_ms": leave}]},
+        {"cross": [{"kind": "tcp", "cc": "bbr", "start_ms": 0, "stop_ms": leave}]},
+        {
+            "cross": [
+                {"kind": "udp_share", "share": 0.5, "start_ms": t, "stop_ms": t + 2000}
+                for t in range(2000, duration_ms - 1999, 4000)
+            ]
+        },
+        {
+            "cross": [
+                {"kind": "tcp", "cc": "cubic", "start_ms": t, "stop_ms": t + 3000}
+                for t in range(3000, duration_ms - 2999, 6000)
+            ]
+        },
+    ]
+
+
+def rise(paths: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Family "rise": each link's capacity alternates between half and
+    twice its first level every 2 s."""
+    out = []
+    for p in paths:
+        c = p["trace"]["levels_mbps"][0]
+        trace = {"kind": "periodic_levels", "levels_mbps": [c / 2, 2 * c], "level_ms": 2000}
+        out.append(p | {"trace": trace})
+    return out
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("out", type=Path)
@@ -154,7 +194,16 @@ def main() -> None:
     p.add_argument(
         "--family",
         default="training",
-        choices=["training", "new", "cubic-first", "deep-long", "held-competitors", "dynamic"],
+        choices=[
+            "training",
+            "new",
+            "cubic-first",
+            "deep-long",
+            "held-competitors",
+            "dynamic",
+            "info",
+            "rise",
+        ],
     )
     p.add_argument("--stock", default="all", help="comma-separated stock controllers, or all")
     p.add_argument("--policy", action="append", default=[], help="NAME=PATH of an ONNX policy")
@@ -171,6 +220,10 @@ def main() -> None:
         conditions = HELD_COMPETITORS
     elif family == "dynamic":
         conditions = DYNAMIC
+    elif family == "info":
+        conditions = info(a.duration_ms)
+    elif family == "rise":
+        links, conditions = rise(links), [{}]
     elif family != "training":
         conditions = NEW if family == "new" else NEW[:1]
     campaign = {
