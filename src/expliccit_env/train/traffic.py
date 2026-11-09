@@ -111,12 +111,16 @@ class Beliefs(nn.Module):
 class HeadQ(nn.Module):
     """A gate3 gate (train/ppo.py) with q, the belief that copies share the
     link, from net1's traffic head instead of the students: the students'
-    output [p, q] in [-1, 1] keeps p and takes 2 P(copies) - 1 for q."""
+    output [p, q] in [-1, 1] takes 2 P(copies) - 1 for q, and with
+    ``p_too`` also 2 P(stock) - 1 for p, the belief in a stock TCP flow, so
+    that no learned output is left."""
 
-    def __init__(self, gate: nn.Module) -> None:
+    def __init__(self, gate: nn.Module, *, p_too: bool = False) -> None:
         super().__init__()
-        self.gate = gate
+        self.gate, self.p_too = gate, p_too
 
     def forward(self, z: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
         copies = z[:, CLASSES.index("copies") - len(CLASSES)]
-        return self.gate(z[:, : -len(CLASSES)], torch.stack([a[:, 0], 2 * copies - 1], dim=1))
+        stock = z[:, CLASSES.index("stock") - len(CLASSES)]
+        p = 2 * stock - 1 if self.p_too else a[:, 0]
+        return self.gate(z[:, : -len(CLASSES)], torch.stack([p, 2 * copies - 1], dim=1))

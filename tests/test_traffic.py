@@ -46,6 +46,9 @@ def test_head_q_takes_q_from_the_head_and_hides_its_columns() -> None:
     out = HeadQ(_Echo())(torch.cat([beliefs, head], dim=1), torch.tensor([[0.5, -1.0]]))
     # The gate sees the beliefs alone, p as given and q = 2 P(copies) - 1.
     assert torch.allclose(out, torch.tensor([[0.1, 0.2, 0.5, 0.4]]))
+    # With p_too, p = 2 P(stock) - 1 as well: no learned output is left.
+    out = HeadQ(_Echo(), p_too=True)(torch.cat([beliefs, head], dim=1), torch.tensor([[0.5, -1.0]]))
+    assert torch.allclose(out, torch.tensor([[0.1, 0.2, -0.8, 0.4]]))
 
 
 def test_with_traffic_appends_the_head_and_beliefs_strip_it() -> None:

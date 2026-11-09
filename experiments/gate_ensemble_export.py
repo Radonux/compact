@@ -16,7 +16,8 @@ net1 (all probability on the true value's bin), to measure what each
 LCF's estimation error costs this net2.
 
 --traffic HEAD.pt gives net1 its traffic head (train/traffic.py) and takes
-a gate3 student's q from the head's P(copies) instead of the students.
+a gate3 student's q from the head's P(copies) instead of the students;
+--traffic-p takes p from its P(stock) too, so that net2 is the rules alone.
 
 --net1 NET1.pt runs the actors on another net1 than the one they were
 trained on, unchanged (no leakage, H4; repair without retraining net2,
@@ -64,6 +65,7 @@ def main() -> None:
     a.add_argument(
         "--traffic", type=Path, help="net1's traffic head (traffic_head.pt): q from it, for gate3"
     )
+    a.add_argument("--traffic-p", action="store_true", help="with --traffic, p from the head too")
     args = a.parse_args()
     specs = [ppo.PPOSpec.parse((r / "ppo_spec.json").read_text()) for r in args.runs]
     free = {"seed": 0, "init_actor": None, "init_critic": None}
@@ -95,13 +97,15 @@ def main() -> None:
     if unknown:
         raise SystemExit(f"--truth {unknown}: not among net1's LCFs {list(net1.lcfs)}")
     graph = ppo.policy_graph(net1, EnsembleActor(members), spec, frozenset(args.truth))
+    if args.traffic_p and args.traffic is None:
+        raise SystemExit("--traffic-p takes p from the head given by --traffic")
     if args.traffic is not None:
         if spec.student != "gate3" or graph.gate is None:
             raise SystemExit("--traffic replaces a gate3 student's q")
         graph.net1 = WithTraffic(graph.net1, load_head(args.traffic))
         graph.view = Beliefs(graph.view)
         graph.target = Beliefs(graph.target)
-        graph.gate = HeadQ(graph.gate)
+        graph.gate = HeadQ(graph.gate, p_too=args.traffic_p)
     (args.out / f"{args.name}.onnx").write_bytes(to_onnx(graph))
     print(f"{args.name}.onnx")
 
