@@ -69,6 +69,34 @@ and round 20a a clone of the rule on net1 as its start.
 
 ## How the learned net2 got there
 
+On net1 v6, PPO gains more against competitors than any earlier net2
+and loses more as copies. Each candidate over three seeds, minus v6's
+fixed rule on the validation links (campaign seed 21;
+[`exp-net2-eval-v6-159`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-eval-v6-159),
+[`-v6-ens-160`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-eval-v6-ens-160),
+[`-v6-veto-166`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-eval-v6-veto-166)):
+
+| Round | Five-family mean | cubic-first-60 | competition | copies-30s |
+|---|---|---|---|---|
+| 14, tau 1 s | +0.002 | +0.068 (-0.033 to +0.177) | +0.059 (-0.008 to +0.129) | -0.223 (-0.524 to +0.042) |
+| 14, tau 5 s | -0.012 | +0.110 (-0.028 to +0.262) | +0.032 (-0.045 to +0.114) | -0.258 (-0.514 to -0.022) |
+| 15, more copies in training | +0.004 | +0.174 (+0.057 to +0.292) | +0.085 (+0.011 to +0.161) | -0.300 (-0.605 to -0.007) |
+| 15, one policy on the seeds' mean u | +0.011 | +0.149 (+0.044 to +0.262) | +0.065 (-0.005 to +0.139) | -0.258 (-0.594 to +0.043) |
+| 14, stage 2's best checkpoint (iteration 39) | +0.031 | +0.230 (+0.062 to +0.419) | +0.066 (-0.036 to +0.178) | -0.444 (-0.776 to -0.146) |
+| 15, push vetoed by round 18's copies belief | +0.017 | +0.097 (+0.027 to +0.166) | +0.053 (-0.012 to +0.121) | -0.143 (-0.291 to -0.022) |
+| 18, DAgger students as round 7e, gain 1 | +0.028 | +0.098 (+0.040 to +0.163) | +0.030 (-0.022 to +0.082) | -0.019 (-0.078 to +0.030) |
+| 18, the same at gain 0.5 (passed; [results](results.md#a-learned-net2-beats-the-rule-against-competitors)) | +0.017 | +0.049 (+0.017 to +0.085) | +0.031 (+0.006 to +0.056) | -0.022 (-0.058 to +0.017) |
+
+Averaging the seeds removed little of PPO's copies loss, so unlike round
+7's single-seed misfires (below) the seeds share the push: what wins against Cubic
+deepens the queue among copies (inferred). More training made it worse:
+continued up to 120 more iterations (round 14's stage 2), every cell lost
+ground after about 40, mostly where the flow was alone (tau 5 s peaked
+at +0.021 and +0.032 on the new family and ended at -0.114 and -0.039;
+tau 1 s fell to -0.035 to -0.075), and more copies in training (round 17)
+fell the same way. A veto by round 18's copies belief halved the copies
+loss but not enough.
+
 Reinforcement learning from the reward follows its training mixture. In
 rounds 1 to 3 every PPO and TD3+BC learner stayed at the rule (spread of
 u 0.02 to 0.04): noise of sigma 0.05 drawn anew at each decision tells a
