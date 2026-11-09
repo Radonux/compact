@@ -1,8 +1,9 @@
 {
   "title": "Baselines report over every baselines run",
-  "description": "experiments/baselines_report.py over the episodes of the baselines runs given as inputs (exp-baselines-192: expliCCit's released policy as deployed, Sage's released policy, BBRv1, BBRv3, Cubic and Vegas on the 27 test links of every held-out family and as 2 and 4 copies). Runs no episodes: it rewrites the report, so a fix to the report or a later run of more controllers on the same links (campaign seed 31) is published from the same data. A competitor that is the observed flow's own controller is named, so Cubic against Cubic sits in the table of everyone against Cubic.",
+  "description": "experiments/baselines_report.py over the episodes of the baselines runs given as inputs: exp-baselines-192 (expliCCit's released policy as deployed, Sage's released policy, BBRv1, BBRv3, Cubic and Vegas on the 27 test links of every held-out family and as 2 and 4 copies, the two policies run as agent) and exp-baselines-pure-194 (the two policies again as agent_pure, Sage's kernel pacing, named expliccit-pure and sage-pure). Runs no episodes: it rewrites the report, so a fix to the report or a later run of more controllers on the same links (campaign seed 31) is published from the same data. A competitor that is the observed flow's own controller is named, so Cubic against Cubic sits in the table of everyone against Cubic.",
   "inputs": {
-    "b": "release:exp-baselines-192"
+    "b": "release:exp-baselines-192",
+    "p": "release:exp-baselines-pure-194"
   },
   "collect_inputs": true,
   "shards": 1,
