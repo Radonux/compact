@@ -25,13 +25,12 @@ import numpy as np
 import numpy.typing as npt
 import pyarrow.parquet as pq
 import torch
-from torch import nn
 
 from expliccit_env.policy import OBS_DIM
 from expliccit_env.train import fit, score
+from expliccit_env.train.traffic import CLASSES, fit_head
 
 type F32 = npt.NDArray[np.float32]
-CLASSES = ("none", "copies", "stock")
 SETTLE_S = 5.0
 STRIDE = 10  # every 10th step (100 ms): neighbours carry little more
 FOLDS = 3
@@ -108,25 +107,11 @@ def held_out(
     fold = {int(k): i % FOLDS for i, k in enumerate(order)}
     f = np.array([fold[int(k)] for k in link])
     pred = np.zeros_like(y)
-    torch.manual_seed(seed)
     for k in range(FOLDS):
         tr, te = f != k, f == k
-        mu, sd = x[tr].mean(0), x[tr].std(0) + 1e-6
-        xt = torch.from_numpy((x[tr] - mu) / sd)
-        yt = torch.from_numpy(y[tr])
-        w = torch.tensor([1 / max(1, int((y[tr] == c).sum())) for c in range(len(CLASSES))])
-        net = nn.Sequential(nn.Linear(x.shape[1], 128), nn.ReLU(), nn.Linear(128, len(CLASSES)))
-        opt = torch.optim.Adam(net.parameters(), lr=1e-3)
-        loss_fn = nn.CrossEntropyLoss(weight=w / w.sum())
-        for _ in range(30):
-            perm = torch.randperm(xt.shape[0])
-            for i in range(0, xt.shape[0], 1024):
-                b = perm[i : i + 1024]
-                opt.zero_grad()
-                loss_fn(net(xt[b]), yt[b]).backward()
-                opt.step()
+        head = fit_head(x[tr], y[tr], seed=seed)
         with torch.no_grad():
-            pred[te] = net(torch.from_numpy((x[te] - mu) / sd)).argmax(1).numpy()
+            pred[te] = head(torch.from_numpy(x[te])).argmax(1).numpy()
     copies, stock = CLASSES.index("copies"), CLASSES.index("stock")
     return {
         "balanced_accuracy": balanced_accuracy(pred, y),

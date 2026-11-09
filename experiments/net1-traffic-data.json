@@ -1,0 +1,15 @@
+{
+  "title": "Training data for net1's traffic head: the fixed rule on training links, alone, against stock flows and as copies",
+  "description": "net1 v6's beliefs lose what tells copies from a stock competitor, which the raw measurements keep (exp-net2-competitor-info-177: 0.753 against 0.496 balanced accuracy on held-out validation links). This gathers training data for a head that estimates it as part of net1 (src/expliccit_env/train/traffic.py): the fixed rule on net1 v6 (u = 0.25) as the observed flow on the training links (campaign seed 1, 30 s) under the new family's conditions (Cubic from 0 s, BBRv1 from 4 s, Cubic from 2 s and 10 s, random loss) and as 1, 2 and 4 copies, observations kept. The held-out competitors (BBRv3, Westwood) stay out, for evaluation. experiments/traffic_head.py reports the head's accuracy on training links held out of its fit and saves the head trained on all of them (traffic_head.pt).",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v6": "release:exp-net1v6-149"
+  },
+  "prepare": "N=\"$IN/v6/net1-v6-s0/net1.pt\"; uv run python experiments/rule_export.py \"$OUT/rule6\" \"$N\" --u 0.25; P=(--policy \"rule-v6=$OUT/rule6/rule-u0.25.onnx\"); for f in new; do uv run python experiments/heldout.py \"$OUT/spec-$f\" --split train --family \"$f\" --duration-ms 30000 --seed 1 --stock \"\" \"${P[@]}\"; uv run expliccit campaign plan \"$OUT/spec-$f/campaign.json\" \"$OUT/c-$f\"; done; uv run python experiments/copies.py \"$OUT/copies\" --split train --duration-ms 30000 --seed 1 --n 1 2 4 --stock \"\" \"${P[@]}\"; mv \"$OUT/copies/c-copies-30s\" \"$OUT/\"",
+  "shards": 20,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps; done",
+  "collect": "uv run python experiments/traffic_head.py \"$OUT\" \"$IN/v6/net1-v6-s0/net1.pt\"",
+  "collect_inputs": true,
+  "timeout_minutes": 120
+}

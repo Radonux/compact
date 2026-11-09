@@ -148,7 +148,7 @@ DYNAMIC: list[dict[str, Any]] = [
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("out", type=Path)
-    p.add_argument("--split", choices=["val", "test"], required=True)
+    p.add_argument("--split", choices=["train", "val", "test"], required=True)
     p.add_argument("--duration-ms", type=int, required=True)
     p.add_argument("--seed", type=int, required=True)
     p.add_argument(
