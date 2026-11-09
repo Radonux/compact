@@ -52,11 +52,11 @@ const IFF_UP: u32 = 1;
 const TCA_MMLINK_BASE_NS: u16 = 1;
 const TCA_MMLINK_DELAY_NS: u16 = 2;
 const TCA_MMLINK_ORDER: u16 = 3;
-const TCA_MMLINK_TRACE: u16 = 4;
 const TCA_MMLINK_LIMIT_PKTS: u16 = 5;
 const TCA_MMLINK_LIMIT_BYTES: u16 = 6;
 const TCA_MMLINK_LINK_ID: u16 = 8;
 const TCA_MMLINK_LOSS: u16 = 9;
+const TCA_MMLINK_TRACE_PATH: u16 = 10;
 // kernel/modules/sch_flowdelay.h
 const TCA_FLOWDELAY_MAP: u16 = 1;
 
@@ -72,7 +72,8 @@ pub struct Mmlink<'a> {
     pub order: Order,
     pub base_ns: u64,
     pub delay_ns: u64,
-    pub trace: &'a [u8],
+    /// Absolute path of the trace file; the qdisc reads it at init.
+    pub trace_path: &'a str,
     pub limit_pkts: u32,
     pub limit_bytes: u32,
     pub loss: u32,
@@ -251,7 +252,7 @@ impl Socket {
         m.attr(TCA_MMLINK_LIMIT_BYTES, &q.limit_bytes.to_ne_bytes())?;
         m.attr(TCA_MMLINK_LINK_ID, &q.link_id.to_ne_bytes())?;
         m.attr(TCA_MMLINK_LOSS, &q.loss.to_ne_bytes())?;
-        m.attr(TCA_MMLINK_TRACE, q.trace)?;
+        m.attr(TCA_MMLINK_TRACE_PATH, cstr(q.trace_path).as_bytes())?;
         m.end(opts)?;
         self.call(m).ctx(format!("adding mmlink qdisc {}", q.link_id))
     }

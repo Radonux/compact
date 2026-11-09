@@ -16,9 +16,12 @@ enum mmlink_order {
  * BASE_NS	u64, required: CLOCK_MONOTONIC ns of trace ms 0.
  * DELAY_NS	u64, one-way delay of the delay line (default 0).
  * ORDER	u8, required: enum mmlink_order.
- * TRACE	binary, required: trace[i] = delivery opportunities at ms i; at
- *		least 2 bytes; the last byte is nonzero and its index is the
- *		repeat period.
+ * TRACE	binary: trace[i] = delivery opportunities at ms i; at least 2
+ *		bytes; the last byte is nonzero and its index is the repeat
+ *		period. A netlink attribute holds under 64 KiB, about 65 s.
+ * TRACE_PATH	NUL-terminated string: a file holding TRACE's bytes, read once
+ *		at init, at most MMLINK_TRACE_MAX bytes. Exactly one of TRACE
+ *		and TRACE_PATH is required.
  * LIMIT_PKTS	u32, droptail limit in packets, 0 = none.
  * LIMIT_BYTES	u32, droptail limit in bytes, 0 = none. At least one of the
  *		two limits must be nonzero.
@@ -39,8 +42,12 @@ enum {
 	TCA_MMLINK_DELAY_LIMIT,
 	TCA_MMLINK_LINK_ID,
 	TCA_MMLINK_LOSS,
+	TCA_MMLINK_TRACE_PATH,
 	__TCA_MMLINK_MAX
 };
+
+/* Largest trace TRACE_PATH may name: 64 MiB, 18.6 hours at one byte per ms. */
+#define MMLINK_TRACE_MAX (64U * 1024 * 1024)
 
 #define TCA_MMLINK_MAX (__TCA_MMLINK_MAX - 1)
 

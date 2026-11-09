@@ -103,6 +103,20 @@ def test_kernel_link_matches_mahimahi_oracle(build: UmlBuild, tmp_path: Path, cc
     assert np.isnan(labels.drop_fraction(rec, 0))
 
 
+def test_a_trace_longer_than_a_netlink_attribute_holds(build: UmlBuild, tmp_path: Path) -> None:
+    # 80 s of trace (two 40 s levels) is beyond the 64 KiB one netlink
+    # attribute holds; the qdisc reads it from the plan's trace file.
+    trace = mm.periodic_trace([12, 24], 40_000)
+    counts = mm.dense_counts(trace)
+    assert counts.size > 65_535
+    link = LinkPlan(delay_ns=10_000_000, trace=counts, limit_pkts=50, limit_bytes=0)
+    GuestPlan(duration_ms=3000, cc="cubic", downlink=link, uplink=link).write(tmp_path / "in")
+    run = run_guest(build, tmp_path / "in", tmp_path / "out", seed=1, timeout_s=300)
+    result = json.loads((tmp_path / "out" / "result.json").read_text())
+    assert run.returncode == 0 and result["status"] == "ok", result
+    assert_matches_oracle(load_records(tmp_path / "out"), trace, 50)
+
+
 def test_ack_delay_line_is_exact(build: UmlBuild, tmp_path: Path) -> None:
     delay_ms = 25
     rec, _, _ = episode(

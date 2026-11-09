@@ -15,8 +15,9 @@ pub const MAX_EXTRA_DELAY_NS: u64 = 10_000_000_000;
 /// receiver. ponytail: 64 flows; raise it with the guest's memory (each
 /// flow is two sockets and up to four threads), or add reverse flows.
 pub const MAX_CROSS: usize = 64;
-/// Largest trace that fits one netlink attribute next to the other options.
-pub const MAX_TRACE_BYTES: usize = 65_000;
+/// Largest trace the qdisc reads from its file (sch_mmlink.h MMLINK_TRACE_MAX):
+/// 64 MiB, 18.6 hours at one byte per millisecond.
+pub const MAX_TRACE_BYTES: usize = 1 << 26;
 /// TCP_CA_NAME_MAX in include/net/tcp.h, including the NUL.
 const TCP_CA_NAME_MAX: usize = 16;
 
@@ -70,6 +71,9 @@ pub struct Link {
     pub delay_ns: u64,
     /// Opportunities per millisecond; len >= 2, last entry nonzero.
     pub trace: Vec<u8>,
+    /// The same bytes' file, as an absolute path: the qdisc reads it itself,
+    /// since a netlink attribute holds under 64 KiB (about 65 s of trace).
+    pub trace_path: String,
     /// Droptail limits, at least one nonzero (0 means no limit).
     pub limit_pkts: u32,
     pub limit_bytes: u32,
@@ -260,8 +264,12 @@ fn nonzero(v: u32, what: &str) -> Result<NonZeroU32> {
 
 impl Link {
     fn load(dir: &Path, raw: RawLink) -> Result<Link> {
-        let trace = std::fs::read(dir.join(plain_file_name(&raw.trace_file)?))
-            .ctx(format!("reading {}", raw.trace_file))?;
+        let file = dir.join(plain_file_name(&raw.trace_file)?);
+        let trace = std::fs::read(&file).ctx(format!("reading {}", raw.trace_file))?;
+        let absolute = std::fs::canonicalize(&file).ctx(format!("resolving {}", raw.trace_file))?;
+        let Some(trace_path) = absolute.to_str().map(str::to_owned) else {
+            return fail(format!("{} is not a UTF-8 path", absolute.display()));
+        };
         if trace.len() < 2 || trace.len() > MAX_TRACE_BYTES {
             return fail(format!("trace has {} bytes, need 2..={MAX_TRACE_BYTES}", trace.len()));
         }
@@ -274,6 +282,7 @@ impl Link {
         Ok(Link {
             delay_ns: raw.delay_ns,
             trace,
+            trace_path,
             limit_pkts: raw.limit_pkts,
             limit_bytes: raw.limit_bytes,
             loss: raw.loss,

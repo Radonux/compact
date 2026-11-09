@@ -42,6 +42,8 @@
  * lazily when the qdisc next runs.
  */
 #include <linux/ip.h>
+#include <linux/kernel_read_file.h>
+#include <linux/limits.h>
 #include <linux/module.h>
 #include <linux/random.h>
 #include <linux/skbuff.h>
@@ -120,6 +122,7 @@ static const struct nla_policy mmlink_policy[TCA_MMLINK_MAX + 1] = {
 	[TCA_MMLINK_DELAY_LIMIT] = NLA_POLICY_MIN(NLA_U32, 1),
 	[TCA_MMLINK_LINK_ID] = { .type = NLA_U32 },
 	[TCA_MMLINK_LOSS] = { .type = NLA_U32 },
+	[TCA_MMLINK_TRACE_PATH] = { .type = NLA_NUL_STRING, .len = PATH_MAX - 1 },
 };
 
 static struct mmlink_cb *mmlink_cb(const struct sk_buff *skb)
@@ -502,12 +505,50 @@ static void mmlink_reset(struct Qdisc *sch)
 	qdisc_watchdog_cancel(&q->watchdog);
 }
 
+/* The trace, from the TRACE attribute or from the file TRACE_PATH names:
+ * a netlink attribute holds under 64 KiB, which caps a trace at about 65 s,
+ * while a file may hold up to MMLINK_TRACE_MAX bytes. Either buffer is freed
+ * with kvfree(), which takes kvmalloc and vmalloc memory alike.
+ */
+static int mmlink_load_trace(struct mmlink_sched *q, struct nlattr **tb,
+			     struct netlink_ext_ack *extack)
+{
+	struct nlattr *attr = tb[TCA_MMLINK_TRACE] ?: tb[TCA_MMLINK_TRACE_PATH];
+	void *buf = NULL;
+	ssize_t len;
+
+	if (tb[TCA_MMLINK_TRACE]) {
+		len = nla_len(attr);
+		buf = kvmemdup(nla_data(attr), len, GFP_KERNEL);
+		if (!buf)
+			return -ENOMEM;
+	} else {
+		len = kernel_read_file_from_path(nla_data(attr), 0, &buf,
+						 MMLINK_TRACE_MAX, NULL,
+						 READING_UNKNOWN);
+		if (len < 0) {
+			NL_SET_ERR_MSG_ATTR(extack, attr, "cannot read the trace file");
+			return len;
+		}
+	}
+	q->trace = buf;
+	if (len < 2) {
+		NL_SET_ERR_MSG_ATTR(extack, attr, "trace needs at least 2 entries");
+		return -EINVAL;
+	}
+	q->period = len - 1;
+	if (!q->trace[q->period]) {
+		NL_SET_ERR_MSG_ATTR(extack, attr, "last trace entry must be nonzero");
+		return -EINVAL;
+	}
+	return 0;
+}
+
 static int mmlink_init(struct Qdisc *sch, struct nlattr *opt,
 		       struct netlink_ext_ack *extack)
 {
 	struct mmlink_sched *q = qdisc_priv(sch);
 	struct nlattr *tb[TCA_MMLINK_MAX + 1];
-	u32 len;
 	int err;
 
 	/* destroy() runs even when init fails, so set up what it touches first. */
@@ -526,9 +567,12 @@ static int mmlink_init(struct Qdisc *sch, struct nlattr *opt,
 		return err;
 	if (NL_REQ_ATTR_CHECK(extack, opt, tb, TCA_MMLINK_BASE_NS) ||
 	    NL_REQ_ATTR_CHECK(extack, opt, tb, TCA_MMLINK_ORDER) ||
-	    NL_REQ_ATTR_CHECK(extack, opt, tb, TCA_MMLINK_TRACE) ||
 	    NL_REQ_ATTR_CHECK(extack, opt, tb, TCA_MMLINK_LINK_ID))
 		return -EINVAL;
+	if (!tb[TCA_MMLINK_TRACE] == !tb[TCA_MMLINK_TRACE_PATH]) {
+		NL_SET_ERR_MSG_MOD(extack, "give exactly one of TRACE and TRACE_PATH");
+		return -EINVAL;
+	}
 
 	q->base_ns = nla_get_u64(tb[TCA_MMLINK_BASE_NS]);
 	q->delay_ns = nla_get_u64_default(tb[TCA_MMLINK_DELAY_NS], 0);
@@ -544,16 +588,9 @@ static int mmlink_init(struct Qdisc *sch, struct nlattr *opt,
 		return -EINVAL;
 	}
 
-	len = nla_len(tb[TCA_MMLINK_TRACE]);
-	q->period = len - 1;
-	q->trace = kvmemdup(nla_data(tb[TCA_MMLINK_TRACE]), len, GFP_KERNEL);
-	if (!q->trace)
-		return -ENOMEM;
-	if (!q->trace[q->period]) {
-		NL_SET_ERR_MSG_ATTR(extack, tb[TCA_MMLINK_TRACE],
-				    "last trace entry must be nonzero");
-		return -EINVAL;
-	}
+	err = mmlink_load_trace(q, tb, extack);
+	if (err)
+		return err;
 	q->cycle_ms = 0;
 	q->idx = 0;
 	while (!q->trace[q->idx])

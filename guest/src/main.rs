@@ -242,7 +242,7 @@ fn mmlink<'a>(link: &'a Link, link_id: u32, order: Order, base_ns: u64) -> Mmlin
         order,
         base_ns,
         delay_ns: link.delay_ns,
-        trace: &link.trace,
+        trace_path: &link.trace_path,
         limit_pkts: link.limit_pkts,
         limit_bytes: link.limit_bytes,
         loss: link.loss,
