@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Any, Final, Literal, Self, cast
+from typing import Annotated, Final, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt, model_validator
 
 from expliccit_env.policy import EXPLICCIT_OBS_COLS, OBS_DIM
 
@@ -90,7 +90,6 @@ class Bins(_Frozen):
 
 
 type Net1Output = Annotated[Point | Interval | Bins, Field(discriminator="kind")]
-_FLAT_OUTPUT: Final = ("intervals", "coverage", "bins", "members")
 
 
 class Net1Spec(_Frozen):
@@ -113,34 +112,9 @@ class Net1Spec(_Frozen):
     lr: Annotated[float, Field(gt=0)] = 1e-3
     weight_decay: Annotated[float, Field(ge=0)] = 1e-4
 
-    @model_validator(mode="before")
-    @classmethod
-    def _flat_output(cls, data: Any) -> Any:
-        """Specs written before ``output`` (every saved net1.pt up to net1 v6,
-        and the experiment files) name its kind by flat fields; read them as
-        the ``output`` they meant."""
-        if not isinstance(data, dict):
-            return data
-        d = cast(dict[str, Any], dict(data))  # pyright: ignore[reportUnknownArgumentType]
-        if not any(k in d for k in _FLAT_OUTPUT):
-            return d
-        if "output" in d:
-            raise ValueError(f"output replaces {', '.join(_FLAT_OUTPUT)}: give one or the other")
-        intervals, coverage = d.pop("intervals", False), d.pop("coverage", 0.9)
-        bins, members = d.pop("bins", None), d.pop("members", 1)
-        if intervals and bins is not None:
-            raise ValueError("net1 reports intervals or bins, not both")
-        if members != 1 and bins is None:
-            raise ValueError("an ensemble (members > 1) needs bins")
-        if bins is not None:
-            d["output"] = {"kind": "bins", "bins": bins, "members": members}
-        elif intervals:
-            d["output"] = {"kind": "interval", "coverage": coverage}
-        return d
 
-
-# What net2 reads (Net2Spec and ppo.PPOSpec): net1's beliefs, the truth's
-# (an oracle), the measurements net1 reads (the black box), or both.
+# What net2 reads (Net2Spec and PPOSpec): net1's beliefs, the truth's (an
+# oracle), the measurements net1 reads (the black box), or both.
 type Inputs = Literal["net1", "truth", "raw", "net1+raw"]
 
 
@@ -157,7 +131,6 @@ class Net2Spec(_Frozen):
     # "truth" trains on the labels instead of net1's beliefs: the oracle
     # arm that splits a policy's loss into the LCF set's cost and net1's
     # error. Its exported policy reads the guest's live truth (policy.py).
-    # ("true_lcfs", its earlier name, still reads.)
     # "raw" gives net2 the measurements net1 reads, scaled by net1's input
     # scaler, and no LCFs: the black box with the same actor, data and
     # training, which prices the LCF bottleneck. "net1+raw" gives it both,
@@ -219,11 +192,6 @@ class Net2Spec(_Frozen):
     expectile: Annotated[float, Field(ge=0.5, lt=1)] = 0.7
     beta: Annotated[float, Field(ge=0)] = 3.0
     max_weight: Annotated[float, Field(gt=0)] = 100.0
-
-    @field_validator("inputs", mode="before")
-    @classmethod
-    def _old_name(cls, v: object) -> object:
-        return "truth" if v == "true_lcfs" else v
 
     @model_validator(mode="after")
     def _view(self) -> Net2Spec:
@@ -316,7 +284,6 @@ class Gate3(_Frozen):
 
 
 type Student = Annotated[U | Gate | Gate3, Field(discriminator="kind")]
-_FLAT_STUDENT: Final = ("base", "gate_threshold", "gate_threshold_q", "gate3_copies")
 
 
 class PPOSpec(BaseModel):
@@ -534,37 +501,6 @@ class PPOSpec(BaseModel):
     def base(self) -> Literal["fixed", "share"]:
         """What the actor's u is added to (U.base); "fixed" for a gate."""
         return self.student.base if isinstance(self.student, U) else "fixed"
-
-    @model_validator(mode="before")
-    @classmethod
-    def _flat_student(cls, data: Any) -> Any:
-        """Specs written before ``student`` held the whole head (every saved
-        ppo_spec.json up to round 23, and the experiment files) name it by
-        flat fields; read them as the student they meant."""
-        if not isinstance(data, dict):
-            return data
-        d = cast(dict[str, Any], dict(data))  # pyright: ignore[reportUnknownArgumentType]
-        flat = [k for k in _FLAT_STUDENT if k in d]
-        if not flat and not isinstance(d.get("student"), str):
-            return d
-        if flat and isinstance(d.get("student"), dict):
-            raise ValueError(f"student holds {', '.join(flat)}: give one or the other")
-        kind = d.pop("student", "u")
-        base = d.pop("base", "fixed")
-        t, tq = d.pop("gate_threshold", 0.0), d.pop("gate_threshold_q", None)
-        copies = d.pop("gate3_copies", "coop")
-        if kind != "gate3" and (tq is not None or copies != "coop"):
-            raise ValueError('gate_threshold_q and gate3_copies belong to student "gate3" only')
-        if kind != "u" and base != "fixed":
-            raise ValueError(f'student "{kind}" mixes rules itself: base must be "fixed"')
-        d["student"] = (
-            {"kind": "u", "base": base}
-            if kind == "u"
-            else {"kind": "gate", "threshold": t}
-            if kind == "gate"
-            else {"kind": "gate3", "threshold": t, "threshold_q": tq, "copies": copies}
-        )
-        return d
 
     @classmethod
     def parse(cls, text: str) -> PPOSpec:

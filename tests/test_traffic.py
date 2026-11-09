@@ -11,7 +11,7 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from expliccit_env.train import actors, fit, ppo  # noqa: E402
-from expliccit_env.train.spec import U  # noqa: E402
+from expliccit_env.train.spec import Gate3, U  # noqa: E402
 from expliccit_env.train.traffic import (  # noqa: E402
     CLASSES,
     TrafficHead,
@@ -37,7 +37,7 @@ def test_the_head_learns_separable_classes() -> None:
 def test_a_gate3_head_takes_its_beliefs_from_the_traffic_head() -> None:
     _, net1 = _bdp_net1()
     spec = ppo.PPOSpec(
-        paths_from=Path("x"), net1_from=Path("x"), algo="dagger", student="gate3", u_rule=0.25
+        paths_from=Path("x"), net1_from=Path("x"), algo="dagger", student=Gate3(), u_rule=0.25
     )
     plain = actors.Head(net1, spec)
     z = torch.from_numpy(net1.beliefs(np.zeros((1, 78), np.float32)))

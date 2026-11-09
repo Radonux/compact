@@ -150,7 +150,9 @@ def test_a_recurrent_net2_on_every_net1_is_taught_continued_and_exported(
         "batch_trajectories": 4,
         "epochs": 1,
     }
-    taught_spec = ppo.PPOSpec.model_validate(common | {"algo": "dagger", "student": "gate3"})
+    taught_spec = ppo.PPOSpec.model_validate(
+        common | {"algo": "dagger", "student": {"kind": "gate3"}}
+    )
     width = actors.width(net1, taught_spec)
     critic_width = width + 2 + len(net1.lcfs)
 
@@ -310,9 +312,14 @@ def test_the_pipeline_runs_for_every_net1_in_uml(
         "copies": [2],
     }
     stages = {
-        "teach": base | {"algo": "dagger", "student": "gate3"},
+        "teach": base | {"algo": "dagger", "student": {"kind": "gate3"}},
         "rl": base
-        | {"algo": "ppo", "student": "gate3", "init_from": str(tmp_path / "teach"), "anchor": 1.0},
+        | {
+            "algo": "ppo",
+            "student": {"kind": "gate3"},
+            "init_from": str(tmp_path / "teach"),
+            "anchor": 1.0,
+        },
     }
     for name, spec in stages.items():
         (tmp_path / f"{name}.json").write_text(json.dumps(spec))

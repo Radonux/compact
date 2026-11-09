@@ -23,7 +23,7 @@ from expliccit_env.train import actors, data, fit, handoff, learners, mixture, p
 from expliccit_env.train.export import to_onnx  # noqa: E402
 from expliccit_env.train.graph import MAX_DELIVERED, MIN_RTT_MS, PolicyGraph  # noqa: E402
 from expliccit_env.train.recurrent import OBS_MIN_RTT, RecurrentActor, decision_steps  # noqa: E402
-from expliccit_env.train.spec import LCF_UNITS, Gate, Gate3  # noqa: E402
+from expliccit_env.train.spec import LCF_UNITS, Bins, Gate, Gate3, U  # noqa: E402
 
 from .test_train import _bdp_net1  # noqa: E402
 
@@ -99,7 +99,7 @@ def test_a_residual_on_the_share_rule_starts_as_the_share_rule() -> None:
         u_rule=0.25,
         input_bins=4,
         hidden=8,
-        base="share",
+        student=U(base="share"),
         share_k=2.0,
     )
     actor = RecurrentActor(actors.width(net1, spec), spec.hidden)
@@ -139,9 +139,8 @@ def test_a_gate_graph_moves_u_toward_the_share_rule_by_its_belief(
         input_bins=4,
         hidden=8,
         algo="dagger",
-        student="gate",
+        student=Gate(threshold=t),
         share_k=2.0,
-        gate_threshold=t,
     )
     actor = RecurrentActor(actors.width(net1, spec), spec.hidden)
     actor.clone_rule(2 * p - 1, 1.0)  # (a + 1) / 2 = p on any input
@@ -177,9 +176,8 @@ def test_an_ensemble_gate_graph_acts_on_its_members_mean_belief() -> None:
         input_bins=4,
         hidden=8,
         algo="dagger",
-        student="gate",
+        student=Gate(threshold=0.5),
         share_k=2.0,
-        gate_threshold=0.5,
     )
     members = []
     beliefs = (0.2, 0.9, 0.97)
@@ -232,11 +230,8 @@ def test_a_gate3_graph_mixes_the_rules_by_its_beliefs(
         input_bins=4,
         hidden=8,
         algo="dagger",
-        student="gate3",
+        student=Gate3(threshold=t, threshold_q=tq, copies=copies),
         share_k=2.0,
-        gate_threshold=t,
-        gate_threshold_q=tq,
-        gate3_copies=copies,
     )
     actor = RecurrentActor(actors.width(net1, spec), spec.hidden, outputs=2)
     with torch.no_grad():
@@ -312,7 +307,9 @@ def test_the_black_box_aims_at_the_measured_bdp_and_reads_no_belief() -> None:
     # The guest's tract cannot run IsInf (round 19's first try).
     assert "IsInf" not in {n.op_type for n in m.graph.node}
     with pytest.raises(ValueError, match="an arm of algo"):
-        ppo.PPOSpec(paths_from=Path("u"), net1_from=Path("u"), inputs="raw", base="share")
+        ppo.PPOSpec(
+            paths_from=Path("u"), net1_from=Path("u"), inputs="raw", student=U(base="share")
+        )
 
 
 def test_the_oracle_reads_the_live_truth_as_its_trajectories_do() -> None:
@@ -487,7 +484,9 @@ def test_the_dagger_teacher_pushes_only_while_stock_tcp_is_active() -> None:
 
 def test_dagger_needs_the_fixed_base() -> None:
     with pytest.raises(ValueError, match="base"):
-        ppo.PPOSpec(paths_from=Path("x"), net1_from=Path("x"), algo="dagger", base="share")
+        ppo.PPOSpec(
+            paths_from=Path("x"), net1_from=Path("x"), algo="dagger", student=U(base="share")
+        )
 
 
 def test_dagger_learns_to_push_where_the_teacher_does() -> None:
@@ -536,7 +535,7 @@ def test_a_gate_student_starts_near_the_rule_and_learns_which_flows_share() -> N
         u_rule=0.25,
         hidden=8,
         algo="dagger",
-        student="gate",
+        student=Gate(),
         updates_per_iteration=100,
         batch_trajectories=8,
         lr=3e-3,
@@ -589,7 +588,7 @@ def test_a_gate3_student_learns_both_beliefs() -> None:
         u_rule=0.25,
         hidden=8,
         algo="dagger",
-        student="gate3",
+        student=Gate3(),
         updates_per_iteration=100,
         batch_trajectories=8,
         lr=3e-3,
@@ -620,63 +619,18 @@ def test_a_gate3_student_learns_both_beliefs() -> None:
 
 
 def test_a_gate_student_is_taught_by_dagger_and_continued_by_ppo_only() -> None:
-    gate = ppo.PPOSpec(paths_from=Path("x"), net1_from=Path("x"), student="gate")
-    assert gate.student == Gate() and gate.base == "fixed"
+    gate = ppo.PPOSpec(paths_from=Path("x"), net1_from=Path("x"), student=Gate())
+    assert gate.base == "fixed"
     with pytest.raises(ValueError, match="continued"):
-        ppo.PPOSpec(paths_from=Path("x"), net1_from=Path("x"), student="gate", algo="td3bc")
-    # A gate mixes rules itself: it has no base to add to, old flat form or new.
-    with pytest.raises(ValueError, match="base must be"):
-        ppo.PPOSpec(paths_from=Path("x"), net1_from=Path("x"), student="gate", base="share")
-    with pytest.raises(ValueError, match="base"):
-        ppo.PPOSpec.model_validate(
-            {"paths_from": "x", "net1_from": "x", "student": {"kind": "gate", "base": "share"}}
-        )
-
-
-def test_old_flat_student_fields_read_as_the_student_they_meant() -> None:
-    old = {
-        "paths_from": "x",
-        "net1_from": "x",
-        "student": "gate3",
-        "gate_threshold": 0.5,
-        "gate_threshold_q": 0.3,
-        "gate3_copies": "rule",
-    }
-    spec = ppo.PPOSpec.model_validate(old)
-    assert spec.student == Gate3(threshold=0.5, threshold_q=0.3, copies="rule")
-    again = ppo.PPOSpec.parse(spec.model_dump_json())
-    assert again == spec and "gate_threshold" not in spec.model_dump()
-    assert (
-        ppo.PPOSpec.model_validate({"paths_from": "x", "net1_from": "x", "base": "share"}).base
-        == "share"
-    )
-    with pytest.raises(ValueError, match="give one or the other"):
-        ppo.PPOSpec.model_validate(old | {"student": {"kind": "gate3"}})
-    assert spec.with_gate(0.2).student == Gate3(threshold=0.2, copies="rule")
+        ppo.PPOSpec(paths_from=Path("x"), net1_from=Path("x"), student=Gate(), algo="td3bc")
+    # A gate mixes rules itself: it has no base to add to, nor a gate3's fields.
+    for bad in ({"kind": "gate", "base": "share"}, {"kind": "gate", "copies": "rule"}):
+        with pytest.raises(ValueError, match="Extra inputs"):
+            ppo.PPOSpec.model_validate({"paths_from": "x", "net1_from": "x", "student": bad})
+    gate3 = ppo.PPOSpec(paths_from=Path("x"), net1_from=Path("x"), student=Gate3(copies="rule"))
+    assert gate3.with_gate(0.2).student == Gate3(threshold=0.2, copies="rule")
     with pytest.raises(ValueError, match="no gate"):
         ppo.PPOSpec(paths_from=Path("x"), net1_from=Path("x")).with_gate(0.2)
-
-
-def test_only_a_gate3_student_chooses_what_to_do_with_copies() -> None:
-    with pytest.raises(ValueError, match="gate3_copies"):
-        ppo.PPOSpec(
-            paths_from=Path("x"),
-            net1_from=Path("x"),
-            algo="dagger",
-            student="gate",
-            gate3_copies="rule",
-        )
-
-
-def test_only_a_gate3_student_has_a_threshold_for_copies() -> None:
-    with pytest.raises(ValueError, match="gate_threshold_q"):
-        ppo.PPOSpec(
-            paths_from=Path("x"),
-            net1_from=Path("x"),
-            algo="dagger",
-            student="gate",
-            gate_threshold_q=0.5,
-        )
 
 
 def test_noise_seed_is_left_out_unless_set(tmp_path: Path) -> None:
@@ -737,7 +691,9 @@ def test_ppo_loop_runs_an_iteration_with_copies(
 def _tiny_loop(tmp_path: Path) -> ppo.PPOSpec:
     """One iteration on one 24 Mbit/s link against a copy, net1 _bdp_net1."""
     _, net1 = _bdp_net1()
-    fit.save_net1(net1, fit.Net1Spec(width=64, bins=16, lcfs=net1.lcfs), tmp_path / "net1.pt")  # pyright: ignore[reportArgumentType]
+    fit.save_net1(
+        net1, fit.Net1Spec(width=64, output=Bins(bins=16), lcfs=net1.lcfs), tmp_path / "net1.pt"
+    )  # pyright: ignore[reportArgumentType]
     path = {
         "trace": {"kind": "periodic_levels", "levels_mbps": [24], "level_ms": 1000},
         "delay": {"mahak_compat_mrtt_ms": 10},
@@ -955,7 +911,7 @@ def _save_run(
     """What run_ppo leaves in its output directory, for init_from."""
     d.mkdir(parents=True, exist_ok=True)
     (d / "ppo_spec.json").write_text(spec.model_dump_json())
-    fit.save_net1(net1, fit.Net1Spec(width=64, bins=16, lcfs=net1.lcfs), d / "net1.pt")  # pyright: ignore[reportArgumentType]
+    fit.save_net1(net1, fit.Net1Spec(width=64, output=Bins(bins=16), lcfs=net1.lcfs), d / "net1.pt")  # pyright: ignore[reportArgumentType]
     torch.save(actor.state_dict(), d / "actor.pt")
     torch.save({} if critic is None else critic.state_dict(), d / "critic.pt")
     return d
@@ -984,8 +940,7 @@ def test_a_taught_gate3_student_continues_under_ppo_as_it_was_taught(tmp_path: P
         "input_bins": 4,
         "hidden": 8,
         "critic_hidden": 16,
-        "student": "gate3",
-        "gate_threshold": 0.3,
+        "student": Gate3(threshold=0.3),
         "noise_sigma": 0.2,
     }
     taught_spec = ppo.PPOSpec.model_validate(common | {"algo": "dagger"})

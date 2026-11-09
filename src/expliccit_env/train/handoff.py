@@ -120,6 +120,6 @@ def init_paths(spec: PPOSpec, source: PPOSpec | None) -> tuple[Path | None, Path
         spec.algo == "ppo"
         and source.algo != "td3bc"
         and not mismatch(spec, source, CRITIC_FIELDS)
-        and bool(torch.load(critic, weights_only=True))  # an older "dagger" run saved none
+        and critic.exists()
     )
     return spec.init_from / "actor.pt", critic if keep else None

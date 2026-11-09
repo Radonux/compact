@@ -909,13 +909,7 @@ def load_net1(path: Path) -> tuple[Net1, Net1Spec]:
     lcf_scaler = Scaler.fit(tuple(range(k)), np.zeros((2, k), np.float32), "standard")
     lcf_scaler.load_state_dict(saved["lcf_scaler"])
     net = _net1_module(spec)
-    state = saved["net"]
-    if spec.output.kind == "bins":  # saved before ensembles: one member, named "base"
-        state = {
-            k.replace("base.", "members.0.", 1) if k.startswith("base.") else k: v
-            for k, v in state.items()
-        }
-    net.load_state_dict(state)
+    net.load_state_dict(saved["net"])
     return Net1(scaler, net.eval(), lcf_scaler, tuple(spec.lcfs)), spec
 
 

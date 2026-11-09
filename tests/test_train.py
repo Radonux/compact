@@ -22,7 +22,15 @@ from expliccit_env.train.models import (  # noqa: E402
     Scaler,
 )
 from expliccit_env.train.score import utility  # noqa: E402
-from expliccit_env.train.spec import EXPLICCIT_LCFS, LCF_UNITS, Net1Spec, Net2Spec  # noqa: E402
+from expliccit_env.train.spec import (  # noqa: E402
+    EXPLICCIT_LCFS,
+    LCF_UNITS,
+    Bins,
+    Interval,
+    Net1Spec,
+    Net2Spec,
+    Point,
+)
 
 
 def synthetic(n_episodes: int = 40, steps: int = 200, seed: int = 0) -> data.Steps:
@@ -85,7 +93,7 @@ def test_net1_learns_and_net2_runs() -> None:
 def test_interval_net1_covers_held_out_rows_at_the_requested_rate() -> None:
     steps = synthetic(n_episodes=60)
     spec = Net1Spec(
-        width=64, epochs=30, patience=5, batch_size=256, lcfs=("capacity_bps",), intervals=True
+        width=64, epochs=30, patience=5, batch_size=256, lcfs=("capacity_bps",), output=Interval()
     )
     net1, _ = fit.fit_net1(spec, steps, seed=0)
     iv = fit.report_net1(net1, steps, "test")["capacity_bps"]["interval"]
@@ -422,7 +430,12 @@ def _noisy(n_episodes: int = 60, sd_mbps: float = 2.0) -> data.Steps:
 def test_distribution_net1_is_accurate_and_honest() -> None:
     steps = _noisy()
     spec = Net1Spec(
-        width=64, epochs=30, patience=5, batch_size=256, lcfs=("capacity_bps",), bins=32
+        width=64,
+        epochs=30,
+        patience=5,
+        batch_size=256,
+        lcfs=("capacity_bps",),
+        output=Bins(bins=32),
     )
     net1, _ = fit.fit_net1(spec, steps, seed=0)
     r = fit.report_net1(net1, steps, "test")["capacity_bps"]
@@ -444,7 +457,7 @@ def test_distribution_net1_is_accurate_and_honest() -> None:
 def test_distribution_net1_saves_patches_and_feeds_net2(tmp_path: Path) -> None:
     torch.manual_seed(0)
     steps = _noisy(n_episodes=20)
-    spec = Net1Spec(width=64, epochs=2, batch_size=256, lcfs=EXPLICCIT_LCFS, bins=16)
+    spec = Net1Spec(width=64, epochs=2, batch_size=256, lcfs=EXPLICCIT_LCFS, output=Bins(bins=16))
     steps.labels.update(
         {n: np.full(steps.obs.shape[0], np.nan, np.float32) for n in EXPLICCIT_LCFS}
         | {"capacity_bps": steps.labels["capacity_bps"]}
@@ -481,7 +494,7 @@ def _bdp_net1() -> tuple[data.Steps, fit.Net1]:
     for n in EXPLICCIT_LCFS:
         if n not in keep:
             steps.labels[n] = np.full(steps.obs.shape[0], np.nan, np.float32)
-    spec = Net1Spec(width=64, epochs=2, batch_size=256, lcfs=EXPLICCIT_LCFS, bins=16)
+    spec = Net1Spec(width=64, epochs=2, batch_size=256, lcfs=EXPLICCIT_LCFS, output=Bins(bins=16))
     return steps, fit.fit_net1(spec, steps, seed=0)[0]
 
 
@@ -603,7 +616,9 @@ def test_crps_matches_known_values() -> None:
 def test_an_ensemble_averages_its_members_and_round_trips(tmp_path: Path) -> None:
     torch.manual_seed(0)
     steps = _noisy(n_episodes=20)
-    spec = Net1Spec(width=64, epochs=2, batch_size=256, lcfs=("capacity_bps",), bins=16, members=3)
+    spec = Net1Spec(
+        width=64, epochs=2, batch_size=256, lcfs=("capacity_bps",), output=Bins(bins=16, members=3)
+    )
     net1, log = fit.fit_net1(spec, steps, seed=0)
     assert len(log["members_val_loss"]) == 3 and np.isfinite(log["ensemble_val_loss"])
     obs = steps.obs[:32]
@@ -615,19 +630,6 @@ def test_an_ensemble_averages_its_members_and_round_trips(tmp_path: Path) -> Non
     fit.save_net1(net1, spec, tmp_path / "net1.pt")
     again, _ = fit.load_net1(tmp_path / "net1.pt")
     assert np.array_equal(again.beliefs(obs), net1.beliefs(obs))
-    # A distribution net1 saved before ensembles named its one member "base".
-    one = Net1Spec(width=64, epochs=1, batch_size=256, lcfs=("capacity_bps",), bins=16)
-    single, _ = fit.fit_net1(one, steps, seed=0)
-    state = {k.replace("members.0.", "base.", 1): v for k, v in single.net.state_dict().items()}
-    torch.save(
-        {"spec": one.model_dump(mode="json"), "scaler": single.scaler.state_dict(),
-         "lcf_scaler": single.lcf_scaler.state_dict(), "net": state},
-        tmp_path / "old.pt",
-    )  # fmt: skip
-    old, _ = fit.load_net1(tmp_path / "old.pt")
-    assert np.array_equal(old.beliefs(obs), single.beliefs(obs))
-    with pytest.raises(ValueError, match="needs bins"):
-        Net1Spec(members=2)
 
 
 def test_expliccits_released_models_load_and_act() -> None:
@@ -684,30 +686,12 @@ def test_an_injected_fault_scales_or_pins_one_belief_in_report_units(intervals: 
         fit.parse_faults(["nonsense*2"], net1.lcfs)
 
 
-def test_net1s_output_is_one_declared_kind_and_old_flat_specs_still_read(tmp_path: Path) -> None:
-    from expliccit_env.train.spec import Bins, Interval, Point  # noqa: PLC0415
-
+def test_net1s_output_is_one_declared_kind() -> None:
     assert Net1Spec().output == Point()
-    assert Net1Spec.model_validate({"bins": 32, "members": 3}).output == Bins(bins=32, members=3)
-    assert Net1Spec.model_validate({"intervals": True, "coverage": 0.8}).output == Interval(
-        coverage=0.8
-    )
-    with pytest.raises(ValueError, match="not both"):
-        Net1Spec.model_validate({"intervals": True, "bins": 16})
-    with pytest.raises(ValueError, match="replaces"):
-        Net1Spec.model_validate({"bins": 16, "output": {"kind": "bins"}})
-    # A net1.pt saved before ``output`` existed loads as the same kind.
-    steps = synthetic(n_episodes=5, steps=60)
-    spec = Net1Spec(width=32, epochs=1, batch_size=128, output=Bins(bins=8))
-    net1, _ = fit.fit_net1(spec, steps, 0)
-    fit.save_net1(net1, spec, tmp_path / "net1.pt")
-    saved = torch.load(tmp_path / "net1.pt", weights_only=True)
-    old = saved["spec"] | {"bins": 8, "members": 1}
-    del old["output"]
-    torch.save(saved | {"spec": old}, tmp_path / "old.pt")
-    again, again_spec = fit.load_net1(tmp_path / "old.pt")
-    assert again_spec.output == Bins(bins=8)
-    assert np.array_equal(again.beliefs(steps.obs[:4]), net1.beliefs(steps.obs[:4]))
+    spec = Net1Spec.model_validate({"output": {"kind": "bins", "bins": 32, "members": 3}})
+    assert spec.output == Bins(bins=32, members=3)
+    with pytest.raises(ValueError, match="Extra inputs"):  # an interval has no bins
+        Net1Spec.model_validate({"output": {"kind": "interval", "bins": 16}})
 
 
 def test_net1_without_validation_rows_keeps_its_last_epoch_not_its_first() -> None:

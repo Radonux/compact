@@ -422,7 +422,8 @@ here.
     run completes.
 - **Policy releases.** `scripts/stash.sh TAG FILE...` publishes a model
   release (`model-...`). The policies to resume from:
-  - net1 v6: `exp-net1v6-149`, file `net1-v6-s0/net1.pt`;
+  - net1 v6: `model-v6-inputs`, file `net1-v6-s0.pt` (`exp-net1v6-149`
+    holds the original, in a file format the code no longer reads);
   - the traffic head: `model-net2-v6-head`, file `traffic_head.pt`;
   - r18e05: `model-net2-v6-veto`;
   - rounds 22 and 23: `model-net2-r23`.

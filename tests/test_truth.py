@@ -108,7 +108,7 @@ def test_exported_distribution_policy_runs_in_the_guest(build: UmlBuild, tmp_pat
     from expliccit_env.train import fit  # noqa: PLC0415
     from expliccit_env.train.export import to_onnx  # noqa: PLC0415
     from expliccit_env.train.models import ExpliccitActor  # noqa: PLC0415
-    from expliccit_env.train.spec import EXPLICCIT_LCFS, Net1Spec  # noqa: PLC0415
+    from expliccit_env.train.spec import EXPLICCIT_LCFS, Bins, Net1Spec  # noqa: PLC0415
     from tests.test_train import synthetic  # noqa: PLC0415
 
     torch.manual_seed(0)
@@ -117,7 +117,7 @@ def test_exported_distribution_policy_runs_in_the_guest(build: UmlBuild, tmp_pat
     steps.labels.update(
         {n: rng.uniform(0, 1, steps.obs.shape[0]).astype(np.float32) for n in EXPLICCIT_LCFS}
     )
-    spec = Net1Spec(width=64, epochs=1, batch_size=256, bins=16)
+    spec = Net1Spec(width=64, epochs=1, batch_size=256, output=Bins(bins=16))
     net1, _ = fit.fit_net1(spec, steps, seed=0)
     graph = fit.policy_graph(
         net1, ExpliccitActor(net1.width).eval(), 0.05, truth=frozenset({"busy_fraction"})

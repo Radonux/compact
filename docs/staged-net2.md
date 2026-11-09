@@ -107,11 +107,11 @@ under the tuning rules in [CLAUDE.md](../CLAUDE.md):
 1. r18e05 (the round 18 `gate3` student that passed its gate) continued by
    PPO, anchor 0, 1 and 5, three seeds, on round 23's information-rich
    mixture. Does RL improve a taught start without losing it? Its run
-   directory is in `exp-net2-r18-gate3-v6-162` (pull only that directory
-   with `scripts/release-pull.sh`). It predates DAgger's value network, so
-   PPO starts with a blank critic there and needs `critic_warmup`.
+   directories (seeds 1 to 3, `ppo-r18-k0.5-sN.tar`) are in
+   `model-v6-inputs`. They predate DAgger's value network, so PPO starts
+   with a blank critic there and needs `critic_warmup`.
 2. A `u` student taught by round 19's A1 actor (`teacher_from`, run
-   directories in `exp-net2-r19-blackbox-164`), against the same student
+   directories `ppo-r19-truth-sN.tar` in `model-v6-inputs`), against the same student
    taught by the rules, then each continued by PPO, on bins (A3) and on
    means (A2). Does a better teacher give a better start, and does RL from
    it use net1's spread where the means cannot?
