@@ -5,7 +5,7 @@ any copy; every flow's bytes through the bottleneck are in the episodes
 table (flow_bytes), for fairness.
 
 Usage: python experiments/copies.py OUT --split val --duration-ms 30000 --seed 11 --n 2 4
-           --stock bbr3,cubic --policy NAME=PATH ...
+           --stock bbr3,cubic --policy NAME=PATH[@MODE] ...
 
 Plans OUT/c-copies-{seconds}s (for `expliccit campaign run`) and writes
 OUT/aliases.json (agent:SHA12 -> NAME).
@@ -33,7 +33,12 @@ def main() -> None:
     p.add_argument("--seed", type=int, required=True)
     p.add_argument("--n", type=int, nargs="+", required=True, help="flows per episode")
     p.add_argument("--stock", default="bbr3")
-    p.add_argument("--policy", action="append", default=[], help="NAME=PATH of an ONNX policy")
+    p.add_argument(
+        "--policy",
+        action="append",
+        default=[],
+        help="NAME=PATH[@MODE] of an ONNX policy (mode hold, pure or cubic; default hold)",
+    )
     a = p.parse_args()
     links = list(split_links(a.split).values())
     ccs, aliases = controllers(a.stock, a.policy)

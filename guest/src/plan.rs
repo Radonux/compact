@@ -106,8 +106,8 @@ pub enum Control {
     Agent(Agent),
 }
 
-/// A sage-v1 policy driving one socket's tcp_agent controller ("agent" or
-/// "agent_cubic") through /dev/expl_agent after every step.
+/// A sage-v1 policy driving one socket's tcp_agent controller ("agent",
+/// "agent_pure" or "agent_cubic") through /dev/expl_agent after every step.
 pub struct Agent {
     pub policy: PathBuf,
     pub noise: Noise,
@@ -119,6 +119,8 @@ pub struct Agent {
 pub enum Mode {
     /// "agent": Sage's window accumulator times 2^a, held with its pacing.
     Hold,
+    /// "agent_pure": the same window; the kernel paces it, as Sage's does.
+    Pure,
     /// "agent_cubic": the kernel's current window times 2^a, as Orca sets
     /// it; Cubic evolves it until the next action.
     Cubic,
@@ -198,6 +200,7 @@ impl Agent {
     fn parse(cc: &str, raw: Option<RawAgent>, dir: &Path) -> Result<Option<Agent>> {
         let mode = match cc {
             "agent" => Some(Mode::Hold),
+            "agent_pure" => Some(Mode::Pure),
             "agent_cubic" => Some(Mode::Cubic),
             _ => None,
         };

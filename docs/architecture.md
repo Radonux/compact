@@ -175,7 +175,14 @@ only the named tables; most experiments keep only `steps`.
 The step loop writes each action to `/dev/expl_agent`, naming its socket
 by file descriptor (agent ABI 2); `tcp_agent` keeps it in that socket's
 congestion-control state and applies it at the next ACK, so any number of
-agents share a bottleneck. `agent` holds window and pacing (Sage-style).
+agents share a bottleneck. `agent` holds window and pacing (Sage-style),
+with the pacing computed by the guest once a step as cwnd * MSS / srtt.
+`agent_pure` is Sage's kernel as deployed, read from its binary (Sage's
+4.19.112-0062 "pure" with DeepCC pacing): the same window, set once per
+action, and the kernel paces every delivery at max(cwnd, packets_out) *
+MTU / srtt, with the send buffer autotuned at three windows. Sage's and
+expliCCit's faithful runs use `agent_pure`; our own policies were trained
+and evaluated under `agent`, which paces 3.5% slower and less often.
 `agent_cubic` (Orca-style) sets the window once per action, to the
 kernel's current window times 2^a, and lets Cubic grow it in between. The
 Cubic is Linux 7.0's, copied into `kernel/modules/cubic.h` because the

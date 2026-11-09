@@ -36,7 +36,7 @@ every 7 s with a 40 ms one-way delay and a 1000-packet buffer, and 24
 Mbit/s halving to 12 at 40 s with 20 ms and 300 packets.
 
 Usage: python experiments/heldout.py OUT_DIR --split test --duration-ms 60000
-           --seed 13 [--family training] --stock all --policy NAME=PATH ...
+           --seed 13 [--family training] --stock all --policy NAME=PATH[@MODE] ...
 
 Writes OUT_DIR/campaign.json and OUT_DIR/aliases.json (agent:SHA12 -> NAME,
 for `expliccit score --alias`).
@@ -114,20 +114,21 @@ def keep_only(
 
 def controllers(stock: str, policies: list[str]) -> tuple[list[dict[str, Any]], dict[str, str]]:
     """The stock controllers (comma-separated, or all) and the policies
-    (NAME=PATH, run as "hold" agents), and agent:SHA12 -> NAME."""
+    (NAME=PATH, run as "hold" agents, or NAME=PATH@MODE), and each agent's
+    label (MODE:SHA12, spec.AgentCC.label) -> NAME."""
     names = list(STOCK_NAMES) if stock == "all" else [n for n in stock.split(",") if n]
     ccs: list[dict[str, Any]] = [{"kind": "stock", "name": n} for n in names]
     aliases: dict[str, str] = {}
-    for name, path in (x.split("=", 1) for x in policies):
+    for name, rest in (x.split("=", 1) for x in policies):
+        path, _, mode = rest.partition("@")
         sha = hashlib.sha256(Path(path).read_bytes()).hexdigest()
-        ccs.append(
-            {
-                "kind": "agent",
-                "mode": "hold",
-                "policy": {"path": str(Path(path).resolve()), "sha256": sha},
-            }
-        )
-        aliases[f"agent:{sha[:12]}"] = name
+        cc = {
+            "kind": "agent",
+            "mode": mode or "hold",
+            "policy": {"path": str(Path(path).resolve()), "sha256": sha},
+        }
+        ccs.append(cc)
+        aliases[AgentCC.model_validate(cc).label] = name
     return ccs, aliases
 
 
@@ -295,7 +296,12 @@ def main() -> None:
         ],
     )
     p.add_argument("--stock", default="all", help="comma-separated stock controllers, or all")
-    p.add_argument("--policy", action="append", default=[], help="NAME=PATH of an ONNX policy")
+    p.add_argument(
+        "--policy",
+        action="append",
+        default=[],
+        help="NAME=PATH[@MODE] of an ONNX policy (mode hold, pure or cubic; default hold)",
+    )
     a = p.parse_args()
     source = json.loads(SOURCE.read_text())
     paths = split_links(a.split)

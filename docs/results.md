@@ -398,8 +398,14 @@ stated.
 Divergences from expliCCit's and Sage's setting, each a possible cause:
 
 - Linux 7.0 in UML in virtual time, not Sage's patched Linux 4.19 in real
-  time; pacing refreshed every step, not every ACK; inference that costs
-  no virtual time.
+  time, and inference that costs no virtual time. The runs above used
+  `agent`, which paces once a step at cwnd * MSS / srtt; Sage's kernel
+  paces every ACK at max(cwnd, packets_out) * MTU / srtt (read from its
+  binary). `agent_pure` now does exactly that
+  ([validation.md](validation.md)); its runs are UNRUN at scale.
+- The policy computation is not a divergence: on our recorded messages,
+  expliCCit's own deployed code takes our action at 11,972 of 11,973
+  steps (local run, [validation.md](validation.md)).
 - Sage and expliCCit's policies run on links they were not trained on,
   and expliCCit's ground-truth definitions are not in its code, so ours
   may differ: on our expliCCit-like data its released net1 had R^2 1.000

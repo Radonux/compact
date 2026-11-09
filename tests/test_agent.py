@@ -92,6 +92,23 @@ def test_hold_agent_follows_sage_window(build: UmlBuild, tmp_path: Path) -> None
     assert np.mean(seen == want) > 0.95
 
 
+def test_pure_agent_paces_every_delivery_as_sages_kernel(build: UmlBuild, tmp_path: Path) -> None:
+    outcome, rec = run_raw(
+        build, tmp_path, agent_spec(tmp_path, onnx_policies.constant(0.05), "pure")
+    )
+    acts = rec.agent_action
+    # The window is Sage's accumulator, as under hold; the kernel paces.
+    assert acts["cwnd"].tolist() == sage_window([0.05] * acts.size)
+    assert set(acts["pacing_rate"].tolist()) == {0}
+    # Each arriving segment sees the rate the previous delivery set:
+    # max(cwnd, packets_out) * MTU (1448 + 52) * 1e6 / srtt, rounded down.
+    obs = rec.tcp_obs
+    obs = obs[(obs["srtt_us"] > 0) & (obs["packets_out"] <= obs["snd_cwnd"])][10:]
+    want = obs["snd_cwnd"].astype(np.uint64) * 1500 * 1_000_000 // obs["srtt_us"]
+    assert np.mean(obs["pacing_rate"] == want) > 0.95
+    assert outcome.row["utilization"] > 0.5
+
+
 def test_policy_reads_the_observation(build: UmlBuild, tmp_path: Path) -> None:
     # a = 0.5 r - 0.35 with r = Sage's column 70 (max delivered rate times min
     # RTT over the window). Every action must be that function of the very

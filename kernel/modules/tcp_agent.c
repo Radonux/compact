@@ -4,11 +4,16 @@
  *
  * A policy (Orca- or Sage-style agent, or an exported expliCCit policy)
  * observes the flow itself (TCP_INFO) and writes struct expl_agent_action
- * to /dev/expl_agent. Two controllers apply it:
+ * to /dev/expl_agent. Three controllers apply it:
  *
  *   "agent"       Sage-style. cong_control holds snd_cwnd and the pacing rate
  *                 at the latest action on every delivery. Until the first
  *                 action the initial window is held.
+ *   "agent_pure"  Sage's kernel as deployed (Sage's 4.19.112-0062 "pure" with
+ *                 DeepCC pacing, read from its binary): each new action sets
+ *                 snd_cwnd once, nothing changes it in between, and every
+ *                 delivery paces at max(cwnd, packets_out) * MTU / srtt;
+ *                 the send buffer autotunes at three windows, as there.
  *   "agent_cubic" Orca-style. Each new action sets snd_cwnd once, at the
  *                 next ACK; between actions Cubic (Linux 7.0's, with
  *                 HyStart, vendored in cubic.h) evolves the window and the
@@ -44,7 +49,7 @@ static DEFINE_SPINLOCK(action_lock);	/* guards seq, cwnd and pacing_rate */
 /* In icsk_ca_priv, so each agent socket carries its own action. */
 struct agent_priv {
 	u32 seq;			/* actions accepted; 0: none yet */
-	u32 applied_seq;		/* agent_cubic: last action applied */
+	u32 applied_seq;		/* agent_pure, agent_cubic: last applied */
 	u32 cwnd;
 	u32 pad;
 	u64 pacing_rate;
@@ -142,6 +147,45 @@ static void agent_cong_control(struct sock *sk, u32 ack, int flag,
 
 	if (agent_current(sk, &a))
 		agent_apply(sk, &a);
+}
+
+/* "agent_pure": Sage's pure_tcp_main as cong_control. Its TCP_CWND sets the
+ * window at once and then deepcc_update_cwnd paces; here the window is set at
+ * the next delivery, and every delivery paces, as there (enable 2, pacing
+ * type srtt, coefficient 100): max(cwnd, packets_out) * tcp_mss_to_mtu() *
+ * USEC_PER_SEC / (srtt_us >> 3), unpaced before the first RTT sample.
+ */
+static void agent_pure_cong_control(struct sock *sk, u32 ack, int flag,
+				    const struct rate_sample *rs)
+{
+	struct agent_priv *p = agent_of(sk);
+	struct tcp_sock *tp = tcp_sk(sk);
+	struct expl_agent_action a;
+	u32 seq = agent_current(sk, &a);
+	u32 srtt = tp->srtt_us >> 3;
+	u64 rate;
+
+	if (seq != p->applied_seq) {
+		p->applied_seq = seq;
+		tcp_snd_cwnd_set(tp, min(a.cwnd, tp->snd_cwnd_clamp));
+	}
+	rate = (u64)tcp_mss_to_mtu(sk, tp->mss_cache) * USEC_PER_SEC *
+	       max(tcp_snd_cwnd(tp), tp->packets_out);
+	if (srtt)
+		rate = div_u64(rate, srtt);
+	cmpxchg(&sk->sk_pacing_status, SK_PACING_NONE, SK_PACING_NEEDED);
+	WRITE_ONCE(sk->sk_pacing_rate, min_t(u64, rate, READ_ONCE(sk->sk_max_pacing_rate)));
+}
+
+/* pure's bbr_sndbuf_expand and bbr_min_tso_segs. */
+static u32 agent_pure_sndbuf_expand(struct sock *sk)
+{
+	return 3;
+}
+
+static u32 agent_pure_min_tso_segs(struct sock *sk)
+{
+	return READ_ONCE(sk->sk_pacing_rate) > 149999 ? 2 : 1;
 }
 
 /* "agent_cubic": apply each new action's window once, at the next ACK of any
@@ -245,6 +289,17 @@ static struct tcp_congestion_ops tcp_agent __read_mostly = {
 	.name = "agent",
 };
 
+static struct tcp_congestion_ops tcp_agent_pure __read_mostly = {
+	.init = agent_init,
+	.ssthresh = agent_ssthresh,
+	.cong_control = agent_pure_cong_control,
+	.undo_cwnd = agent_undo_cwnd,
+	.sndbuf_expand = agent_pure_sndbuf_expand,
+	.min_tso_segs = agent_pure_min_tso_segs,
+	.owner = THIS_MODULE,
+	.name = "agent_pure",
+};
+
 static struct tcp_congestion_ops tcp_agent_cubic __read_mostly = {
 	.init = agent_cubic_init,
 	.ssthresh = cubictcp_recalc_ssthresh,
@@ -263,7 +318,7 @@ static bool is_agent(const struct sock *sk)
 {
 	const struct tcp_congestion_ops *ops = READ_ONCE(inet_csk(sk)->icsk_ca_ops);
 
-	return ops == &tcp_agent || ops == &tcp_agent_cubic;
+	return ops == &tcp_agent || ops == &tcp_agent_pure || ops == &tcp_agent_cubic;
 }
 
 /* Context: process. Untrusted input: one whole, valid action per write,
@@ -339,9 +394,12 @@ static int __init tcp_agent_init(void)
 	err = tcp_register_congestion_control(&tcp_agent);
 	if (err)
 		return err;
-	err = tcp_register_congestion_control(&tcp_agent_cubic);
+	err = tcp_register_congestion_control(&tcp_agent_pure);
 	if (err)
 		goto err_agent;
+	err = tcp_register_congestion_control(&tcp_agent_cubic);
+	if (err)
+		goto err_pure;
 	err = misc_register(&agent_dev);
 	if (err)
 		goto err_cubic;
@@ -349,6 +407,8 @@ static int __init tcp_agent_init(void)
 
 err_cubic:
 	tcp_unregister_congestion_control(&tcp_agent_cubic);
+err_pure:
+	tcp_unregister_congestion_control(&tcp_agent_pure);
 err_agent:
 	tcp_unregister_congestion_control(&tcp_agent);
 	return err;
@@ -358,6 +418,7 @@ static void __exit tcp_agent_exit(void)
 {
 	misc_deregister(&agent_dev);
 	tcp_unregister_congestion_control(&tcp_agent_cubic);
+	tcp_unregister_congestion_control(&tcp_agent_pure);
 	tcp_unregister_congestion_control(&tcp_agent);
 }
 

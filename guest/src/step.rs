@@ -33,6 +33,8 @@
 //! packets, rounded up and kept in [4, 20000]; pacing follows Sage's
 //! evaluation setting (pace with the smoothed RTT, coefficient 100),
 //! computed here as cwnd * mss / srtt and refreshed every step. Under
+//! "agent_pure" the window is the same, and the kernel paces it at every
+//! delivery as Sage's kernel does (kernel/modules/tcp_agent.c). Under
 //! "agent_cubic" the window is the kernel's current one (the cwnd input)
 //! times 2^a, rounded down and kept in [4, 20000], as Orca sets it; a = 0
 //! leaves Cubic's window as it is, and the stack paces.
@@ -633,7 +635,8 @@ fn on_kernel_window(ratio: f64, snd_cwnd: u32) -> u32 {
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 fn agent_action(fd: i32, cwnd: u32, info: &Info, mode: Mode) -> [u8; 24] {
     let pacing = match (mode, info.rtt()) {
-        (Mode::Cubic, _) | (Mode::Hold, 0) => 0, // unpaced until the first RTT sample
+        // The kernel paces (pure, cubic); hold is unpaced until the first RTT sample.
+        (Mode::Pure | Mode::Cubic, _) | (Mode::Hold, 0) => 0,
         (Mode::Hold, srtt) => {
             (f64::from(cwnd) * f64::from(info.snd_mss()) * 1e6 / f64::from(srtt) * PACE_COEF / 100.0) as u64
         }
@@ -749,7 +752,7 @@ impl Loop {
                     a = (act + p.sigma * p.held).clamp(-f64::from(MAX_ACTION), f64::from(MAX_ACTION));
                     ratio = 2f64.powf(a);
                     cwnd = match p.mode {
-                        Mode::Hold => window.apply(ratio),
+                        Mode::Hold | Mode::Pure => window.apply(ratio),
                         Mode::Cubic => on_kernel_window(ratio, info.snd_cwnd()),
                     };
                     dev.write_all(&agent_action(fd, cwnd, &info, p.mode)).ctx("writing action")?;
