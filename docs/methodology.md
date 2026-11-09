@@ -139,7 +139,7 @@ Same links, seeds and training budget in each arm.
 | Arm | net2 sees | Compared with | State |
 |---|---|---|---|
 | A0 | the full true state of the path | A1: what the LCFs omit | UNRUN; the environment does not provide it |
-| A1 | the true LCFs (oracle) | A3: the cost of estimation (H2) | run for the fixed and share rules; UNRUN for a learned net2 |
+| A1 | the true LCFs (oracle) | A3: the cost of estimation (H2) | run for the fixed and share rules and for a learned net2 (round 19) |
 | A2 | net1's means only (`view: "means"`) | A3: the value of stated uncertainty | run on validation, net1 v3 |
 | A3 | net1's beliefs | | the design under test |
 | A4 | raw measurements (a black box) | A3: the cost of the split (H6) | run for a learned net2 (round 19b); a rule on a classical estimate on net1 v3 |
@@ -175,10 +175,10 @@ links; the claim rests on that measurement. The plan:
 | | Verdict | Evidence |
 |---|---|---|
 | Reproduction | The link model equals a port of Mahimahi's link queue, event for event; none of expliCCit's three checked results reproduced here; the comparison on the original stack is UNRUN | [results](results.md#reproduction-of-expliccit) |
-| H1 | Evidence against, for a shared link: rules on the true LCFs fail among copies; told the number of flows, one rule handles copies and Cubic (an oracle bound). UNRUN for a learned net2 | [results](results.md#what-limits-a-rule-is-the-other-flows) |
+| H1 | Evidence against, for a shared link: rules on the true LCFs fail among copies; told the number of flows, one rule handles copies and Cubic (an oracle bound). For a learned net2 at equal compute (round 19), the policy on the true LCFs ends 0.2 to 0.4 above the black box on raw measurements, and level with the one on net1 | [results](results.md#what-limits-a-rule-is-the-other-flows) |
 | H2 | Yes for five LCFs (test R^2 0.88 to 1.00), weaker for capacity (0.81) and free buffer (0.47); estimation costs the fixed rule 0.023 | [results](results.md#net1-estimates-the-path-state-within-its-training-range) |
 | H3 | Yes within the training ranges (90% coverage 0.91 to 0.97 on test links); no outside them. Wider training data (net1 v6) made it honest where v5 failed and moved the edge, beyond which it fails again | [results](results.md#net1-estimates-the-path-state-within-its-training-range) |
-| H4 | UNRUN | |
+| H4 | Partly: the learned net2 run unchanged on two other seeds of net1 v6 (same bins) kept 70% to 100% of its gains, with wider intervals | [results](results.md#a-learned-net2-beats-the-rule-against-competitors) |
 | H5 | One case: a capacity fault repaired by retraining net1 alone, net2 unchanged; alarms without ground truth missed it | [results](results.md#alarms-and-repair) |
 | H6 | The simplest net2 on net1 beats every Linux controller and Sage on test links. Against a black box with the same inputs, learner and budget (A4, PPO on the raw measurements with BBR's BDP estimate), the split leads: the black box ends 0.22 to 0.39 below net1 v6's rule on validation after 120 iterations, still improving | [results](results.md#the-split-costs-little) |
 | Learned net2 | On net1 v6, one candidate (round 18, round 7e's recipe) passed its gate on new validation episodes and on test beat the fixed rule against competitors (Cubic from the start +0.068, +0.023 to +0.120; competition conditions +0.039, +0.005 to +0.075) and matched it in every other family and as copies; five-family mean +0.018. The same recipe passed on net1 v5 (round 7e), whose competition gain did not hold on test. Learned from the reward alone (PPO), net2 gains more against competitors but pushes among copies (-0.22 to -0.44) | [results](results.md#a-learned-net2-beats-the-rule-against-competitors) |

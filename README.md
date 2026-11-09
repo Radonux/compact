@@ -148,6 +148,7 @@ are in `AGENTS.md` (also `CLAUDE.md`); agent skills come from the
 |---|---|
 | [docs/methodology.md](docs/methodology.md) | The claims, the terms, the evaluation protocol, the status of each claim |
 | [docs/results.md](docs/results.md) | The findings, their evidence and caveats, with releases |
+| [docs/rounds.md](docs/rounds.md) | Every learned-net2 round: its gates, evaluations and training runs |
 | [docs/training.md](docs/training.md) | How to produce data, train net1 and net2, and run and score a policy |
 | [docs/architecture.md](docs/architecture.md) | How an episode runs and why; known limits; decisions; extending |
 | [docs/validation.md](docs/validation.md) | What was checked, how, and what was not |
