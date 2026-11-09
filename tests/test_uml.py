@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import shutil
 from pathlib import Path
 
@@ -264,6 +265,19 @@ def test_loss_and_cross_traffic(build: UmlBuild, tmp_path: Path) -> None:
     assert udp_seconds[0] == 2 and udp_seconds[-1] in (7, 8)
     mean = sum(fs["delay_sum_ms"]) / sum(fs["packets"])
     assert abs(mean - out.row["mean_delay_ms"]) < 1e-9  # type: ignore[operator]
+    # Per flow over the episode: the mean is the per-second sums' mean, and
+    # the 95th percentile lies between the mean and the largest delay.
+    for k in range(3):
+        sums = [d for f, d in zip(fs["flow"], fs["delay_sum_ms"], strict=True) if f == k]
+        n = sum(p for f, p in zip(fs["flow"], fs["packets"], strict=True) if f == k)
+        top = max(
+            d
+            for f, d in zip(fs["flow"], fs["delay_max_ms"], strict=True)
+            if f == k and not math.isnan(d)
+        )
+        mean_k = out.row["flow_delay_mean_ms"][k]  # type: ignore[index]
+        assert abs(mean_k - sum(sums) / n) < 1e-9
+        assert 0 <= out.row["flow_delay_p95_ms"][k] <= top  # type: ignore[index,operator]
 
     lab = out.tables["labels"]
     t_ms = (np.asarray(lab["t_ns"]).astype(np.int64) - out.row["base_ns"]) // 1_000_000  # type: ignore[operator]

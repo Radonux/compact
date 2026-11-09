@@ -336,6 +336,7 @@ def run_episode(
             "cross_steps": g.cross_steps,
             "cross_actions": g.cross_actions,
             "flow_bytes": _flow_bytes(spec, rec),
+            **_flow_delays(spec, rec),
             "agent_actions": g.agent_actions,
             "n_steps": g.steps,
             "n_obs": rec.tcp_obs.size,
@@ -389,6 +390,24 @@ def _flow_bytes(spec: EpisodeSpec, rec: Records) -> list[int]:
         minlength=max(ports) + 1,
     )
     return [int(sums[p]) for p in ports]
+
+
+def _flow_delays(spec: EpisodeSpec, rec: Records) -> dict[str, list[float]]:
+    """Each flow's queueing delay at the bottleneck over the episode, per
+    packet (departure minus arrival ms, Mahimahi's resolution): its mean and
+    its 95th percentile, the two delays CC papers report, in the order of
+    _flow_bytes; NaN for a flow that got no packet through."""
+    dep = rec.link(rec.link_depart, labels.DOWNLINK)
+    dep = dep[dep["ms"] < spec.duration_ms]
+    ports = [labels.MAIN_SPORT, *(labels.CROSS_PORT_BASE + i for i in range(len(spec.cross)))]
+    means: list[float] = []
+    p95s: list[float] = []
+    for port in ports:
+        d = dep[dep["sport"] == port]
+        q = (d["ms"].astype(np.int64) - d["arrival_ms"].astype(np.int64)).astype(np.float64)
+        means.append(float(q.mean()) if q.size else float("nan"))
+        p95s.append(float(np.percentile(q, 95)) if q.size else float("nan"))
+    return {"flow_delay_mean_ms": means, "flow_delay_p95_ms": p95s}
 
 
 def _flow_seconds(spec: EpisodeSpec, rec: Records) -> pa.Table:
