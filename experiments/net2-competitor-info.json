@@ -1,0 +1,15 @@
+{
+  "title": "Do net1's beliefs keep what tells copies from a stock competitor?",
+  "description": "Round 18's copies belief q mistakes Cubic for copies, so a net2 that cooperates with copies yields to Cubic (exp-net2-eval-v6-coop-176). This asks whether net1's output keeps the information to tell them apart. The fixed rule on net1 v6 (u = 0.25) runs as the observed flow on the validation links (campaign seed 11, 30 s) alone, under random loss, against stock competitors (the new family: Cubic from 0 s, BBRv1 from 4 s, Cubic from 2 s and 10 s; the held-out competitors: BBRv3, Westwood) and as 2 and 4 copies, with the observations kept. experiments/competitor_info.py then trains one per-step classifier of the other traffic (none, copies, a stock TCP flow) on the raw measurements net1 reads and one on net1 v6's beliefs, and scores each on links it never saw (3 folds by link). A gap between them is what the LCFs omit (H1's failure mode).",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v6": "release:exp-net1v6-149"
+  },
+  "prepare": "N=\"$IN/v6/net1-v6-s0/net1.pt\"; uv run python experiments/rule_export.py \"$OUT/rule6\" \"$N\" --u 0.25; P=(--policy \"rule-v6=$OUT/rule6/rule-u0.25.onnx\"); for f in new held-competitors; do uv run python experiments/heldout.py \"$OUT/spec-$f\" --split val --family \"$f\" --duration-ms 30000 --seed 11 --stock \"\" \"${P[@]}\"; uv run expliccit campaign plan \"$OUT/spec-$f/campaign.json\" \"$OUT/c-$f\"; done; uv run python experiments/copies.py \"$OUT/copies\" --split val --duration-ms 30000 --seed 11 --n 1 2 4 --stock \"\" \"${P[@]}\"; mv \"$OUT/copies/c-copies-30s\" \"$OUT/\"",
+  "shards": 10,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps; done",
+  "collect": "uv run python experiments/competitor_info.py \"$OUT\" \"$IN/v6/net1-v6-s0/net1.pt\"",
+  "collect_inputs": true,
+  "timeout_minutes": 120
+}
