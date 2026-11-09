@@ -1,0 +1,25 @@
+{
+  "title": "Round 20b: the black box from the split's start, PPO (arm A4, H6, stage 2)",
+  "description": "Round 19b's black box started 0.554 below net1 v6's fixed rule and ended 0.22 to 0.39 below; the arm on net1 started at the rule (-0.008) and ended -0.040 to +0.017. Round 20a cloned the rule into the black box by DAgger, from the raw measurements alone, to 0.064 to 0.087 below it (exp-net2-r20a-clone-170). Round 20b continues each clone by seed with round 19's PPO unchanged (round 15's copies mixture, tau 1 s, 120 iterations; release model-net2-r20a-clones as init_actor, a new critic), so the black box and the arm on net1 differ in their inputs and in a start 0.06 to 0.08 apart, not 0.55.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v6": "release:exp-net1v6-149",
+    "models": "release:model-net1v3",
+    "a": "release:model-net2-r20a-clones"
+  },
+  "matrix": {
+    "arm": [
+      "raw"
+    ],
+    "seed": [
+      1,
+      2,
+      3
+    ]
+  },
+  "prepare": "(cd \"$IN/a\" && sha256sum -c SHA256SUMS); N=\"$IN/v6/net1-v6-s0/net1.pt\"; uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$N\" --models \"$IN/models\" --u 0.25 --paths net2-train-xl",
+  "run": "S=\"$OUT/spec-r20b-$ARM-s$SEED.json\"; jq --arg arm \"$ARM\" --argjson seed \"$SEED\" --arg actor \"$IN/a/ppo-r20a-raw-s$SEED.actor.pt\" '.algo = \"ppo\" | .base = \"fixed\" | .inputs = $arm | .copies_reward = \"team\" | .critic_flows = true | .noise_sigma = 0.2 | .noise_hold_steps = 20 | .tau_s = 1 | .group = 4 | .links_per_iteration = 8 | .lr = 0.0003 | .copies = [2, 4] | .competition = \"diverse\" | .alone = 0.35 | .compete = 0.6 | .seed = $seed | .iterations = 120 | .eval_every = 20 | .init_actor = $actor' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/ppo-r20b-$ARM-s$SEED\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ppo-*",
+  "timeout_minutes": 360
+}
