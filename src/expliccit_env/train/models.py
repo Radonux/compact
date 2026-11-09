@@ -385,6 +385,28 @@ class PolicyGraph(nn.Module):
         self.view: nn.Module | None = None
         self.target: nn.Module | None = None  # WindowTarget, or a measured BDP (train/ppo.py)
 
+    def inject_fault(self, scale: list[float], value: list[float], pinned: list[bool]) -> None:
+        """Per LCF in net1's order: multiply its belief by scale, or pin it
+        to value where pinned, in report units, as a wrong encoder head
+        would; for an interval net1 the bounds move with the centre. The
+        buffers exist only once a fault is injected, so a graph without one
+        exports the same bytes as before faults existed."""
+        self.register_buffer("fault_scale", torch.tensor(scale, dtype=torch.float32))
+        self.register_buffer("fault_value", torch.tensor(value, dtype=torch.float32))
+        self.register_buffer("fault_set", torch.tensor(pinned, dtype=torch.bool))
+
+    def _faulty(self, z: torch.Tensor) -> torch.Tensor:
+        scale, value, pinned = (
+            self._buffers[n] for n in ("fault_scale", "fault_value", "fault_set")
+        )
+        assert scale is not None and value is not None and pinned is not None
+        reps = z.shape[1] // scale.shape[0]
+        center = self.lcf_scaler.center.repeat(reps)
+        spread = self.lcf_scaler.spread.repeat(reps)
+        v = z * spread + center
+        v = torch.where(pinned.repeat(reps), value.repeat(reps), v * scale.repeat(reps))
+        return (v - center) / spread
+
     def take_from_truth(
         self,
         cols: list[int],
@@ -437,7 +459,7 @@ class PolicyGraph(nn.Module):
             zt = self.lcf_scaler(truth.index_select(1, self.truth_cols) * self.truth_units)
             reps = self.from_truth.shape[0] // zt.shape[1]
             z = torch.where(self.from_truth, zt.repeat(1, reps), z)
-        return z
+        return self._faulty(z) if "fault_scale" in self._buffers else z
 
     def step(
         self,

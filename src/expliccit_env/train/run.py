@@ -78,14 +78,17 @@ def import_expliccit(
     as_deployed: bool,
     truth: frozenset[str] = frozenset(),
     unrounded: frozenset[str] = frozenset(),
+    faults: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """expliCCit's released net1 and actor as a sage-v1 policy (actions
     in [-1, 1], as its tanh gives), and net1's error on our data. The LCFs
     in ``truth`` come from the guest's live truth instead of net1, as in
-    expliCCit's own repair experiment."""
+    expliCCit's own repair experiment; ``faults`` (``LCF*F`` or ``LCF=V``)
+    make chosen beliefs wrong on purpose (fit.inject_faults)."""
     out.mkdir(parents=True, exist_ok=True)
     net1, actor = fit.load_expliccit(models)
     graph = fit.policy_graph(net1, actor, 1.0, truth=truth)
+    fit.inject_faults(graph, net1, fit.parse_faults(list(faults), net1.lcfs))
     graph.as_deployed = as_deployed
     if unrounded:  # deployed, but these of the first six LCFs left unrounded
         graph.rounded = torch.tensor(
@@ -96,6 +99,7 @@ def import_expliccit(
         "as_deployed": as_deployed,
         "from_truth": sorted(truth),
         "unrounded": sorted(unrounded),
+        "faults": list(faults),
     }
     if data_dirs:
         steps = data.load(data_dirs, seed=0, val=0.0, test=0.0)

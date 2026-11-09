@@ -199,7 +199,12 @@ def _import_expliccit(a: argparse.Namespace) -> int:
 
     data = [Path(d) for d in a.data]
     report = run.import_expliccit(
-        Path(a.models), Path(a.out), data, as_deployed=a.as_deployed, truth=frozenset(a.truth)
+        Path(a.models),
+        Path(a.out),
+        data,
+        as_deployed=a.as_deployed,
+        truth=frozenset(a.truth),
+        faults=tuple(a.fault),
     )
     print(json.dumps(report, indent=2))
     return 0
@@ -355,6 +360,12 @@ def main(argv: list[str] | None = None) -> int:
         default=[],
         choices=TRUTH_COLUMNS,
         help="LCFs to take from the guest's live truth instead of net1 (a patch)",
+    )
+    ti.add_argument(
+        "--fault",
+        nargs="*",
+        default=[],
+        help="make a belief wrong on purpose: LCF*FACTOR or LCF=VALUE (report units)",
     )
     ti.set_defaults(fn=_import_expliccit)
 

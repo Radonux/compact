@@ -928,6 +928,36 @@ def policy_graph(
     return graph.eval()
 
 
+def parse_faults(texts: list[str], lcfs: tuple[str, ...]) -> dict[str, tuple[str, float]]:
+    """``LCF*F`` (scale the belief by F) or ``LCF=V`` (pin it to V, in report
+    units) -> {LCF: ("scale" or "pin", number)}."""
+    out: dict[str, tuple[str, float]] = {}
+    for t in texts:
+        op = "*" if "*" in t else "=" if "=" in t else None
+        if op is None:
+            raise ValueError(f"fault {t!r}: write LCF*FACTOR or LCF=VALUE")
+        name, number = t.split(op, 1)
+        if name not in lcfs:
+            raise ValueError(f"fault {t!r}: {name} is not among net1's LCFs {list(lcfs)}")
+        out[name] = ("scale" if op == "*" else "pin", float(number))
+    return out
+
+
+def inject_faults(graph: PolicyGraph, net1: Net1, faults: dict[str, tuple[str, float]]) -> None:
+    """A wrong encoder head in the exported policy (R2's injected faults):
+    each named LCF's belief scaled or pinned, in report units, after net1
+    and before net2. A distribution net1 is refused: moving its bins needs a
+    definition of its own."""
+    if not faults:
+        return
+    if isinstance(net1.net, BinNet1):
+        raise ValueError("faults are injected into a point or interval net1, not a distribution")
+    scale = [faults[n][1] if faults.get(n, ("", 0.0))[0] == "scale" else 1.0 for n in net1.lcfs]
+    pinned = [faults.get(n, ("", 0.0))[0] == "pin" for n in net1.lcfs]
+    value = [faults[n][1] if pin else 0.0 for n, pin in zip(net1.lcfs, pinned, strict=True)]
+    graph.inject_fault(scale, value, pinned)
+
+
 # --- expliCCit's released checkpoints -----------------------------------------
 
 

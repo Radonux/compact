@@ -716,3 +716,28 @@ def test_a_net2_on_the_measurements_sees_them_in_training_and_in_the_graph(input
         assert torch.allclose(graph(obs), actor(torch.from_numpy(states[:8])), atol=1e-5)
     with pytest.raises(ValueError, match="multiplier"):
         Net2Spec(inputs=inputs, action="bdp")  # pyright: ignore[reportArgumentType]
+
+
+@pytest.mark.parametrize("intervals", [False, True])
+def test_an_injected_fault_scales_or_pins_one_belief_in_report_units(intervals: bool) -> None:
+    torch.manual_seed(0)
+    net1 = _net1(intervals)
+    k = 7
+    actor = ExpliccitActor(net1.width, 32).eval()
+    graph = fit.policy_graph(net1, actor, 1.0)
+    faults = fit.parse_faults(["capacity_bps*0.7", "busy_fraction=1"], net1.lcfs)
+    assert faults == {"capacity_bps": ("scale", 0.7), "busy_fraction": ("pin", 1.0)}
+    clean = graph.beliefs(torch.from_numpy(synthetic(1, 8).obs))
+    fit.inject_faults(graph, net1, faults)
+    bad = graph.beliefs(torch.from_numpy(synthetic(1, 8).obs))
+    reps = net1.width // k
+    center, spread = net1.lcf_scaler.center.repeat(reps), net1.lcf_scaler.spread.repeat(reps)
+    v0, v1 = clean * spread + center, bad * spread + center
+    cap, busy = EXPLICCIT_LCFS.index("capacity_bps"), EXPLICCIT_LCFS.index("busy_fraction")
+    for r in range(reps):
+        assert torch.allclose(v1[:, r * k + cap], 0.7 * v0[:, r * k + cap], rtol=1e-4)
+        assert torch.allclose(v1[:, r * k + busy], torch.ones(8), atol=1e-5)
+    others = [i for i in range(net1.width) if i % k not in (cap, busy)]
+    assert torch.allclose(bad[:, others], clean[:, others], atol=1e-6)
+    with pytest.raises(ValueError, match="not among"):
+        fit.parse_faults(["nonsense*2"], net1.lcfs)
