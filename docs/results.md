@@ -460,51 +460,59 @@ held-out family, and as 2 and 4 copies of itself:
 
 - expliCCit's released policy as deployed;
 - Sage's released policy;
+- Orca's released policy, exported from Orca's repository and checked
+  against Orca's own code
+  ([`exp-orca-model-196`](https://github.com/Radonux/palaestra/releases/tag/exp-orca-model-196)),
+  as an `agent_cubic` agent stepping every 20 ms: Linux 7.0's Cubic
+  underneath, rescaled by each action, with Orca's per-period statistics
+  from `TCP_CC_INFO`;
 - BBRv1, BBRv3, Cubic and Vegas, each with Linux's defaults.
 
 The two learned policies run as `agent_pure`, the controller of Sage's
 kernel, on which both were deployed (its pacing, read from the kernel's
-binary, is in [validation.md](validation.md)). That is 3,904 episodes,
+binary, is in [validation.md](validation.md)). That is 4,392 episodes,
 and none failed:
 [`exp-baselines-192`](https://github.com/Radonux/palaestra/releases/tag/exp-baselines-192)
 (the stock controllers, and both policies as `agent`),
 [`exp-baselines-pure-194`](https://github.com/Radonux/palaestra/releases/tag/exp-baselines-pure-194)
-(both policies as `agent_pure`), and the report of both,
-[`exp-baselines-report-195`](https://github.com/Radonux/palaestra/releases/tag/exp-baselines-report-195).
+(both policies as `agent_pure`),
+[`exp-baselines-orca-197`](https://github.com/Radonux/palaestra/releases/tag/exp-baselines-orca-197)
+(Orca), and the report of all three,
+[`exp-baselines-report-198`](https://github.com/Radonux/palaestra/releases/tag/exp-baselines-report-198).
 Families run for 30 s, except Cubic first (60 s) and expliCCit's
 case-study links (80 s). Share is the observed flow's throughput over the
 link's mean capacity. Delay is the mean queueing delay of its packets at
 the bottleneck, in ms. The report adds 95% intervals, the 95th percentile
 of delay and, under competition, Jain's index among the TCP flows.
 
-| Family: condition | expliCCit | Sage | BBRv1 | BBRv3 | Cubic | Vegas |
-|---|---|---|---|---|---|---|
-| training: clean | 0.57, 14 | 0.91, 10 | 0.95, 14 | 0.94, 15 | 0.97, 34 | 0.95, 10 |
-| training: loss 1% | 0.58, 12 | 0.49, 3 | 0.92, 10 | 0.72, 4 | 0.15, 2 | 0.16, 2 |
-| training: UDP from 5 s, Cubic from 8 s | 0.45, 27 | 0.48, 21 | 0.74, 30 | 0.67, 28 | 0.65, 35 | 0.38, 20 |
-| new: ACK loss 1% | 0.55, 14 | 0.92, 10 | 0.95, 14 | 0.93, 15 | 0.97, 34 | 0.95, 11 |
-| new: loss 0.1% | 0.59, 15 | 0.83, 5 | 0.95, 13 | 0.91, 13 | 0.45, 7 | 0.43, 4 |
-| new: loss 3% | 0.61, 11 | 0.45, 5 | 0.91, 8 | 0.34, 2 | 0.07, 1 | 0.08, 2 |
-| new: Cubic from 0 s | 0.45, 33 | 0.31, 35 | 0.65, 37 | 0.50, 35 | 0.53, 36 | 0.23, 29 |
-| new: Cubic from 2 s and 10 s | 0.46, 32 | 0.33, 31 | 0.67, 38 | 0.55, 34 | 0.53, 37 | 0.25, 30 |
-| new: BBRv1 from 4 s | 0.41, 33 | 0.26, 21 | 0.57, 32 | 0.35, 27 | 0.35, 34 | 0.20, 20 |
-| cubic-first (60 s) | 0.43, 32 | 0.32, 35 | 0.66, 37 | 0.53, 35 | 0.52, 36 | 0.17, 29 |
-| deep-long: clean | 0.25, 7 | 0.86, 94 | 0.95, 70 | 0.94, 83 | 0.98, 489 | 0.98, 200 |
-| deep-long: loss 1% | 0.27, 8 | 0.60, 10 | 0.92, 64 | 0.77, 38 | 0.08, 2 | 0.08, 3 |
-| deep-long: UDP from 5 s, Cubic from 8 s | 0.13, 141 | 0.38, 210 | 0.57, 226 | 0.62, 247 | 0.84, 503 | 0.61, 327 |
-| rise: clean | 0.45, 14 | 0.77, 15 | 0.80, 26 | 0.76, 30 | 0.81, 29 | 0.70, 18 |
-| cellular: clean | 0.33, 134 | 0.73, 135 | 0.80, 144 | 0.72, 126 | 0.66, 138 | 0.57, 85 |
-| cellular: Cubic from 0 s | 0.30, 137 | 0.48, 136 | 0.69, 149 | 0.44, 131 | 0.37, 127 | 0.23, 108 |
-| case studies (2 links, 80 s) | 0.73, 12 | 0.94, 13 | 0.96, 26 | 0.97, 51 | 1.00, 218 | 0.99, 28 |
+| Family: condition | expliCCit | Sage | Orca | BBRv1 | BBRv3 | Cubic | Vegas |
+|---|---|---|---|---|---|---|---|
+| training: clean | 0.57, 14 | 0.91, 10 | 0.92, 12 | 0.95, 14 | 0.94, 15 | 0.97, 34 | 0.95, 10 |
+| training: loss 1% | 0.58, 12 | 0.49, 3 | 0.67, 9 | 0.92, 10 | 0.72, 4 | 0.15, 2 | 0.16, 2 |
+| training: UDP from 5 s, Cubic from 8 s | 0.45, 27 | 0.48, 21 | 0.58, 24 | 0.74, 30 | 0.67, 28 | 0.65, 35 | 0.38, 20 |
+| new: ACK loss 1% | 0.55, 14 | 0.92, 10 | 0.92, 12 | 0.95, 14 | 0.93, 15 | 0.97, 34 | 0.95, 11 |
+| new: loss 0.1% | 0.59, 15 | 0.83, 5 | 0.81, 11 | 0.95, 13 | 0.91, 13 | 0.45, 7 | 0.43, 4 |
+| new: loss 3% | 0.61, 11 | 0.45, 5 | 0.45, 5 | 0.91, 8 | 0.34, 2 | 0.07, 1 | 0.08, 2 |
+| new: Cubic from 0 s | 0.45, 33 | 0.31, 35 | 0.41, 32 | 0.65, 37 | 0.50, 35 | 0.53, 36 | 0.23, 29 |
+| new: Cubic from 2 s and 10 s | 0.46, 32 | 0.33, 31 | 0.46, 31 | 0.67, 38 | 0.55, 34 | 0.53, 37 | 0.25, 30 |
+| new: BBRv1 from 4 s | 0.41, 33 | 0.26, 21 | 0.40, 27 | 0.57, 32 | 0.35, 27 | 0.35, 34 | 0.20, 20 |
+| cubic-first (60 s) | 0.43, 32 | 0.32, 35 | 0.42, 32 | 0.66, 37 | 0.53, 35 | 0.52, 36 | 0.17, 29 |
+| deep-long: clean | 0.25, 7 | 0.86, 94 | 0.88, 37 | 0.95, 70 | 0.94, 83 | 0.98, 489 | 0.98, 200 |
+| deep-long: loss 1% | 0.27, 8 | 0.60, 10 | 0.60, 18 | 0.92, 64 | 0.77, 38 | 0.08, 2 | 0.08, 3 |
+| deep-long: UDP from 5 s, Cubic from 8 s | 0.13, 141 | 0.38, 210 | 0.46, 171 | 0.57, 226 | 0.62, 247 | 0.84, 503 | 0.61, 327 |
+| rise: clean | 0.45, 14 | 0.77, 15 | 0.78, 19 | 0.80, 26 | 0.76, 30 | 0.81, 29 | 0.70, 18 |
+| cellular: clean | 0.33, 134 | 0.73, 135 | 0.52, 120 | 0.80, 144 | 0.72, 126 | 0.66, 138 | 0.57, 85 |
+| cellular: Cubic from 0 s | 0.30, 137 | 0.48, 136 | 0.34, 134 | 0.69, 149 | 0.44, 131 | 0.37, 127 | 0.23, 108 |
+| case studies (2 links, 80 s) | 0.73, 12 | 0.94, 13 | 0.99, 25 | 0.96, 26 | 0.97, 51 | 1.00, 218 | 0.99, 28 |
 
-| Copies | expliCCit | Sage | BBRv1 | BBRv3 | Cubic | Vegas |
-|---|---|---|---|---|---|---|
-| 2: Jain's index | 0.90 | 0.94 | 0.99 | 0.98 | 0.98 | 0.87 |
-| 2: link utilization | 0.72 | 0.97 | 0.95 | 0.95 | 0.98 | 0.96 |
-| 2: mean queueing delay (ms) | 17 | 17 | 33 | 28 | 36 | 14 |
-| 4: Jain's index | 0.89 | 0.91 | 0.94 | 0.98 | 0.97 | 0.84 |
-| 4: link utilization | 0.80 | 0.98 | 0.97 | 0.96 | 0.98 | 0.98 |
-| 4: mean queueing delay (ms) | 23 | 22 | 40 | 33 | 39 | 17 |
+| Copies | expliCCit | Sage | Orca | BBRv1 | BBRv3 | Cubic | Vegas |
+|---|---|---|---|---|---|---|---|
+| 2: Jain's index | 0.90 | 0.94 | 0.98 | 0.99 | 0.98 | 0.98 | 0.87 |
+| 2: link utilization | 0.72 | 0.97 | 0.94 | 0.95 | 0.95 | 0.98 | 0.96 |
+| 2: mean queueing delay (ms) | 17 | 17 | 24 | 33 | 28 | 36 | 14 |
+| 4: Jain's index | 0.89 | 0.91 | 0.94 | 0.94 | 0.98 | 0.97 | 0.84 |
+| 4: link utilization | 0.80 | 0.98 | 0.98 | 0.97 | 0.96 | 0.98 | 0.98 |
+| 4: mean queueing delay (ms) | 23 | 22 | 35 | 40 | 33 | 39 | 17 |
 
 What the tables say:
 
@@ -513,7 +521,7 @@ What the tables say:
   where Sage has 0.91), and 0.72 as two copies. This repeats
   `exp-final-test-100` (above). Its share holds under 1% to 3% random
   loss, where Cubic and Vegas fall below 0.16. On clean deep-buffer
-  links it keeps 7 ms of queue where the others keep 70 to 489 ms, at
+  links it keeps 7 ms of queue where the others keep 37 to 489 ms, at
   0.25 of the link.
 - Sage on clean links (0.91 of the link, 10 ms) is close to Vegas (0.95,
   10 ms), with a lower 95th percentile of delay (23 against 29 ms). It
@@ -521,15 +529,21 @@ What the tables say:
   In the new family's three competition conditions and with Cubic first,
   it gets 0.26 to 0.33 of the link, the least of any controller but
   Vegas. In clean deep buffers it keeps 94 ms of queue.
+- Orca rescales Cubic's window and cuts its queue: 0.92 of clean links at
+  12 ms (Cubic 0.97 at 34 ms), 0.88 of clean deep buffers at 37 ms
+  (Cubic 489 ms). Against Cubic it gets 0.41 to 0.46 of the link, less
+  than Cubic itself (0.52 to 0.53) and more than Sage (0.31 to 0.33). Under random loss it keeps 0.81, 0.67 and 0.45 of the link at
+  0.1%, 1% and 3%, far above Cubic (0.45, 0.15, 0.07) and below BBRv1.
+  As copies it is about as fair as the stock controllers (0.98 and 0.94).
 - BBRv1 has the most throughput under random data loss (0.1% to 3%) and
   in every competition but one: with deep buffers, Cubic fills them and
   takes 0.84. Against Cubic, BBRv1 takes about two thirds of the link;
   BBRv3 takes 0.50 to 0.55, but keeps only 0.34 under 3% loss, where
   BBRv1 keeps 0.91.
-- Among copies, BBRv1, BBRv3 and Cubic are the fairest (Jain's index 0.94
-  to 0.99) and Vegas the least fair (0.84 to 0.87). The two learned
-  policies sit between them on fairness, and between Vegas and the other
-  three on delay.
+- Among copies, BBRv1, BBRv3, Cubic and Orca are the fairest (Jain's
+  index 0.94 to 0.99) and Vegas the least fair (0.84 to 0.87). Sage and
+  expliCCit sit between them on fairness, and between Vegas and the
+  others on delay.
 - Sage's kernel pacing changes little. Against the same policies run as
   `agent` (pacing once a step at cwnd * MSS / srtt, run #192), paired by
   link, each scenario's share moves by at most 0.07 (Sage under 1% loss
@@ -537,12 +551,11 @@ What the tables say:
   change includes 0 in 31 of the 38 scenario and policy pairs. No
   conclusion above depends on it.
 
-Orca and Aurora are not in these tables. Orca's released model needs a
-port: Cubic under the agent, Orca's per-period statistics and its 20 ms
-period are in place, and the policy's export and its check against
-Orca's own code are under way. Aurora has no released model (PCC-RL at
-`64bea6e` holds only training code), so it must be trained first. Either
-can run later on the same links and seeds and join the report.
+Aurora is not in these tables: it has no released model (PCC-RL at
+`64bea6e` holds only training code), so it must be trained first, and as
+a rate-based controller it needs its own controller and per-interval
+statistics in `tcp_agent`. It can run later on the same links and seeds
+and join the report.
 
 ## Alarms and repair
 
