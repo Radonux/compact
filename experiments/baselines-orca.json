@@ -1,0 +1,14 @@
+{
+  "title": "Baselines: Orca's released policy on the same links",
+  "description": "Orca's released policy (exp-orca-model-196, exported from Orca's repository at cafaf9a and checked against Orca's own code) as an agent_cubic agent with a 20 ms period: Linux 7.0's Cubic under it, each action rescaling Cubic's window, Orca's per-period statistics from TCP_CC_INFO. Same families, test links, conditions and campaign seed 31 as exp-baselines-192 and exp-baselines-pure-194; pairing is by link and condition. experiments/baselines_report.py reports it under the name orca.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "orca": "release:exp-orca-model-196"
+  },
+  "prepare": "(cd \"$IN/orca/orca\" && sha256sum -c SHA256SUMS); P=(--policy \"orca=$IN/orca/orca/orca.onnx@cubic:20\"); S=; for fd in training:30 new:30 deep-long:30 cubic-first:60 rise:30 cellular:30 case-studies:80; do f=${fd%:*} d=${fd#*:}; uv run python experiments/heldout.py \"$OUT/spec-$f-$d\" --split test --family \"$f\" --duration-ms \"${d}000\" --seed 31 --stock \"$S\" \"${P[@]}\"; uv run expliccit campaign plan \"$OUT/spec-$f-$d/campaign.json\" \"$OUT/c-$f-$d\"; done; uv run python experiments/copies.py \"$OUT/copies\" --split test --duration-ms 30000 --seed 31 --n 2 4 --stock \"$S\" \"${P[@]}\"; mv \"$OUT/copies/c-copies-30s\" \"$OUT/\"; cp \"$OUT/spec-training-30/aliases.json\" \"$OUT/aliases.json\"",
+  "shards": 10,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables flow_seconds; done",
+  "collect": "uv run python experiments/baselines_report.py \"$OUT\" \"$OUT\"",
+  "timeout_minutes": 180
+}
