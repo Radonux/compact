@@ -225,6 +225,14 @@ Pushing against a buffer-filling flow pays, pushing against copies of
 oneself hurts, and the seven LCFs do not say which is present. Told the
 number of flows, a rule on the true state handles both.
 
+The measurements do say it; net1's beliefs lose it. A per-step classifier
+of the link's other traffic (none, copies, a stock TCP flow), scored on
+held-out validation links with net1 v6's fixed rule as the observed flow,
+reaches a balanced accuracy of 0.753 from the raw measurements and 0.496
+from net1 v6's beliefs (chance 0.333), and calls a stock flow copies 14%
+of the time from the measurements against 33% from the beliefs
+([`exp-net2-competitor-info-177`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-competitor-info-177)).
+
 - The share rule matches the rule on the true BDP over the five families
   and gains on the fixed rule where competitors fill the buffer (+0.108
   with Cubic from the start, +0.044 with the held-out competitors), but
