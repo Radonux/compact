@@ -126,6 +126,7 @@ checkout (`git clone https://github.com/Ppazhooh/mahak /tmp/mahak && git -C
 | The same build, spec and seed give byte-identical records | `pytest tests/test_uml.py -k "bit_identical or loss_and_cross"` |
 | A failed or invalid episode becomes a `failed` row with a reason, never metrics or labels | `pytest tests/test_records_abi.py tests/test_agent.py::test_bad_policy_output_fails_the_episode tests/test_mahak.py::test_failed_queries_never_become_labels tests/test_score.py` |
 | The truth a policy reads equals the labels stored with its step | `pytest tests/test_truth.py` |
+| Every released policy (each `.onnx` asset of the `model-*` releases) runs on the current guest; rerun when the guest, its modules or the policy contract change | `experiments/onnx-compat.json` |
 | Every kind of net1 (single values, intervals, distributions) trains with every net2 (offline, or taught then PPO; all beliefs or their means), exports a graph that computes what was trained, and runs in the guest | `pytest tests/test_e2e.py` |
 | Mahak's "mRTT" is one-way; a spec names one-way delay or base RTT, never both | `pytest tests/test_spec.py` |
 | Every episode row names its kernel tree, kernel config, repository commit and seed | columns `kernel_tree`, `config_sha256`, `repo_commit`, `seed` of `episodes.parquet` |
