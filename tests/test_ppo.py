@@ -20,6 +20,7 @@ from expliccit_env.policy import OBS_DIM  # noqa: E402
 from expliccit_env.spec import AgentCC, EpisodeSpec, OnnxPolicy, TcpCross  # noqa: E402
 from expliccit_env.train import data, fit, ppo  # noqa: E402
 from expliccit_env.train.export import to_onnx  # noqa: E402
+from expliccit_env.train.graph import MAX_DELIVERED, MIN_RTT_MS, PolicyGraph  # noqa: E402
 from expliccit_env.train.recurrent import OBS_MIN_RTT, RecurrentActor, decision_steps  # noqa: E402
 
 from .test_train import _bdp_net1  # noqa: E402
@@ -32,7 +33,17 @@ def test_decisions_come_once_per_min_rtt_within_10_to_50_ms() -> None:
     assert decision_steps(rtt).tolist() == [0, 3, 6, 7, 8, 13, 14, 15]
 
 
-def _graph(u: float, memory: bool = True) -> tuple[ppo.HeldPolicyGraph, fit.Net1, np.ndarray]:
+@torch.no_grad()
+def _lb(
+    net1: fit.Net1, spec: ppo.PPOSpec, obs: np.ndarray, y: np.ndarray | None = None
+) -> torch.Tensor:
+    """log2 of the BDP the spec's actor aims at, through its front end."""
+    front, o = ppo.front(net1, spec), torch.from_numpy(obs)
+    z, _, traffic = front(o, torch.from_numpy(y) if front.uses_truth and y is not None else None)
+    return ppo.target(net1, spec)(o, z, traffic)
+
+
+def _graph(u: float, memory: bool = True) -> tuple[PolicyGraph, fit.Net1, np.ndarray]:
     steps, net1 = _bdp_net1()
     spec = ppo.PPOSpec(
         paths_from=Path("unused"),
@@ -62,7 +73,7 @@ def test_held_graph_decides_where_the_learner_reads_decisions(memory: bool) -> N
             assert state is not None
             decided.append(bool(state[0, -1] > 0.5))
             windows.append(float(a) + np.log2(cwnd))
-            beliefs.append(float(graph.target(graph.net1(graph.scaler(o)))))  # pyright: ignore[reportOptionalCall]
+            beliefs.append(float(graph.target(o, graph.beliefs(o), None)))  # pyright: ignore[reportOptionalCall]
             cwnd = cwnd * 2 ** (float(a) + 0.1 * rng.standard_normal())  # the guest's noise
     d = decision_steps(obs[:, OBS_MIN_RTT])
     assert np.flatnonzero(decided).tolist() == d.tolist()
@@ -92,7 +103,7 @@ def test_a_residual_on_the_share_rule_starts_as_the_share_rule() -> None:
     actor = RecurrentActor(ppo._width(net1, spec), spec.hidden)  # pyright: ignore[reportPrivateUsage]
     actor.clone_rule(0.0, spec.action_max)
     graph = ppo.policy_graph(net1, actor, spec)
-    view = fit._view(net1, "means", None)  # pyright: ignore[reportPrivateUsage]
+    view = fit.view_of(net1, "means")
     assert view is not None
     rule = ShareRule(net1, 0.25, 2.0)
     obs = steps.obs[steps.episode == 0][:40].copy()
@@ -103,9 +114,9 @@ def test_a_residual_on_the_share_rule_starts_as_the_share_rule() -> None:
             o = torch.from_numpy(row[None, :])
             a, state = graph.step(o, state, cwnd=torch.tensor([[cwnd]]))
             assert state is not None
-            z = graph.net1(graph.scaler(o))  # pyright: ignore[reportOptionalCall]
+            z = graph.beliefs(o)
             if state[0, -1] > 0.5:  # a decision
-                want = float(graph.target(z)) + float(rule(view(z))) * ACTION_MAX  # pyright: ignore[reportOptionalCall]
+                want = float(graph.target(o, z, None)) + float(rule(view(z))) * ACTION_MAX  # pyright: ignore[reportOptionalCall]
                 assert float(a) + np.log2(cwnd) == pytest.approx(want, abs=1e-4)
             cwnd = cwnd * 2 ** float(a)
 
@@ -133,7 +144,7 @@ def test_a_gate_graph_moves_u_toward_the_share_rule_by_its_belief(
     actor = RecurrentActor(ppo._width(net1, spec), spec.hidden)  # pyright: ignore[reportPrivateUsage]
     actor.clone_rule(2 * p - 1, 1.0)  # (a + 1) / 2 = p on any input
     graph = ppo.policy_graph(net1, actor, spec)
-    view = fit._view(net1, "means", None)  # pyright: ignore[reportPrivateUsage]
+    view = fit.view_of(net1, "means")
     assert view is not None
     rule = ShareRule(net1, 0.25, 2.0)
     obs = steps.obs[steps.episode == 0][:40].copy()
@@ -144,10 +155,10 @@ def test_a_gate_graph_moves_u_toward_the_share_rule_by_its_belief(
             o = torch.from_numpy(row[None, :])
             a, state = graph.step(o, state, cwnd=torch.tensor([[cwnd]]))
             assert state is not None
-            z = graph.net1(graph.scaler(o))  # pyright: ignore[reportOptionalCall]
+            z = graph.beliefs(o)
             if state[0, -1] > 0.5:  # a decision
                 share = float(rule(view(z))) * ACTION_MAX  # pyright: ignore[reportOptionalCall]
-                want = float(graph.target(z)) + 0.25 + acted * (share - 0.25)  # pyright: ignore[reportOptionalCall]
+                want = float(graph.target(o, z, None)) + 0.25 + acted * (share - 0.25)  # pyright: ignore[reportOptionalCall]
                 assert float(a) + np.log2(cwnd) == pytest.approx(want, abs=1e-4)
             cwnd = cwnd * 2 ** float(a)
 
@@ -177,7 +188,7 @@ def test_an_ensemble_gate_graph_acts_on_its_members_mean_belief() -> None:
         members.append(actor)
     graph = ppo.policy_graph(net1, EnsembleActor(members), spec)
     assert graph.state_dim == 3 * 8 + 5
-    view = fit._view(net1, "means", None)  # pyright: ignore[reportPrivateUsage]
+    view = fit.view_of(net1, "means")
     assert view is not None
     rule = ShareRule(net1, 0.25, 2.0)
     obs = steps.obs[steps.episode == 0][:40].copy()
@@ -188,10 +199,10 @@ def test_an_ensemble_gate_graph_acts_on_its_members_mean_belief() -> None:
             o = torch.from_numpy(row[None, :])
             a, state = graph.step(o, state, cwnd=torch.tensor([[cwnd]]))
             assert state is not None
-            z = graph.net1(graph.scaler(o))  # pyright: ignore[reportOptionalCall]
+            z = graph.beliefs(o)
             if state[0, -1] > 0.5:  # a decision
                 share = float(rule(view(z))) * ACTION_MAX  # pyright: ignore[reportOptionalCall]
-                want = float(graph.target(z)) + 0.25 + acted * (share - 0.25)  # pyright: ignore[reportOptionalCall]
+                want = float(graph.target(o, z, None)) + 0.25 + acted * (share - 0.25)  # pyright: ignore[reportOptionalCall]
                 assert float(a) + np.log2(cwnd) == pytest.approx(want, abs=1e-4)
             cwnd = cwnd * 2 ** float(a)
 
@@ -235,7 +246,7 @@ def test_a_gate3_graph_mixes_the_rules_by_its_beliefs(
         return min(max((x - t) / (1 - t), 0.0), 1.0) if t > 0 else x
 
     ps, qs = sharp(p, t), sharp(q, t if tq is None else tq)
-    view = fit._view(net1, "means", None)  # pyright: ignore[reportPrivateUsage]
+    view = fit.view_of(net1, "means")
     assert view is not None
     share_rule, coop_rule = ShareRule(net1, 0.25, 2.0), CoopRule(net1, 0.25)
     obs = steps.obs[steps.episode == 0][:40].copy()
@@ -246,7 +257,7 @@ def test_a_gate3_graph_mixes_the_rules_by_its_beliefs(
             o = torch.from_numpy(row[None, :])
             a, state = graph.step(o, state, cwnd=torch.tensor([[cwnd]]))
             assert state is not None
-            z = graph.net1(graph.scaler(o))  # pyright: ignore[reportOptionalCall]
+            z = graph.beliefs(o)
             if state[0, -1] > 0.5:  # a decision
                 sh = float(share_rule(view(z))) * ACTION_MAX  # pyright: ignore[reportOptionalCall]
                 co = float(coop_rule(view(z))) * ACTION_MAX  # pyright: ignore[reportOptionalCall]
@@ -254,7 +265,7 @@ def test_a_gate3_graph_mixes_the_rules_by_its_beliefs(
                     u = 0.25 + ps * (1 - qs) * (sh - 0.25)
                 else:
                     u = 0.25 + ps * (sh - 0.25) + (1 - ps) * qs * (co - 0.25)
-                want = float(graph.target(z)) + u  # pyright: ignore[reportOptionalCall]
+                want = float(graph.target(o, z, None)) + u  # pyright: ignore[reportOptionalCall]
                 assert float(a) + np.log2(cwnd) == pytest.approx(want, abs=1e-4)
             cwnd = cwnd * 2 ** float(a)
 
@@ -284,8 +295,8 @@ def test_the_black_box_aims_at_the_measured_bdp_and_reads_no_belief() -> None:
     actor.clone_rule(0.25, spec.action_max)
     graph = ppo.policy_graph(net1, actor, spec)
     obs = steps.obs[steps.episode == 0][:5].copy()
-    obs[:, ppo._MAX_DELIVERED] = 0.5  # 50 Mbit/s  # pyright: ignore[reportPrivateUsage]
-    obs[:, ppo._MIN_RTT_MS] = 24.0  # pyright: ignore[reportPrivateUsage]
+    obs[:, MAX_DELIVERED] = 0.5  # 50 Mbit/s
+    obs[:, MIN_RTT_MS] = 24.0
     bdp = np.log2(50e6 * 0.024 / 12_000)  # 100 packets
     for p in net1.net.parameters():  # no belief reaches the black box
         p.data.fill_(float("nan"))
@@ -325,18 +336,18 @@ def test_the_oracle_reads_the_live_truth_as_its_trajectories_do() -> None:
             torch.from_numpy(truth),
             torch.tensor([[10.0]]),
         )
-    encode, _, target = ppo._views(net1, spec)  # pyright: ignore[reportPrivateUsage]
     y = truth * np.array([ppo.LCF_UNITS[k][0] for k in net1.lcfs], np.float32)
-    lb = float(target(encode(obs, y)))
+    lb = float(_lb(net1, spec, obs, y))
     assert float(a) + np.log2(10.0) == pytest.approx(lb + 0.25, abs=1e-4)
-    believed = float(target(torch.from_numpy(net1.beliefs(obs))))
+    believed = float(fit.window_target(net1).bdp(torch.from_numpy(net1.beliefs(obs))))
     assert abs(believed - lb) > 0.2  # the truth's bins, not net1's belief
     m = onnx.load_from_string(to_onnx(graph))
     assert [i.name for i in m.graph.input] == ["obs", "state", "truth", "cwnd"]
     # One LCF from the truth, the rest from net1 (a patched net1).
     net1_spec = spec.model_copy(update={"inputs": "net1"})
     one = ppo.policy_graph(net1, actor, net1_spec, frozenset({"capacity_bps"}))
-    assert one.from_truth.tolist() == [n == "capacity_bps" for n in net1.lcfs]
+    assert one.front.take is not None
+    assert one.front.take.tolist() == [n == "capacity_bps" for n in net1.lcfs]
     assert not ppo.policy_graph(net1, actor, net1_spec).uses_truth
 
 
@@ -372,14 +383,13 @@ def test_the_black_box_learns_the_teachers_window_on_its_own_bdp() -> None:
             share_k=0.0,
             inputs=inputs,
         )
-        encode, view, target = ppo._views(net1, spec)  # pyright: ignore[reportPrivateUsage]
         tr = ppo._trajectory(  # pyright: ignore[reportPrivateUsage]
             table,
             np.zeros(n, np.float32),
             net1,
-            encode=encode,
-            view=view,
-            target=target,
+            front=ppo.front(net1, spec),
+            target=ppo.target(net1, spec),
+            rules=ppo.Rules(net1, spec),
             spec=spec,
             group=(0, 0),
             rivals=rivals,
@@ -387,11 +397,11 @@ def test_the_black_box_learns_the_teachers_window_on_its_own_bdp() -> None:
         assert tr is not None and tr.teacher is not None
         d = decision_steps(obs[:, OBS_MIN_RTT])
         d = d[d + 1 < n]
-        return tr.teacher, target(encode(obs[d], np.zeros((d.size, 7), np.float32))).numpy(), d
+        return tr.teacher, _lb(net1, spec, obs[d]).numpy(), d
 
     on_net1, _, _ = teacher("net1")
     raw, lb_raw, d = teacher("raw")
-    lb_net1 = fit.window_target(net1)(torch.from_numpy(net1.beliefs(obs[d]))).numpy()
+    lb_net1 = fit.window_target(net1).bdp(torch.from_numpy(net1.beliefs(obs[d]))).numpy()
     # The fixed rule's window (share_k 0), as u on net1's BDP and on the measured one.
     assert np.allclose(on_net1, 0.25)
     assert np.allclose(raw, 0.25 + lb_net1 - lb_raw, atol=1e-5)
@@ -1087,14 +1097,13 @@ def test_a_policy_teacher_labels_the_window_it_would_set_on_the_students_bdp(
         spec = ppo.PPOSpec.model_validate(
             common | {"algo": "dagger", "inputs": inputs, "teacher_from": d}
         )
-        encode, view, target = ppo._views(net1, spec)  # pyright: ignore[reportPrivateUsage]
         tr = ppo._trajectory(  # pyright: ignore[reportPrivateUsage]
             table,
             np.zeros(obs.shape[0], np.float32),
             net1,
-            encode=encode,
-            view=view,
-            target=target,
+            front=ppo.front(net1, spec),
+            target=ppo.target(net1, spec),
+            rules=ppo.Rules(net1, spec),
             spec=spec,
             group=(0, 0),
             rivals=np.zeros((0, 3)),
@@ -1108,8 +1117,8 @@ def test_a_policy_teacher_labels_the_window_it_would_set_on_the_students_bdp(
             axis=1,
         ).astype(np.float32)
         z = torch.from_numpy(net1.beliefs(obs[dec]))
-        true_bdp = fit.window_target(net1)(fit._oracle(net1, z, y)).numpy()  # pyright: ignore[reportPrivateUsage]
-        own = target(encode(obs[dec], y)).numpy()  # the student's believed or measured BDP
+        true_bdp = fit.window_target(net1).bdp(fit.oracle(net1, z, y)).numpy()
+        own = _lb(net1, spec, obs[dec]).numpy()  # the student's believed or measured BDP
         assert np.allclose(tr.teacher, 0.5 + true_bdp - own, atol=1e-4)
         assert np.abs(true_bdp - own).max() > 0.05  # the frames differ
     with pytest.raises(ValueError, match="teacher_from"):

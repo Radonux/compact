@@ -5,7 +5,10 @@ competitor: per step, a classifier of the other traffic reaches 0.753
 balanced accuracy on held-out links from the raw measurements and 0.496
 from net1 v6's beliefs (exp-net2-competitor-info-177). A TrafficHead is
 that classifier as a part of net1: it reads the measurements through
-net1's input scaler and states the probability of each class.
+net1's input scaler and states the probability of each class. A policy
+graph takes it in its front end (graph.Front ``traffic``); a gate3 head
+can take its beliefs from it (ppo.Head), and a spread target can stop
+probing among copies with it (graph.SpreadTarget ``copies_gated``).
 """
 
 # torch's own annotations leave many signatures partly unknown (from_numpy,
@@ -81,65 +84,3 @@ def load_head(path: Path) -> TrafficHead:
     head = TrafficHead(int(saved["width"]))
     head.load_state_dict(saved["state"])
     return head.eval()
-
-
-class WithTraffic(nn.Module):
-    """net1 with its traffic head: net1's scaled measurements -> [net1's
-    output, the head's probabilities of CLASSES] (the last three columns)."""
-
-    def __init__(self, net1: nn.Module, head: TrafficHead) -> None:
-        super().__init__()
-        self.net1, self.head = net1, head
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return torch.cat([self.net1(x), self.head(x)], dim=1)
-
-
-class Beliefs(nn.Module):
-    """A module on net1's output, given WithTraffic's: it sees the beliefs
-    without the head's columns (``inner`` None passes them as they are)."""
-
-    def __init__(self, inner: nn.Module | None) -> None:
-        super().__init__()
-        self.inner = inner
-
-    def forward(self, z: torch.Tensor) -> torch.Tensor:
-        b = z[:, : -len(CLASSES)]
-        return b if self.inner is None else self.inner(b)
-
-
-class HeadQ(nn.Module):
-    """A gate3 gate (train/ppo.py) with q, the belief that copies share the
-    link, from net1's traffic head instead of the students: the students'
-    output [p, q] in [-1, 1] takes 2 P(copies) - 1 for q, and with
-    ``p_too`` also 2 P(stock) - 1 for p, the belief in a stock TCP flow, so
-    that no learned output is left."""
-
-    def __init__(self, gate: nn.Module, *, p_too: bool = False) -> None:
-        super().__init__()
-        self.gate, self.p_too = gate, p_too
-
-    def forward(self, z: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
-        copies = z[:, CLASSES.index("copies") - len(CLASSES)]
-        stock = z[:, CLASSES.index("stock") - len(CLASSES)]
-        p = 2 * stock - 1 if self.p_too else a[:, 0]
-        return self.gate(z[:, : -len(CLASSES)], torch.stack([p, 2 * copies - 1], dim=1))
-
-
-class CopiesGated(nn.Module):
-    """A raised window target on net1's output with its traffic head
-    (WithTraffic): ``raised`` (train/models.py SpreadTarget) lifts its base
-    target where net1 is unsure of the capacity, which it also is on any
-    shared link; this applies the lift in proportion to 1 - P(copies), so a
-    flow probes where the capacity is unseen but not among copies of
-    itself, where a push only deepens the queue."""
-
-    def __init__(self, raised: nn.Module, base: nn.Module) -> None:
-        super().__init__()
-        self.raised, self.base = raised, base
-
-    def forward(self, z: torch.Tensor) -> torch.Tensor:
-        b = z[:, : -len(CLASSES)]
-        copies = z[:, CLASSES.index("copies") - len(CLASSES)]
-        base = self.base(b)
-        return base + (self.raised(b) - base) * (1 - copies)

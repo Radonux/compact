@@ -33,6 +33,7 @@ import torch
 
 from expliccit_env.policy import OBS_DIM
 from expliccit_env.train import fit
+from expliccit_env.train.beliefs import Bins
 
 type F64 = npt.NDArray[np.float64]
 SETTLE_S = 5.0
@@ -44,7 +45,9 @@ def shard(directory: Path, net1_path: Path) -> None:
     net1, _ = fit.load_net1(net1_path)
     target = fit.window_target(net1)
     busy_i, cap_i = net1.lcfs.index("busy_fraction"), net1.lcfs.index("capacity_bps")
-    mid = target.means.mid
+    if not isinstance(net1.kind, Bins):
+        raise SystemExit("the spread of capacity needs a distribution net1")
+    mid = net1.kind.mid
     log_mid = torch.log2(torch.clamp(mid[cap_i], min=1e-3))
     for steps in sorted(directory.rglob("steps.parquet")):
         names = pq.read_schema(steps).names
@@ -67,7 +70,7 @@ def shard(directory: Path, net1_path: Path) -> None:
         window = np.where(np.isfinite(window) & (window > 0), window, stock)[rows]
         with torch.no_grad():
             z = torch.from_numpy(net1.beliefs(obs[rows]))
-            lb = target(z).numpy().astype(np.float64)
+            lb = target.bdp(z).numpy().astype(np.float64)
             p = z.reshape(len(rows), *mid.shape)
             idle = 1 - (p[:, busy_i] * mid[busy_i]).sum(dim=1).numpy()
             pc = p[:, cap_i]

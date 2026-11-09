@@ -51,7 +51,6 @@ import json
 import math
 import shutil
 import time
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any, Final, Literal, cast
@@ -64,7 +63,7 @@ import torch
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt, model_validator
 from torch import nn
 
-from expliccit_env.policy import OBS_COLUMNS, OBS_DIM
+from expliccit_env.policy import OBS_DIM
 from expliccit_env.spec import (
     MAX_CROSS,
     STOCK_NAMES,
@@ -79,20 +78,21 @@ from expliccit_env.spec import (
     Trace,
     UdpCross,
 )
-from expliccit_env.train import fit, score
+from expliccit_env.train import fit, rollouts, score
 from expliccit_env.train.export import to_onnx
-from expliccit_env.train.models import PACKET_BITS, PolicyGraph, Scaler
-from expliccit_env.train.online import _arms, _run  # pyright: ignore[reportPrivateUsage]
+from expliccit_env.train.graph import Front, MeasuredBdp, PolicyGraph
 from expliccit_env.train.recurrent import (
     OBS_MIN_RTT,
+    ConcatActor,
     EnsembleActor,
-    HeldPolicyGraph,
+    Held,
     RecurrentActor,
     decision_steps,
 )
 from expliccit_env.train.share import ACTION_MAX as SHARE_ACTION_MAX
 from expliccit_env.train.share import CoopRule, ShareRule
 from expliccit_env.train.spec import LCF_UNITS, Net2Spec
+from expliccit_env.train.traffic import CLASSES
 from expliccit_env.uml import UmlBuild
 
 type F32 = npt.NDArray[np.float32]
@@ -558,40 +558,6 @@ def _batch(
     return eps, groups, rivals
 
 
-class _ShareOffset(nn.Module):
-    """net1's output -> the share rule's u (train/share.py)."""
-
-    def __init__(self, net1: fit.Net1, spec: PPOSpec) -> None:
-        super().__init__()
-        view = fit._view(net1, "means", None)  # pyright: ignore[reportPrivateUsage]
-        if view is None:
-            raise ValueError("the share rule needs net1's means view")
-        self.view = view
-        self.rule = ShareRule(net1, spec.u_rule, spec.share_k)
-
-    def forward(self, z: torch.Tensor) -> torch.Tensor:
-        return self.rule(self.view(z)).squeeze(1) * SHARE_ACTION_MAX
-
-
-def _offset(net1: fit.Net1, spec: PPOSpec) -> nn.Module | None:
-    return _ShareOffset(net1, spec).eval() if spec.base == "share" else None
-
-
-class _CoopOffset(nn.Module):
-    """net1's output -> the cooperative window's u (train/share.py CoopRule)."""
-
-    def __init__(self, net1: fit.Net1, spec: PPOSpec) -> None:
-        super().__init__()
-        view = fit._view(net1, "means", None)  # pyright: ignore[reportPrivateUsage]
-        if view is None:
-            raise ValueError("the cooperative window needs net1's means view")
-        self.view = view
-        self.rule = CoopRule(net1, spec.u_rule)
-
-    def forward(self, z: torch.Tensor) -> torch.Tensor:
-        return self.rule(self.view(z)).squeeze(1) * SHARE_ACTION_MAX
-
-
 P0: Final = 0.02  # a gate student's beliefs at the start
 
 
@@ -628,19 +594,6 @@ def gated_u(p: torch.Tensor, share: torch.Tensor, u_rule: float) -> torch.Tensor
     return u_rule + p * (share - u_rule)
 
 
-class _ShareGate(nn.Module):
-    """net1's output and the actor's output a in [-1, 1] -> a "gate"
-    student's u, with p = (a + 1) / 2 past spec.gate_threshold."""
-
-    def __init__(self, net1: fit.Net1, spec: PPOSpec) -> None:
-        super().__init__()
-        self.share = _ShareOffset(net1, spec)
-        self.spec = spec
-
-    def forward(self, z: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
-        return policy_u(self.spec, a, self.share(z))
-
-
 def gated3_u(
     p: torch.Tensor,
     q: torch.Tensor,
@@ -662,23 +615,60 @@ def _sharpen(p: torch.Tensor, t: float) -> torch.Tensor:
     return torch.clamp((p - t) / (1 - t), 0.0, 1.0) if t > 0 else p
 
 
-class _ShareGate3(nn.Module):
-    """net1's output and the actor's two outputs in [-1, 1] -> a "gate3"
-    student's u, with its beliefs (a + 1) / 2 past their thresholds."""
+class Rules(nn.Module):
+    """net1's beliefs z -> [n, 2]: the share rule's u and the cooperative
+    window's u (train/share.py), both on net1's standardized means, from any
+    kind of net1. What the gate students mix, and what the rule teachers
+    read."""
 
     def __init__(self, net1: fit.Net1, spec: PPOSpec) -> None:
         super().__init__()
-        self.share, self.coop = _ShareOffset(net1, spec), _CoopOffset(net1, spec)
-        self.spec = spec
+        self.kind = net1.kind
+        self.share = ShareRule(net1, spec.u_rule, spec.share_k)
+        self.coop = CoopRule(net1, spec.u_rule)
 
-    def forward(self, z: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
-        return policy_u(self.spec, a, self.share(z), self.coop(z))
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        m = self.kind.scaled_means(z)
+        return torch.cat([self.share(m), self.coop(m)], dim=1) * SHARE_ACTION_MAX
 
 
-def _gate(net1: fit.Net1, spec: PPOSpec) -> nn.Module | None:
-    if spec.student == "gate":
-        return _ShareGate(net1, spec).eval()
-    return _ShareGate3(net1, spec).eval() if spec.student == "gate3" else None
+class Head(nn.Module):
+    """A Held decision's head (recurrent.py): the actor's output a in [-1, 1]
+    (with net1's beliefs z and the traffic head's probabilities) -> u, by
+    policy_u, so the exported graph sets the u every learner trained. With
+    ``traffic_q`` (or ``traffic_p``), a "gate3" student's belief in copies
+    (or in a stock flow) comes from the traffic head instead
+    (train/traffic.py)."""
+
+    def __init__(
+        self,
+        net1: fit.Net1,
+        spec: PPOSpec,
+        *,
+        traffic_q: bool = False,
+        traffic_p: bool = False,
+    ) -> None:
+        super().__init__()
+        if (traffic_q or traffic_p) and spec.student != "gate3":
+            raise ValueError('the traffic head stands in for a "gate3" student\'s beliefs only')
+        self.spec, self.traffic_q, self.traffic_p = spec, traffic_q, traffic_p
+        needs = spec.student != "u" or spec.base == "share"
+        self.rules = Rules(net1, spec) if needs else None
+
+    def forward(
+        self, a: torch.Tensor, z: torch.Tensor, traffic: torch.Tensor | None
+    ) -> torch.Tensor:
+        if self.traffic_q or self.traffic_p:
+            if traffic is None:
+                raise ValueError("this head reads the traffic head's probabilities")
+            p = 2 * traffic[:, CLASSES.index("stock")] - 1 if self.traffic_p else a[:, 0]
+            a = torch.stack([p, 2 * traffic[:, CLASSES.index("copies")] - 1], dim=1)
+        if self.rules is None:
+            return policy_u(self.spec, a)
+        r = self.rules(z)
+        if self.spec.student == "u":  # base "share": a residual on the share rule
+            return policy_u(self.spec, a, base=r[:, 0])
+        return policy_u(self.spec, a, r[:, 0], r[:, 1])
 
 
 def teacher3_u(share_u: F32, coop_u: F32, counts: F32, u_rule: float) -> F32:
@@ -713,76 +703,30 @@ def _mean_u(spec: PPOSpec, trs: list[Trajectory], a: torch.Tensor) -> torch.Tens
     return policy_u(spec, a, base=padded(base))
 
 
-# BBR's bottleneck bandwidth: the kernel's per-ACK delivery rate
-# (tcpi_delivery_rate), its maximum over the last 200 steps (2 s). Not
-# max_delivered_x100mbps: that is a 1 s average, which trails a growing
-# window by about 0.5 s, so a window aimed just above it grows by 19% per
-# 0.5 s instead of per RTT (round 19's first black box started 2.2 below
-# the rule and collapsed).
-_MAX_DELIVERED: Final = OBS_COLUMNS.index("delivery_rate_x100mbps_mid_max")
-_MIN_RTT_MS: Final = OBS_COLUMNS.index("min_rtt_ms")
+def front(net1: fit.Net1, spec: PPOSpec, *, traffic: nn.Module | None = None) -> Front:
+    """The actor's front end (graph.Front), shared by training and the
+    exported graph: net1's beliefs ("net1"), the truth's ("truth", an
+    oracle), or the measurements alone ("raw", the black box)."""
+    inputs: fit.Inputs = (
+        "true_lcfs" if spec.inputs == "truth" else "raw" if spec.inputs == "raw" else "net1"
+    )
+    return fit.front(
+        net1,
+        inputs=inputs,
+        view=spec.view,
+        input_bins=spec.input_bins if spec.view == "bins" else None,
+        traffic=traffic,
+    )
 
 
-class RawInputs(nn.Module):
-    """The black box's stand-in for net1 (PPOSpec.inputs "raw"): obs ->
-    [the measurements as net1's input scaler gives them, then log2 of the
-    measured BDP in packets]. The measured BDP is BBR's: the maximum
-    delivery rate over the last 2 s times the minimum RTT, at least one
-    packet."""
-
-    def __init__(self, scaler: Scaler) -> None:
-        super().__init__()
-        self.scaler = scaler
-
-    def forward(self, obs: torch.Tensor) -> torch.Tensor:
-        bits = obs[:, _MAX_DELIVERED] * 1e8 * obs[:, _MIN_RTT_MS] * 1e-3
-        # Not nan_to_num: its IsInf is an op the guest's tract cannot run.
-        bits = torch.where(torch.abs(bits) < 3.0e38, bits, torch.zeros_like(bits))
-        bdp = torch.log2(torch.clamp(bits / PACKET_BITS, min=1.0))
-        return torch.cat([self.scaler(obs), bdp.unsqueeze(1)], dim=1)
-
-
-class _Features(nn.Module):
-    def forward(self, z: torch.Tensor) -> torch.Tensor:
-        return z[:, :-1]
-
-
-class _MeasuredBdp(nn.Module):
-    def forward(self, z: torch.Tensor) -> torch.Tensor:
-        return z[:, -1]
-
-
-type Encode = Callable[[F32, F32], torch.Tensor]
-
-
-def _views(net1: fit.Net1, spec: PPOSpec) -> tuple[Encode, nn.Module | None, nn.Module]:
-    """What turns a flow's obs and true LCFs (report units) into net1's
-    output z (or the black box's stand-in), z into the actor's input, and
-    z into log2 of the BDP the window is aimed at."""
-    if spec.inputs == "raw":
-        raw = RawInputs(net1.scaler).eval()
-        return (lambda obs, _: raw(torch.from_numpy(obs))), _Features(), _MeasuredBdp()
-    view = fit._view(net1, spec.view, spec.input_bins if spec.view == "bins" else None)  # pyright: ignore[reportPrivateUsage]
-    if spec.inputs == "truth":
-        return (
-            lambda obs, y: fit._oracle(net1, torch.from_numpy(net1.beliefs(obs)), y),  # pyright: ignore[reportPrivateUsage]
-            view,
-            fit.window_target(net1),
-        )
-    return (lambda obs, _: torch.from_numpy(net1.beliefs(obs))), view, fit.window_target(net1)
+def target(net1: fit.Net1, spec: PPOSpec) -> nn.Module:
+    """The BDP the window is aimed at: net1's belief, or BBR's estimate for
+    the black box."""
+    return MeasuredBdp() if spec.inputs == "raw" else fit.window_target(net1)
 
 
 def _width(net1: fit.Net1, spec: PPOSpec) -> int:
-    if spec.inputs == "raw":
-        return int(net1.scaler.cols.numel())
-    return fit.net2_width(
-        net1,
-        Net2Spec(
-            view=spec.view,
-            input_bins=spec.input_bins if spec.view == "bins" else None,
-            action="bdp",
-        ),
-    )
+    return fit.input_width(front(net1, spec))
 
 
 # What an actor's function depends on besides its weights, and what a value
@@ -839,7 +783,7 @@ class _PolicyTeacher:
             raise ValueError(f'{run}: a teacher reads the truth (inputs "truth"), student "u"')
         actor = RecurrentActor(_width(net1, t), t.hidden, memory=t.memory)
         actor.load_state_dict(torch.load(run / "actor.pt", weights_only=True))
-        view = fit._view(net1, t.view, t.input_bins if t.view == "bins" else None)  # pyright: ignore[reportPrivateUsage]
+        view = fit.view_of(net1, t.view, t.input_bins if t.view == "bins" else None)
         return _PolicyTeacher(actor.eval(), view, t.action_max)
 
     @torch.no_grad()
@@ -849,9 +793,9 @@ class _PolicyTeacher:
         the window the flow set after each decision (log2 packets): it reads
         the truth's bins and, as its previous u, the flow's last window on
         the true BDP."""
-        zt = fit._oracle(net1, z, y)  # pyright: ignore[reportPrivateUsage]
+        zt = fit.oracle(net1, z, y)
         x = zt if self.view is None else self.view(zt)
-        lb = fit.window_target(net1)(zt).numpy()
+        lb = fit.window_target(net1).bdp(zt).numpy()
         prev = np.concatenate([[0.0], (set_window - lb)[:-1]]).astype(np.float32)
         inp = torch.cat([x, torch.from_numpy(prev / self.action_max).unsqueeze(1)], dim=1)
         u = self.actor.sequence(inp.unsqueeze(0))[0].numpy() * self.action_max
@@ -898,9 +842,9 @@ def _trajectory(
     utility: npt.NDArray[np.float32],
     net1: fit.Net1,
     *,
-    encode: Encode,
-    view: nn.Module | None,
+    front: Front,
     target: nn.Module,
+    rules: Rules,
     spec: PPOSpec,
     group: tuple[int, int],
     rivals: npt.NDArray[np.float64],
@@ -909,7 +853,8 @@ def _trajectory(
     """One flow's decisions; ``t`` is its steps in step order, ``utility``
     the reward of each of those steps, ``rivals`` its episode's cross
     flows (_rivals) and ``teacher`` DAgger's teacher where it is a policy
-    on the truth (PPOSpec.teacher_from)."""
+    on the truth (PPOSpec.teacher_from). The actor's inputs and the window
+    target come from the exported graph's own front end and target."""
     n = t.num_rows
     flat = cast("pa.FixedSizeListArray[Any, Any]", t["obs"].combine_chunks()).flatten()
     obs = np.asarray(flat, np.float32).reshape(n, OBS_DIM)
@@ -921,12 +866,14 @@ def _trajectory(
     if d.size < 2:
         return None
     y = np.stack([labels[k][d] * np.float32(LCF_UNITS[k][0]) for k in net1.lcfs], axis=1)
-    z = encode(obs[d], y)
-    x = (z if view is None else view(z)).numpy()
-    lb = target(z).numpy()
+    o = torch.from_numpy(obs[d])
+    z, xt, traffic = front(o, torch.from_numpy(y) if front.uses_truth else None)
+    x = xt.numpy()
+    lb = target(o, z, traffic).numpy()
     u = (np.log2(np.maximum(cwnd[d + 1], 1.0)) - lb).astype(np.float32)
-    off = _offset(net1, spec)
-    base = None if off is None else off(z).numpy().astype(np.float32)
+    # The rules' u on the actor's beliefs, as its head reads them in the graph.
+    ruled = rules(z).numpy().astype(np.float32) if spec.inputs != "raw" else None
+    base = ruled[:, 0] if ruled is not None and spec.base == "share" else None
     prev = np.concatenate([[0.0], u[:-1]]).astype(np.float32)
     # Each step's reward weighs 1 - exp(-10 ms / tau), so a return is a
     # discounted mean utility, of order 1 whatever tau is.
@@ -947,11 +894,12 @@ def _trajectory(
     critic = np.concatenate(parts, axis=1).astype(np.float32)
     if spec.algo != "dagger" and spec.student == "u":
         return Trajectory(group, inp, critic, u, reward, gamma, base)
-    # The rules read net1's beliefs, also for the black box ("raw"), whose
-    # u is then the rule's window on its own measured BDP.
+    # The teachers read net1's beliefs, also for the black box ("raw"), whose
+    # label is then the teacher's window on its own measured BDP.
     z1 = z if spec.inputs == "net1" else torch.from_numpy(net1.beliefs(obs[d]))
-    share_u = _ShareOffset(net1, spec).eval()(z1).numpy().astype(np.float32)
-    coop_u = _CoopOffset(net1, spec).eval()(z1).numpy().astype(np.float32)
+    if ruled is None or spec.inputs != "net1":
+        ruled = rules(z1).numpy().astype(np.float32)
+    share_u, coop_u = ruled[:, 0], ruled[:, 1]
     if spec.algo != "dagger":  # a gate student continued by PPO
         return Trajectory(group, inp, critic, u, reward, gamma, share=share_u, coop=coop_u)
     tcp = (counts[:, 1] > 0).astype(np.float32)
@@ -965,7 +913,7 @@ def _trajectory(
             else teacher_u(share_u, counts, spec.u_rule)
         )
         if spec.inputs == "raw":
-            label = (label + fit.window_target(net1)(z1).numpy() - lb).astype(np.float32)
+            label = (label + fit.window_target(net1).bdp(z1).numpy() - lb).astype(np.float32)
     return Trajectory(
         group, inp, critic, u, reward, gamma, base, label, tcp, share_u, copies, coop_u
     )
@@ -990,7 +938,7 @@ def _trajectories(
     teacher: _PolicyTeacher | None = None,
 ) -> list[Trajectory]:
     """Every agent flow of every ok rollout episode."""
-    encode, view, target = _views(net1, spec)
+    fe, tgt, rules = front(net1, spec), target(net1, spec), Rules(net1, spec).eval()
     out: list[Trajectory] = []
     flows_of: dict[str, list[tuple[int, pa.Table]]] = {}
     for shard in sorted(rollouts.glob("shards/*")):
@@ -1022,9 +970,9 @@ def _trajectories(
                 t,
                 u,
                 net1,
-                encode=encode,
-                view=view,
-                target=target,
+                front=fe,
+                target=tgt,
+                rules=rules,
                 spec=spec,
                 group=(groups[e], f),
                 rivals=rivals[e],
@@ -1479,34 +1427,31 @@ def _make_learner(
 
 def policy_graph(
     net1: fit.Net1,
-    actor: RecurrentActor | EnsembleActor,
+    actor: RecurrentActor | EnsembleActor | ConcatActor,
     spec: PPOSpec,
     truth: frozenset[str] = frozenset(),
-) -> HeldPolicyGraph:
-    """The exported net2; the LCFs in ``truth`` come from the guest's live
-    truth instead of net1 (all of them for inputs "truth")."""
-    if spec.inputs == "raw":
-        n = OBS_DIM
-        identity = Scaler(
-            tuple(range(n)),
-            np.full(n, -3.0e38, np.float32),
-            np.full(n, 3.0e38, np.float32),
-            np.zeros(n, np.float32),
-            np.ones(n, np.float32),
+    *,
+    traffic: nn.Module | None = None,
+    head: nn.Module | None = None,
+) -> PolicyGraph:
+    """The exported net2: the spec's front end (the LCFs in ``truth`` from
+    the guest's live truth instead of net1, all of them for inputs
+    "truth"; ``traffic`` a traffic head beside net1), its window target,
+    and a Held decision with the spec's Head (or ``head``)."""
+    f = front(net1, spec, traffic=traffic)
+    if truth:
+        if spec.inputs != "net1":
+            raise ValueError(f'inputs "{spec.inputs}" take no LCF from the truth one by one')
+        f = fit.front(
+            net1,
+            view=spec.view,
+            input_bins=spec.input_bins if spec.view == "bins" else None,
+            truth=truth,
+            traffic=traffic,
         )
-        raw = PolicyGraph(identity, RawInputs(net1.scaler), net1.lcf_scaler, actor, spec.action_max)
-        raw.view, raw.target = _Features(), _MeasuredBdp()
-        return HeldPolicyGraph(raw, actor).eval()
-    base = fit.policy_graph(
-        net1,
-        actor,
-        spec.action_max,
-        truth=frozenset(net1.lcfs) if spec.inputs == "truth" else truth,
-        action="bdp",
-        view=spec.view,
-        input_bins=spec.input_bins if spec.view == "bins" else None,
-    )
-    return HeldPolicyGraph(base, actor, _offset(net1, spec), _gate(net1, spec)).eval()
+    decide = Held(actor, head if head is not None else Head(net1, spec), spec.action_max)
+    columns = fit.truth_columns(net1) if f.uses_truth else None
+    return PolicyGraph(f, decide, target(net1, spec), columns).eval()
 
 
 def _export(path: Path, net1: fit.Net1, actor: RecurrentActor, spec: PPOSpec) -> Path:
@@ -1585,11 +1530,11 @@ def run_ppo(
     source = None if spec.init_from is None else earlier_run(spec.init_from, net1)
     learner = _make_learner(spec, width, critic_width, source)
     teacher = None if spec.teacher_from is None else _PolicyTeacher.load(spec.teacher_from, net1)
-    train_arms = _arms(spec.paths_from, rng)
-    eval_arms = _arms(spec.eval_from, rng) if spec.eval_from else []
+    train_arms = rollouts.arms(spec.paths_from, rng)
+    eval_arms = rollouts.arms(spec.eval_from, rng) if spec.eval_from else []
 
     def run(d: Path, eps: list[EpisodeSpec]) -> dict[str, Any]:
-        return _run(d, eps, build, workers, scratch)
+        return rollouts.run(d, eps, build, workers, scratch)
 
     history: list[dict[str, Any]] = []
     rule_scores: dict[tuple[str, str], float] = {}

@@ -1,6 +1,7 @@
 """Fitting net1 (supervised) and net2 offline on a frozen net1 (cloning,
-TD3+BC, IQL or expliCCit's objective; online.py reuses the learner), the
-held-out report, and expliCCit's released checkpoints as our modules."""
+TD3+BC, IQL or expliCCit's objective), the held-out report, the policy
+graph of an offline net2, and expliCCit's released checkpoints as our
+modules."""
 
 # torch's own annotations leave many signatures partly unknown (from_numpy,
 # manual_seed, onnx.export); every other strict check stays on.
@@ -11,7 +12,7 @@ from __future__ import annotations
 
 import copy
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final, Literal
 
@@ -21,22 +22,29 @@ import torch
 from torch import nn
 
 from expliccit_env.policy import EXPLICCIT_OBS_COLS, OBS_DIM, TRUTH_COLUMNS
+from expliccit_env.train import beliefs
+from expliccit_env.train.beliefs import Beliefs, Bins, Interval, MeansView, PoolBins
 from expliccit_env.train.data import Split, Steps
+from expliccit_env.train.graph import (
+    Deployed,
+    EveryStep,
+    Front,
+    MeasuredBdp,
+    PolicyGraph,
+    Reads,
+    TruthColumns,
+    WindowTarget,
+)
 from expliccit_env.train.models import (
     NET1,
     NET2,
-    BinMeans,
     BinNet1,
     Critic,
     ExpliccitActor,
     ExpliccitNet1,
     IntervalNet1,
-    PolicyGraph,
-    PoolBins,
-    ScaledMeans,
     Scaler,
     Value,
-    WindowTarget,
 )
 from expliccit_env.train.score import utility
 from expliccit_env.train.spec import EXPLICCIT_LCFS, LCF_UNITS, Net1Spec, Net2Spec
@@ -47,61 +55,62 @@ _EVAL_BATCH: Final = 65_536
 
 @dataclass(frozen=True, slots=True)
 class Net1:
+    """A trained net1: its input scaler, network and LCF scaler, the LCFs it
+    reports, and how to read its output (``kind``, beliefs.py)."""
+
     scaler: Scaler
     net: nn.Module
     lcf_scaler: Scaler  # targets in report units <-> net1's output space
     lcfs: tuple[str, ...]
-    intervals: bool = False  # output: centres, then lower and upper bounds
+    kind: Beliefs = field(init=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "kind", beliefs.of(self.net, self.lcf_scaler).eval())
 
     @torch.no_grad()
     def beliefs(self, obs: F32) -> F32:
-        """net1's output (scaled LCFs), for each row."""
+        """net1's output z, for each row."""
         self.net.eval()
         out = [
             self.net(self.scaler(torch.from_numpy(obs[i : i + _EVAL_BATCH])))
             for i in range(0, obs.shape[0], _EVAL_BATCH)
         ]
-        return torch.cat(out).numpy() if out else np.zeros((0, len(self.lcfs)), np.float32)
+        return torch.cat(out).numpy() if out else np.zeros((0, self.width), np.float32)
 
     @property
     def width(self) -> int:
         """Numbers per row that net1 hands net2."""
-        if isinstance(self.net, BinNet1):
-            return self.net.k * self.net.b
-        return len(self.lcfs) * (3 if self.intervals else 1)
+        return self.kind.width
 
     def distributions(self, obs: F32) -> F32:
         """[n, K, B] bin probabilities (distribution net1 only)."""
-        assert isinstance(self.net, BinNet1)
-        return self.beliefs(obs).reshape(-1, self.net.k, self.net.b)
+        if not isinstance(self.kind, Bins):
+            raise ValueError("only a distribution net1 states bin probabilities")
+        return self.beliefs(obs).reshape(-1, self.kind.k, self.kind.b)
 
+    @torch.no_grad()
     def predict(self, obs: F32) -> F32:
-        """LCFs in report units (LCF_UNITS): the centres, or a distribution's
-        mean (each bin's mass at its midpoint), the estimate squared error
-        rewards."""
-        if isinstance(self.net, BinNet1):
-            b = self.net.bounds.numpy()
-            mid = ((b[:, :-1] + b[:, 1:]) / 2).astype(np.float32)
-            means = [
-                (self.distributions(obs[i : i + _EVAL_BATCH]) * mid).sum(axis=2, dtype=np.float32)
-                for i in range(0, obs.shape[0], _EVAL_BATCH)
-            ]
-            return np.concatenate(means) if means else np.zeros((0, self.net.k), np.float32)
-        z = self.beliefs(obs)[:, : len(self.lcfs)]
-        return self.lcf_scaler.inverse(torch.from_numpy(np.ascontiguousarray(z))).numpy()
+        """LCFs in report units (LCF_UNITS): each belief's mean, the
+        estimate squared error rewards."""
+        means = [
+            self.kind.means(torch.from_numpy(self.beliefs(obs[i : i + _EVAL_BATCH]))).numpy()
+            for i in range(0, obs.shape[0], _EVAL_BATCH)
+        ]
+        return np.concatenate(means) if means else np.zeros((0, self.kind.k), np.float32)
 
+    @torch.no_grad()
     def bounds(self, obs: F32, level: float = 0.9) -> tuple[F32, F32]:
         """Lower and upper bounds in report units: an interval net1's, or a
-        distribution net1's central interval holding ``level`` of its mass."""
-        if isinstance(self.net, BinNet1):
+        distribution net1's central interval holding ``level`` of its mass;
+        a point net1 states none."""
+        if isinstance(self.kind, Bins):
             tail = (1 - level) / 2
-            q = quantiles(self.distributions(obs), self.net.bounds.numpy(), (tail, 1 - tail))
+            q = quantiles(self.distributions(obs), self.kind.bounds.numpy(), (tail, 1 - tail))
             return q[:, :, 0], q[:, :, 1]
-        k, z = len(self.lcfs), self.beliefs(obs)
-        inv = self.lcf_scaler.inverse
-        lo = inv(torch.from_numpy(np.ascontiguousarray(z[:, k : 2 * k]))).numpy()
-        hi = inv(torch.from_numpy(np.ascontiguousarray(z[:, 2 * k :]))).numpy()
-        return lo, hi
+        if isinstance(self.kind, Interval):
+            lo, hi = self.kind.bounds(torch.from_numpy(self.beliefs(obs)))
+            return lo.numpy(), hi.numpy()
+        raise ValueError("a point net1 states no bounds")
 
 
 def quantiles(p: F32, bounds: F32, qs: tuple[float, ...]) -> F32:
@@ -210,16 +219,17 @@ def report_net1(net1: Net1, steps: Steps, split: Split | None = None) -> dict[st
     pred, true = net1.predict(steps.obs[rows]), targets(steps, net1.lcfs)[rows]
     base = _baselines(steps, rows)
     out: dict[str, Any] = {}
-    lo, hi = net1.bounds(steps.obs[rows]) if net1.intervals else (pred, pred)
+    intervals = isinstance(net1.kind, Interval)
+    lo, hi = net1.bounds(steps.obs[rows]) if intervals else (pred, pred)
     busy = steps.labels["busy_fraction"][rows]
-    dist = _report_distributions(net1, steps, rows) if isinstance(net1.net, BinNet1) else {}
+    dist = _report_distributions(net1, steps, rows) if isinstance(net1.kind, Bins) else {}
     for k, name in enumerate(net1.lcfs):
         out[name] = {"unit": LCF_UNITS[name][1], "net1": _metrics(pred[:, k], true[:, k])}
         if name in dist:
             out[name]["distribution"] = dist[name]
         if name in base:
             out[name]["baseline"] = _metrics(base[name], true[:, k])
-        if net1.intervals:
+        if intervals:
             ok = np.isfinite(true[:, k])
             width = hi[:, k] - lo[:, k]
             inside = (lo[:, k] <= true[:, k]) & (true[:, k] <= hi[:, k])
@@ -271,12 +281,13 @@ def _report_distributions(
     probabilities are right, and a central set holds the truth when u lies
     within it. The width is the interpolated interval a human reads, which
     is accurate to one bin."""
-    assert isinstance(net1.net, BinNet1)
-    bounds = net1.net.bounds.numpy()
+    kind = net1.kind
+    assert isinstance(kind, Bins)
+    bounds = kind.bounds.numpy()
     p = net1.distributions(steps.obs[rows])  # float32; one LCF at a time in float64
     y = targets(steps, net1.lcfs)
     with torch.no_grad():
-        idx = net1.net.bin_of(torch.from_numpy(np.nan_to_num(y))).numpy()
+        idx = kind.bin_of(torch.from_numpy(np.nan_to_num(y))).numpy()
     train = steps.rows("train") if steps.rows("train").any() else np.ones_like(rows)
     qs = sorted({q for lv in _LEVELS for q in ((1 - lv) / 2, (1 + lv) / 2)})
     qv = quantiles(p, bounds, tuple(qs))
@@ -290,7 +301,7 @@ def _report_distributions(
         i = idx[rows, k]
         pk64 = p[:, k].astype(np.float64)
         seen = np.isfinite(y[train, k])
-        clim = np.bincount(idx[train, k][seen], minlength=net1.net.b) + 1.0
+        clim = np.bincount(idx[train, k][seen], minlength=kind.b) + 1.0
         clim = clim / clim.sum()
         p_true = np.take_along_axis(pk64, i[:, None], 1)[:, 0]
         nll = -np.log(np.clip(p_true, 1e-12, None))
@@ -408,7 +419,7 @@ def fit_net1(spec: Net1Spec, steps: Steps, seed: int) -> tuple[Net1, dict[str, A
         if isinstance(net, IntervalNet1) and xv.shape[0]:
             _calibrate(net, xv, yv, mv, spec.coverage)
     log["epochs"] = len(log["val_loss"])
-    return Net1(scaler, net, lcf_scaler, tuple(spec.lcfs), spec.intervals), log
+    return Net1(scaler, net, lcf_scaler, tuple(spec.lcfs)), log
 
 
 def _loss(
@@ -667,31 +678,97 @@ class Learner:
 
 
 def window_target(net1: Net1) -> WindowTarget:
-    if not isinstance(net1.net, BinNet1) or not {"capacity_bps", "one_way_delay_ns"} <= set(
-        net1.lcfs
-    ):
-        raise ValueError(
-            "a window target needs a distribution net1 with capacity_bps and one_way_delay_ns"
-        )
+    """log2 of the BDP net1 believes in, from any kind of net1 that reports
+    capacity and one-way delay."""
+    missing = {"capacity_bps", "one_way_delay_ns"} - set(net1.lcfs)
+    if missing:
+        raise ValueError(f"a window target needs net1's {sorted(missing)}")
     return WindowTarget(
-        BinMeans(net1.net.bounds),
-        net1.lcfs.index("capacity_bps"),
-        net1.lcfs.index("one_way_delay_ns"),
+        net1.kind, net1.lcfs.index("capacity_bps"), net1.lcfs.index("one_way_delay_ns")
     )
 
 
-def _view(net1: Net1, view: Literal["bins", "means"], input_bins: int | None) -> nn.Module | None:
-    """What turns net1's output into net2's input (Net2Spec.view)."""
-    if view == "bins" and input_bins is None:
-        return None
-    if not isinstance(net1.net, BinNet1):
-        raise ValueError(f"net2 view {view!r}, input_bins {input_bins}: needs a distribution net1")
+type View = Literal["bins", "means"]
+type Inputs = Literal["net1", "true_lcfs", "raw", "net1+raw"]
+
+
+def view_of(net1: Net1, view: View, input_bins: int | None = None) -> nn.Module | None:
+    """What turns net1's output into net2's input: all of it ("bins"; for a
+    distribution net1, pooled into input_bins per LCF when set), or each
+    belief's standardized mean ("means")."""
     if view == "means":
-        return ScaledMeans(BinMeans(net1.net.bounds), net1.lcf_scaler)
-    assert input_bins is not None
-    if net1.net.b % input_bins:
-        raise ValueError(f"input_bins {input_bins} does not divide net1's {net1.net.b} bins")
-    return PoolBins(net1.net.k, net1.net.b, input_bins)
+        if input_bins is not None:
+            raise ValueError("input_bins applies to the bins view only")
+        return MeansView(net1.kind)
+    if input_bins is None:
+        return None
+    if not isinstance(net1.kind, Bins):
+        raise ValueError(f"input_bins {input_bins} pools a distribution net1's bins")
+    return PoolBins(net1.kind.k, net1.kind.b, input_bins)
+
+
+_READS: Final[dict[str, Reads]] = {
+    "net1": "beliefs",
+    "true_lcfs": "beliefs",
+    "raw": "measurements",
+    "net1+raw": "both",
+}
+
+
+def front(
+    net1: Net1,
+    *,
+    inputs: Inputs = "net1",
+    view: View = "bins",
+    input_bins: int | None = None,
+    truth: frozenset[str] = frozenset(),
+    faults: dict[str, tuple[str, float]] | None = None,
+    deployed: tuple[bool, ...] | None = None,
+    traffic: nn.Module | None = None,
+) -> Front:
+    """net2's front end on net1 (graph.Front): the one module both the
+    exported graph and training read net2's input through. ``inputs``
+    "true_lcfs" takes every LCF from the truth, ``truth`` names some to
+    take (a patched net1); ``faults`` (parse_faults) makes beliefs wrong on
+    purpose; ``deployed`` names the LCFs expliCCit's deployed controller
+    rounds."""
+    if inputs == "true_lcfs":
+        truth = frozenset(net1.lcfs)
+    if inputs in ("raw", "net1+raw") and truth:
+        raise ValueError(f'inputs "{inputs}" take nothing from the truth')
+    missing = sorted(truth - set(net1.lcfs))
+    if missing:
+        raise ValueError(f"cannot take {missing} from the truth: net1 reports {list(net1.lcfs)}")
+    fault = None
+    if faults:
+        fault = net1.kind.fault(
+            [faults[n][1] if faults.get(n, ("", 0.0))[0] == "scale" else 1.0 for n in net1.lcfs],
+            [faults[n][1] if faults.get(n, ("", 0.0))[0] == "pin" else 0.0 for n in net1.lcfs],
+            [faults.get(n, ("", 0.0))[0] == "pin" for n in net1.lcfs],
+        )
+    reads = _READS[inputs]
+    return Front(
+        net1.scaler,
+        net1.net,
+        net1.kind,
+        None if reads == "measurements" else view_of(net1, view, input_bins),
+        reads=reads,
+        take=[n in truth for n in net1.lcfs] if truth else None,
+        fault=fault,
+        deployed=None if deployed is None else Deployed(net1.kind, deployed),
+        traffic=traffic,
+    ).eval()
+
+
+def truth_columns(net1: Net1) -> TruthColumns:
+    """The contract's truth input -> net1's LCFs in report units."""
+    if not set(net1.lcfs) <= set(TRUTH_COLUMNS):
+        raise ValueError(
+            f"the truth input holds {list(TRUTH_COLUMNS)}; net1 reports {list(net1.lcfs)}"
+        )
+    return TruthColumns(
+        [TRUTH_COLUMNS.index(n) for n in net1.lcfs], [LCF_UNITS[n][0] for n in net1.lcfs]
+    )
 
 
 def raw_width(net1: Net1) -> int:
@@ -700,61 +777,54 @@ def raw_width(net1: Net1) -> int:
         return int(net1.scaler(torch.zeros(1, OBS_DIM)).shape[1])
 
 
+def input_width(f: Front) -> int:
+    """Numbers per row in net2's input through front ``f``."""
+    with torch.no_grad():
+        return int(f(torch.zeros(1, OBS_DIM))[1].shape[1])
+
+
 def net2_width(net1: Net1, spec: Net2Spec) -> int:
     """Numbers per row in net2's input."""
-    if spec.inputs == "raw":
-        return raw_width(net1)
-    view = _view(net1, spec.view, spec.input_bins)
-    if isinstance(view, ScaledMeans):
-        width = len(net1.lcfs)
-    elif isinstance(view, PoolBins):
-        width = view.k * view.into
-    else:
-        width = net1.width
-    return width + (raw_width(net1) if spec.inputs == "net1+raw" else 0)
+    return input_width(net2_front(net1, spec))
 
 
-def _oracle(net1: Net1, z: torch.Tensor, y: F32) -> torch.Tensor:
-    """net2's input when every LCF comes from the truth, as the exported
-    graph builds it: for a distribution net1, all mass on the true value's
-    bin (net1's own belief where the truth is NaN); otherwise the scaled
-    truth, 0 where that is not finite."""
-    yt = torch.from_numpy(y)
-    if isinstance(net1.net, BinNet1):
-        k, b = net1.net.k, net1.net.b
-        onehot = (net1.net.bin_of(torch.nan_to_num(yt)).unsqueeze(2) == torch.arange(b)).float()
-        keep = torch.isfinite(yt).unsqueeze(2)
-        return torch.where(keep, onehot, z.reshape(-1, k, b)).reshape(-1, k * b)
-    zt = net1.lcf_scaler(yt)
-    return torch.where(torch.isfinite(zt), zt, torch.zeros_like(zt))
+def net2_front(net1: Net1, spec: Net2Spec) -> Front:
+    return front(net1, inputs=spec.inputs, view=spec.view, input_bins=spec.input_bins)
+
+
+def oracle(net1: Net1, z: torch.Tensor, y: F32) -> torch.Tensor:
+    """net1's output z with every LCF taken from the truth y (report units)
+    where it is a number, as an oracle's front end builds it."""
+    take = torch.ones(net1.kind.k, dtype=torch.bool)
+    with torch.no_grad():
+        return net1.kind.patch(z, torch.from_numpy(y), take)
 
 
 @torch.no_grad()
 def net2_view(net1: Net1, spec: Net2Spec, steps: Steps) -> tuple[F32, F32]:
-    """Per step, as the exported graph computes them: net2's input (net1's
-    beliefs, or the oracle's with inputs "true_lcfs"), through spec.view,
-    and log2 of the believed BDP in packets (NaN unless
-    spec.action is "bdp"). In batches, so memory follows net2's input."""
-    view = _view(net1, spec.view, spec.input_bins)
-    target = window_target(net1) if spec.action == "bdp" else None
-    y = targets(steps, net1.lcfs) if spec.inputs == "true_lcfs" else None
+    """Per step, through the front end the exported graph uses: net2's input
+    and log2 of the BDP its window is aimed at (NaN unless spec.action is
+    "bdp"). In batches, so memory follows net2's input."""
+    f = net2_front(net1, spec)
+    target = _target(net1, spec.inputs) if spec.action == "bdp" else None
+    y = targets(steps, net1.lcfs) if f.uses_truth else None
     states, log2_bdp = [], []
     for i in range(0, steps.obs.shape[0], _EVAL_BATCH):
-        obs = steps.obs[i : i + _EVAL_BATCH]
-        raw = net1.scaler(torch.from_numpy(obs))
-        if spec.inputs == "raw":
-            log2_bdp.append(torch.full((raw.shape[0],), float("nan")))
-            states.append(raw)
-            continue
-        z = torch.from_numpy(net1.beliefs(obs))
-        if y is not None:
-            z = _oracle(net1, z, y[i : i + _EVAL_BATCH])
-        log2_bdp.append(target(z) if target else torch.full((z.shape[0],), float("nan")))
-        x = z if view is None else view(z)
-        states.append(torch.cat([x, raw], dim=1) if spec.inputs == "net1+raw" else x)
+        obs = torch.from_numpy(steps.obs[i : i + _EVAL_BATCH])
+        yb = None if y is None else torch.from_numpy(y[i : i + _EVAL_BATCH])
+        z, x, traffic = f(obs, yb)
+        nan = torch.full((x.shape[0],), float("nan"))
+        log2_bdp.append(nan if target is None else target(obs, z, traffic))
+        states.append(x)
     if not states:
-        return np.zeros((0, net2_width(net1, spec)), np.float32), np.zeros(0, np.float32)
+        return np.zeros((0, input_width(f)), np.float32), np.zeros(0, np.float32)
     return torch.cat(states).numpy(), torch.cat(log2_bdp).numpy()
+
+
+def _target(net1: Net1, inputs: Inputs) -> nn.Module:
+    """The window target of net2 on these inputs: net1's believed BDP, or
+    BBR's estimate for the black box."""
+    return MeasuredBdp() if inputs == "raw" else window_target(net1)
 
 
 def logged_actions(steps: Steps, spec: Net2Spec, log2_bdp: F32) -> F32:
@@ -833,7 +903,7 @@ def load_net1(path: Path) -> tuple[Net1, Net1Spec]:
             for k, v in state.items()
         }
     net.load_state_dict(state)
-    return Net1(scaler, net.eval(), lcf_scaler, tuple(spec.lcfs), spec.intervals), spec
+    return Net1(scaler, net.eval(), lcf_scaler, tuple(spec.lcfs)), spec
 
 
 def _net1_module(spec: Net1Spec) -> nn.Module:
@@ -848,38 +918,6 @@ def _net1_module(spec: Net1Spec) -> nn.Module:
     return IntervalNet1(NET1[spec.arch](f, k, spec.width, spec.dropout, 3), k)
 
 
-class _Measurements(nn.Module):
-    """net1's slot in a graph whose net2 reads the measurements alone."""
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return x
-
-
-class _WithMeasurements(nn.Module):
-    """net1's slot in a graph whose net2 reads both: scaled measurements ->
-    [net1's output, the scaled measurements]."""
-
-    def __init__(self, net1: nn.Module) -> None:
-        super().__init__()
-        self.net1 = net1
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return torch.cat([self.net1(x), x], dim=1)
-
-
-class _ViewFirst(nn.Module):
-    """net2's view on the first ``width`` columns (net1's output); the rest
-    (the measurements) pass as they are."""
-
-    def __init__(self, view: nn.Module | None, width: int) -> None:
-        super().__init__()
-        self.view, self.width = view, width
-
-    def forward(self, z: torch.Tensor) -> torch.Tensor:
-        head = z[:, : self.width]
-        return torch.cat([head if self.view is None else self.view(head), z[:, self.width :]], 1)
-
-
 def policy_graph(
     net1: Net1,
     actor: nn.Module,
@@ -888,49 +926,38 @@ def policy_graph(
     *,
     truth: frozenset[str] = frozenset(),
     action: Literal["multiplier", "bdp"] = "multiplier",
-    view: Literal["bins", "means"] = "bins",
+    view: View = "bins",
     input_bins: int | None = None,
-    inputs: Literal["net1", "true_lcfs", "raw", "net1+raw"] = "net1",
+    inputs: Inputs = "net1",
+    faults: dict[str, tuple[str, float]] | None = None,
+    deployed: tuple[bool, ...] | None = None,
 ) -> PolicyGraph:
-    """The exported policy; the LCFs named in ``truth`` come from the
-    contract's "truth" input (policy.TRUTH_COLUMNS) instead of net1.
-    ``action``, ``view``, ``input_bins`` and ``inputs`` are net2's
-    (Net2Spec); with inputs "raw" or "net1+raw" net2 also reads the
-    measurements net1 does."""
-    if inputs in ("raw", "net1+raw") and (truth or action != "multiplier"):
-        raise ValueError(f'inputs "{inputs}" take no truth and act on the multiplier only')
-    graph = PolicyGraph(net1.scaler, net1.net, net1.lcf_scaler, actor, action_max)
-    graph.action_decimals = action_decimals
-    graph.view = _view(net1, view, input_bins)
-    if inputs == "raw":
-        graph.net1, graph.view = _Measurements(), None
-        return graph.eval()
-    if inputs == "net1+raw":
-        graph.net1 = _WithMeasurements(net1.net)
-        graph.view = _ViewFirst(graph.view, net1.width)
-        return graph.eval()
-    if action == "bdp":
-        graph.target = window_target(net1)
-    if truth:
-        missing = sorted(truth - set(net1.lcfs))
-        if missing or not set(net1.lcfs) <= set(TRUTH_COLUMNS):
-            raise ValueError(
-                f"cannot take {missing or sorted(truth)} from the truth input: net1's LCFs "
-                f"{list(net1.lcfs)} must all be among {list(TRUTH_COLUMNS)}"
-            )
-        graph.take_from_truth(
-            [TRUTH_COLUMNS.index(n) for n in net1.lcfs],
-            [LCF_UNITS[n][0] for n in net1.lcfs],
-            [n in truth for n in net1.lcfs],
-            3 if net1.intervals else 1,
-            net1.net.bounds if isinstance(net1.net, BinNet1) else None,
-        )
-    return graph.eval()
+    """The exported policy of a net2 asked at every step (graph.EveryStep):
+    ``front``'s options, then net2, then the window multiplier or, with
+    action "bdp", a window aimed at the believed BDP. ``deployed`` also
+    rounds the action to three decimals, as expliCCit's controller does."""
+    f = front(
+        net1,
+        inputs=inputs,
+        view=view,
+        input_bins=input_bins,
+        truth=truth,
+        faults=faults,
+        deployed=deployed,
+    )
+    decimals = 3 if deployed is not None else action_decimals
+    return PolicyGraph(
+        f,
+        EveryStep(actor, action_max, decimals),
+        _target(net1, inputs) if action == "bdp" else None,
+        truth_columns(net1) if f.uses_truth else None,
+    ).eval()
 
 
 def parse_faults(texts: list[str], lcfs: tuple[str, ...]) -> dict[str, tuple[str, float]]:
     """``LCF*F`` (scale the belief by F) or ``LCF=V`` (pin it to V, in report
-    units) -> {LCF: ("scale" or "pin", number)}."""
+    units) -> {LCF: ("scale" or "pin", number)}: a wrong encoder head in the
+    exported policy (R2's injected faults, beliefs.Beliefs.fault)."""
     out: dict[str, tuple[str, float]] = {}
     for t in texts:
         op = "*" if "*" in t else "=" if "=" in t else None
@@ -941,21 +968,6 @@ def parse_faults(texts: list[str], lcfs: tuple[str, ...]) -> dict[str, tuple[str
             raise ValueError(f"fault {t!r}: {name} is not among net1's LCFs {list(lcfs)}")
         out[name] = ("scale" if op == "*" else "pin", float(number))
     return out
-
-
-def inject_faults(graph: PolicyGraph, net1: Net1, faults: dict[str, tuple[str, float]]) -> None:
-    """A wrong encoder head in the exported policy (R2's injected faults):
-    each named LCF's belief scaled or pinned, in report units, after net1
-    and before net2. A distribution net1 is refused: moving its bins needs a
-    definition of its own."""
-    if not faults:
-        return
-    if isinstance(net1.net, BinNet1):
-        raise ValueError("faults are injected into a point or interval net1, not a distribution")
-    scale = [faults[n][1] if faults.get(n, ("", 0.0))[0] == "scale" else 1.0 for n in net1.lcfs]
-    pinned = [faults.get(n, ("", 0.0))[0] == "pin" for n in net1.lcfs]
-    value = [faults[n][1] if pin else 0.0 for n, pin in zip(net1.lcfs, pinned, strict=True)]
-    graph.inject_fault(scale, value, pinned)
 
 
 # --- expliCCit's released checkpoints -----------------------------------------

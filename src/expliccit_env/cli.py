@@ -172,17 +172,6 @@ def _train(a: argparse.Namespace) -> int:
     return 0
 
 
-def _online(a: argparse.Namespace) -> int:
-    from expliccit_env.train.online import OnlineSpec, run_online  # noqa: PLC0415
-
-    spec = OnlineSpec.parse(Path(a.spec).read_text())
-    scratch = Path(a.scratch) if a.scratch else None
-    report = run_online(spec, Path(a.out), _build(a), workers=a.workers, scratch=scratch)
-    last = report["iterations"][-1]
-    print(json.dumps({"rollouts": last["rollouts"], "eval": last.get("eval")}, indent=2))
-    return 0
-
-
 def _ppo(a: argparse.Namespace) -> int:
     from expliccit_env.train.ppo import PPOSpec, run_ppo  # noqa: PLC0415
 
@@ -327,15 +316,6 @@ def main(argv: list[str] | None = None) -> int:
     tr.add_argument("spec", help="TrainSpec JSON")
     tr.add_argument("out")
     tr.set_defaults(fn=_train)
-    to = tc.add_parser(
-        "online", help="net2 in closed loop on a frozen net1, off-policy from a replay buffer"
-    )
-    to.add_argument("spec", help="OnlineSpec JSON")
-    to.add_argument("out")
-    to.add_argument("--workers", type=int, default=1, help="parallel UML guests")
-    to.add_argument("--scratch", help="node-local scratch for raw records")
-    _common(to)
-    to.set_defaults(fn=_online)
     tp = tc.add_parser(
         "ppo", help="recurrent net2 in closed loop on a frozen net1: PPO, TD3+BC or DAgger"
     )

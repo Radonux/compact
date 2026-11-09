@@ -66,7 +66,7 @@ def main() -> None:
         z = torch.from_numpy(net1.beliefs(o))
         if not a.as_deployed:
             return z
-        with torch.no_grad():  # as models.PolicyGraph.step does when as_deployed
+        with torch.no_grad():  # as graph.Deployed does
             v = torch.relu(net1.lcf_scaler.inverse(z))
             v = torch.where(torch.arange(v.shape[1]) < 6, torch.round(v), v)
             return (v - net1.lcf_scaler.center) / net1.lcf_scaler.spread

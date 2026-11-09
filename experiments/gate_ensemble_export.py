@@ -33,7 +33,7 @@ import torch
 from expliccit_env.train import fit, ppo
 from expliccit_env.train.export import to_onnx
 from expliccit_env.train.recurrent import EnsembleActor, RecurrentActor
-from expliccit_env.train.traffic import Beliefs, HeadQ, WithTraffic, load_head
+from expliccit_env.train.traffic import load_head
 
 
 def _same_outputs(a: fit.Net1, b: fit.Net1) -> bool:
@@ -96,16 +96,21 @@ def main() -> None:
     unknown = sorted(set(args.truth) - set(net1.lcfs))
     if unknown:
         raise SystemExit(f"--truth {unknown}: not among net1's LCFs {list(net1.lcfs)}")
-    graph = ppo.policy_graph(net1, EnsembleActor(members), spec, frozenset(args.truth))
     if args.traffic_p and args.traffic is None:
         raise SystemExit("--traffic-p takes p from the head given by --traffic")
-    if args.traffic is not None:
-        if spec.student != "gate3" or graph.gate is None:
-            raise SystemExit("--traffic replaces a gate3 student's q")
-        graph.net1 = WithTraffic(graph.net1, load_head(args.traffic))
-        graph.view = Beliefs(graph.view)
-        graph.target = Beliefs(graph.target)
-        graph.gate = HeadQ(graph.gate, p_too=args.traffic_p)
+    if args.traffic is not None and spec.student != "gate3":
+        raise SystemExit("--traffic replaces a gate3 student's q")
+    head = None if args.traffic is None else load_head(args.traffic)
+    graph = ppo.policy_graph(
+        net1,
+        EnsembleActor(members),
+        spec,
+        frozenset(args.truth),
+        traffic=head,
+        head=None
+        if head is None
+        else ppo.Head(net1, spec, traffic_q=True, traffic_p=args.traffic_p),
+    )
     (args.out / f"{args.name}.onnx").write_bytes(to_onnx(graph))
     print(f"{args.name}.onnx")
 

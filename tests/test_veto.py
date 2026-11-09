@@ -34,9 +34,9 @@ def test_concat_actor_puts_a_policy_next_to_beliefs() -> None:
 def test_veto_keeps_the_rule_when_copies_are_believed() -> None:
     veto = veto_export.Veto(u_rule=0.25, action_max=3.0, tq=0.0)
     a = torch.tensor([[0.5, 0.0, 1.0], [0.5, 0.0, -1.0], [0.5, 0.0, 0.0]])
-    u = veto(torch.zeros(3, 1), a)
+    u = veto(a, torch.zeros(3, 1), None)
     assert torch.allclose(u, torch.tensor([0.25, 1.5, 0.875]))
     sharp = veto_export.Veto(u_rule=0.25, action_max=3.0, tq=0.5)
     assert torch.allclose(
-        sharp(torch.zeros(1, 1), torch.tensor([[0.5, 0.0, 0.0]])), torch.tensor([1.5])
+        sharp(torch.tensor([[0.5, 0.0, 0.0]]), torch.zeros(1, 1), None), torch.tensor([1.5])
     )

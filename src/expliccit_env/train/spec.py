@@ -119,11 +119,12 @@ class Net2Spec(_Frozen):
     # training, which prices the LCF bottleneck. "net1+raw" gives it both,
     # net1's output first, which measures what the LCFs leave out.
     inputs: Literal["net1", "true_lcfs", "raw", "net1+raw"] = "net1"
-    # Distribution net1 only. "bins": net2 sees each LCF's distribution,
-    # summed into input_bins groups of adjacent bins when set (net1's bin
-    # count must be a multiple), which bounds its input and replay buffer.
-    # "means": net2 sees only each distribution's mean, standardized as
-    # net1's targets are: the single-value arm with the same estimator.
+    # "bins": net2 sees all of net1's output (each LCF's distribution,
+    # interval or value); for a distribution net1, summed into input_bins
+    # groups of adjacent bins when set (net1's bin count must be a
+    # multiple), which bounds its input and replay buffer. "means": net2
+    # sees only each belief's mean, standardized as net1's targets are: the
+    # single-value arm with the same estimator.
     view: Literal["bins", "means"] = "bins"
     input_bins: Annotated[int, Field(ge=2, le=256)] | None = None
     # What net2's output means. "multiplier": a, the log2 of the window
@@ -132,8 +133,9 @@ class Net2Spec(_Frozen):
     # mean capacity times twice its mean one-way delay); the policy graph
     # turns u into a with the sender's window. The logged u is log2 of the
     # next step's window over the believed BDP, which any controller's trace
-    # gives. Needs a distribution net1 with capacity_bps and
-    # one_way_delay_ns, and step data with every step (step_stride 1).
+    # gives. Needs a net1 (of any kind) with capacity_bps and
+    # one_way_delay_ns, and step data with every step (step_stride 1). With
+    # inputs "raw" the window is aimed at BBR's BDP estimate instead.
     action: Literal["multiplier", "bdp"] = "multiplier"
     hidden: PositiveInt = 256
     # "sage": Sage's reward. "utility": a ground-truth utility that prices
@@ -178,8 +180,6 @@ class Net2Spec(_Frozen):
     def _view(self) -> Net2Spec:
         if self.view == "means" and self.input_bins is not None:
             raise ValueError("input_bins applies to the bins view only")
-        if self.inputs in ("raw", "net1+raw") and self.action != "multiplier":
-            raise ValueError(f'inputs "{self.inputs}" act on the window multiplier only')
         return self
 
 
@@ -191,8 +191,10 @@ class TrainSpec(_Frozen):
     # tested on. "spec": a path is everything in the spec but cc and seed;
     # "link": the bottleneck link alone, so a link seen in training under
     # one condition (cross traffic, random loss) is never tested under
-    # another.
-    split_by: Literal["spec", "link"] = "spec"
+    # another. "row": rows scattered at random, so one path's steps land in
+    # every split; it overstates accuracy (results.md) and is for checks on
+    # a handful of paths, such as the end-to-end tests.
+    split_by: Literal["spec", "link", "row"] = "spec"
     val_fraction: Annotated[float, Field(ge=0, lt=1)] = 0.1
     test_fraction: Annotated[float, Field(ge=0, lt=1)] = 0.1
     seed: Annotated[int, Field(ge=0)] = 0

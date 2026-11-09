@@ -14,7 +14,7 @@ with its window target raised by K times net1's stated spread of capacity
 past S0 (train/models.py SpreadTarget), the arm that reads the beliefs'
 uncertainty beside the rule on their means. With --traffic HEAD.pt, net1
 also has its traffic head and each spread rule lifts its target only in
-proportion to 1 - P(copies) (train/traffic.py CopiesGated), written as
+proportion to 1 - P(copies) (train/graph.py SpreadTarget), written as
 OUT/rule-u{u}-spread{K}-head.onnx. --idle K writes OUT/rule-u{u}-idle{K}.onnx:
 the rule with its target raised by K times how idle net1 believes the link
 is past I0 (train/models.py IdleTarget), the probing arm on means alone.
@@ -28,8 +28,9 @@ import torch
 
 from expliccit_env.train import fit
 from expliccit_env.train.export import to_onnx
-from expliccit_env.train.models import ExpliccitActor, IdleTarget, SpreadTarget, WindowTarget
-from expliccit_env.train.traffic import Beliefs, CopiesGated, WithTraffic, load_head
+from expliccit_env.train.graph import IdleTarget, SpreadTarget, WindowTarget
+from expliccit_env.train.models import ExpliccitActor
+from expliccit_env.train.traffic import load_head
 
 ACTION_MAX = 3.0
 BINS = 32
@@ -74,11 +75,10 @@ def main() -> None:
             (a.out / f"{name}-idle{k:g}.onnx").write_bytes(to_onnx(graph))
             print(f"{name}-idle{k:g}")
         if a.traffic is not None:
-            graph.net1 = WithTraffic(graph.net1, load_head(a.traffic))
-            graph.view = Beliefs(graph.view)
+            head = load_head(a.traffic)
+            graph.front = fit.front(net1, input_bins=BINS, truth=truth, traffic=head)
         for k in a.spread:
-            raised = SpreadTarget(base, k, a.s0)
-            graph.target = raised if a.traffic is None else CopiesGated(raised, base)
+            graph.target = SpreadTarget(base, k, a.s0, copies_gated=a.traffic is not None)
             spread = f"{name}-spread{k:g}" + ("" if a.traffic is None else "-head")
             (a.out / f"{spread}.onnx").write_bytes(to_onnx(graph))
             print(spread)

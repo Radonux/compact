@@ -15,8 +15,12 @@ torch = pytest.importorskip("torch")
 from expliccit_env.policy import EXPLICCIT_OBS_COLS, OBS_DIM, TRUTH_COLUMNS, TRUTH_DIM  # noqa: E402
 from expliccit_env.train import data, fit  # noqa: E402
 from expliccit_env.train.export import to_onnx  # noqa: E402
-from expliccit_env.train.models import ExpliccitActor, ExpliccitNet1, PolicyGraph, Scaler  # noqa: E402
-from expliccit_env.train.online import OnlineSpec, run_online  # noqa: E402
+from expliccit_env.train.models import (  # noqa: E402
+    ExpliccitActor,
+    ExpliccitNet1,
+    IntervalNet1,
+    Scaler,
+)
 from expliccit_env.train.score import utility  # noqa: E402
 from expliccit_env.train.spec import EXPLICCIT_LCFS, LCF_UNITS, Net1Spec, Net2Spec  # noqa: E402
 
@@ -242,25 +246,24 @@ def test_load_orders_rows_whatever_the_shard_order(tmp_path: Path) -> None:
 
 
 def test_as_deployed_rounds_beliefs_and_actions() -> None:
-    lcf = Scaler.fit(
-        tuple(range(7)), np.random.default_rng(0).normal(size=(50, 7)).astype(np.float32), "minmax"
-    )
-    scaler = Scaler.fit(EXPLICCIT_OBS_COLS, np.zeros((4, 70), np.float32), "minmax")
-    g = PolicyGraph(
-        scaler, ExpliccitNet1(70, 7, width=64).eval(), lcf, ExpliccitActor(7).eval(), 1.0
-    )
-    g.as_deployed = True
+    torch.manual_seed(0)
+    net1 = _net1()
+    actor = ExpliccitActor(7).eval()
+    rounded = (True,) * 6 + (False,)
+    g = fit.policy_graph(net1, actor, 1.0, deployed=rounded)
+    obs = torch.randn(8, OBS_DIM)
     with torch.no_grad():
-        a = g(torch.randn(8, OBS_DIM)).numpy()
+        a = g(obs).numpy()
+        z = g.beliefs(obs)
+        c = z * net1.lcf_scaler.spread + net1.lcf_scaler.center
     assert np.array_equal(a, np.round(a * 1000) / 1000)
+    assert torch.allclose(c[:, :6], torch.round(c[:, :6]), atol=1e-3) and (c >= -1e-4).all()
+    with pytest.raises(ValueError, match="point net1"):
+        fit.policy_graph(_net1(intervals=True), ExpliccitActor(21), 1.0, deployed=rounded)
 
 
 def test_export_is_a_sage_v1_graph() -> None:
-    scaler = Scaler.fit(EXPLICCIT_OBS_COLS, np.zeros((4, 70), np.float32), "robust")
-    lcf = Scaler.fit(tuple(range(7)), np.zeros((4, 7), np.float32), "standard")
-    graph = PolicyGraph(
-        scaler, ExpliccitNet1(70, 7, width=64).eval(), lcf, ExpliccitActor(7).eval(), 1.0
-    )
+    graph = fit.policy_graph(_net1(), ExpliccitActor(7).eval(), 1.0)
     model = onnx.load_from_string(to_onnx(graph))
     (inp,) = model.graph.input
     (out,) = model.graph.output
@@ -275,8 +278,9 @@ def _net1(intervals: bool = False) -> fit.Net1:
     y = (rng.uniform(size=(64, 7)) * [5e6, 50, 3e7, 100, 1, 2e7, 2e7]).astype(np.float32)
     units = np.array([LCF_UNITS[n][0] for n in EXPLICCIT_LCFS], np.float32)
     lcf = Scaler.fit(tuple(range(7)), y * units, "standard")
-    net = ExpliccitNet1(70, 21 if intervals else 7, width=64).eval()
-    return fit.Net1(scaler, net, lcf, EXPLICCIT_LCFS, intervals)
+    base = ExpliccitNet1(70, 7, width=64, per_lcf=3 if intervals else 1)
+    net = IntervalNet1(base, 7) if intervals else base
+    return fit.Net1(scaler, net.eval(), lcf, EXPLICCIT_LCFS)
 
 
 def test_truth_columns_are_expliccits_lcfs() -> None:
@@ -297,19 +301,20 @@ def test_patched_graph_takes_the_named_lcfs_from_the_truth(intervals: bool) -> N
     with torch.no_grad():
         z = net1.net(net1.scaler(obs))
         units = torch.tensor([LCF_UNITS[n][0] for n in EXPLICCIT_LCFS])
-        zt = net1.lcf_scaler(truth * units)
+        zt = (truth * units - net1.lcf_scaler.center) / net1.lcf_scaler.spread
         for block in range(k // 7):  # the centre and, for intervals, both bounds
             z[:, block * 7 + cap] = zt[:, cap]
         assert torch.equal(patched(obs, truth), actor(z))
         oracle = fit.policy_graph(net1, actor, 1.0, truth=frozenset(EXPLICCIT_LCFS))
-        assert torch.equal(oracle(obs, truth), oracle(torch.randn(5, OBS_DIM), truth))
-        # A NaN truth maps as a NaN training target does: the scaler zeroes it
-        # in physical units, then scales it.
+        other = torch.randn(5, OBS_DIM)
+        assert torch.equal(oracle(obs, truth)[1:], oracle(other, truth)[1:])
+        # A NaN truth keeps net1's own belief, so row 0 still reads the message.
+        assert not torch.equal(oracle(obs, truth)[0], oracle(other, truth)[0])
         assert torch.isfinite(oracle(obs, truth)).all()
     model = onnx.load_from_string(to_onnx(oracle))
     assert [i.name for i in model.graph.input] == ["obs", "truth"]
     assert not {"IsInf", "IsNaN"} & {n.op_type for n in model.graph.node}
-    with pytest.raises(ValueError, match="truth input"):
+    with pytest.raises(ValueError, match="cannot take"):
         fit.policy_graph(net1, actor, 1.0, truth=frozenset({"queue_delay_ns"}))
 
 
@@ -354,15 +359,7 @@ def test_exported_graph_runs_in_the_guest(build: object, tmp_path: Path) -> None
 
     assert isinstance(build, UmlBuild)
     torch.manual_seed(0)
-    scaler = Scaler.fit(
-        EXPLICCIT_OBS_COLS,
-        np.random.default_rng(0).normal(size=(64, 70)).astype(np.float32),
-        "robust",
-    )
-    lcf = Scaler.fit(tuple(range(7)), np.zeros((4, 7), np.float32), "standard")
-    graph = PolicyGraph(
-        scaler, ExpliccitNet1(70, 7, width=64).eval(), lcf, ExpliccitActor(7).eval(), 0.05
-    )
+    graph = fit.policy_graph(_net1(), ExpliccitActor(7).eval(), 0.05)
     policy = tmp_path / "policy.onnx"
     policy.write_bytes(to_onnx(graph))
     spec = EpisodeSpec.parse(
@@ -389,67 +386,6 @@ def test_exported_graph_runs_in_the_guest(build: object, tmp_path: Path) -> None
     assert isinstance(out, EpisodeOk), out.row
     applied = out.tables["steps"]["applied_action"].to_numpy()
     assert applied.size > 100 and np.all(np.abs(applied) <= 0.05)
-
-
-@pytest.mark.uml
-@pytest.mark.parametrize("action", ["multiplier", "bdp"])
-def test_online_loop_runs_an_iteration(build: object, tmp_path: Path, action: str) -> None:
-    from expliccit_env.uml import UmlBuild  # noqa: PLC0415
-
-    assert isinstance(build, UmlBuild)
-    steps = synthetic()
-    steps.labels["drop_fraction"] = np.zeros_like(steps.obs[:, 0])
-    # The window target needs a distribution net1; its exported policy reads
-    # cwnd, and held noise perturbs the target for 5 steps at a time.
-    net1_spec = Net1Spec(width=64, epochs=1, batch_size=256, bins=16 if action == "bdp" else None)
-    net1, _ = fit.fit_net1(net1_spec, steps, 0)
-    fit.save_net1(net1, net1_spec, tmp_path / "net1.pt")
-    path = {
-        "trace": {"kind": "periodic_levels", "levels_mbps": [24], "level_ms": 1000},
-        "delay": {"mahak_compat_mrtt_ms": 10},
-        "buffer": {"packets": 100},
-    }
-    camp = {
-        "name": "p",
-        "ccs": [{"kind": "stock", "name": "cubic"}],
-        "sweep": {"kind": "paths", "paths": [path]},
-        "conditions": [{}, {"loss": {"downlink": 0.01}}],
-    }
-    (tmp_path / "paths.json").write_text(json.dumps(camp))
-    spec = OnlineSpec(
-        paths_from=tmp_path / "paths.json",
-        eval_from=tmp_path / "paths.json",
-        net1_from=tmp_path / "net1.pt",
-        net2=Net2Spec(
-            hidden=16,
-            batch_size=64,
-            reward="utility",
-            action=action,  # type: ignore[arg-type]
-            input_bins=4 if action == "bdp" else None,
-            action_max=2.0,
-        ),
-        iterations=1,
-        episodes_per_iteration=2,
-        duration_ms=3000,
-        updates_per_iteration=20,
-        noise_sigma=0.2,
-        noise_hold_steps=5,
-    )
-    report = run_online(spec, tmp_path / "out", build, workers=2)
-    (entry,) = report["iterations"]
-    assert entry["rollouts"]["ok"] == 2 and entry["new_transitions"] > 400
-    assert entry["eval"]["ok"] == 2  # the path under each condition
-    assert (tmp_path / "out" / "policy.onnx").exists()
-
-
-def test_online_spec_rejects_an_oracle_net2(tmp_path: Path) -> None:
-    spec = {
-        "paths_from": str(tmp_path),
-        "net1_from": str(tmp_path),
-        "net2": {"inputs": "true_lcfs"},
-    }
-    with pytest.raises(ValueError, match="net1"):
-        OnlineSpec.parse(json.dumps(spec))
 
 
 def test_quantiles_read_a_binned_distribution() -> None:
@@ -529,7 +465,7 @@ def test_distribution_net1_saves_patches_and_feeds_net2(tmp_path: Path) -> None:
     with torch.no_grad():
         z = net1.net(net1.scaler(torch.from_numpy(obs))).reshape(8, 7, 16)
         want = z.clone()
-        b = int(net1.net.bin_of(torch.full((1, 7), 37.0))[0, cap])
+        b = int(net1.kind.bin_of(torch.full((1, 7), 37.0))[0, cap])  # pyright: ignore[reportAttributeAccessIssue]
         want[:4, cap] = torch.nn.functional.one_hot(torch.tensor(b), 16).float()
         assert torch.equal(graph(torch.from_numpy(obs), truth), actor(want.reshape(8, -1)) * 0.1)
     model = onnx.load_from_string(to_onnx(graph))
@@ -582,8 +518,15 @@ def test_bdp_action_logs_and_sets_the_window_relative_to_the_believed_bdp() -> N
     model = onnx.load_from_string(to_onnx(graph))
     assert [i.name for i in model.graph.input] == ["obs", "cwnd"]
     assert not any(m.training for m in graph.modules())  # export leaves it as it was
-    with pytest.raises(ValueError, match="distribution net1"):
-        fit.policy_graph(_net1(), actor, 1.0, action="bdp")
+    # A point net1 aims the window at the BDP of its single values.
+    point = _net1()
+    pg = fit.policy_graph(point, ExpliccitActor(7).eval(), 1.0, action="bdp")
+    with torch.no_grad():
+        v = point.predict(obs.numpy())
+        cap, owd = EXPLICCIT_LCFS.index("capacity_bps"), EXPLICCIT_LCFS.index("one_way_delay_ns")
+        bdp = np.log2(np.maximum(v[:, cap] * 1e6 * v[:, owd] * 2e-3 / 12_000, 1.0))
+        assert pg.target is not None
+        assert np.allclose(pg.target(obs, pg.beliefs(obs), None).numpy(), bdp, atol=1e-4)
     # The single-value view: each distribution's mean, standardized as
     # net1's targets are, with the same window target.
     means = Net2Spec(action="bdp", view="means", action_max=3.0, algo="bc", hidden=32, steps=50)
@@ -714,8 +657,6 @@ def test_a_net2_on_the_measurements_sees_them_in_training_and_in_the_graph(input
     obs = torch.from_numpy(steps.obs[:8])
     with torch.no_grad():
         assert torch.allclose(graph(obs), actor(torch.from_numpy(states[:8])), atol=1e-5)
-    with pytest.raises(ValueError, match="multiplier"):
-        Net2Spec(inputs=inputs, action="bdp")  # pyright: ignore[reportArgumentType]
 
 
 @pytest.mark.parametrize("intervals", [False, True])
@@ -724,12 +665,12 @@ def test_an_injected_fault_scales_or_pins_one_belief_in_report_units(intervals: 
     net1 = _net1(intervals)
     k = 7
     actor = ExpliccitActor(net1.width, 32).eval()
-    graph = fit.policy_graph(net1, actor, 1.0)
     faults = fit.parse_faults(["capacity_bps*0.7", "busy_fraction=1"], net1.lcfs)
     assert faults == {"capacity_bps": ("scale", 0.7), "busy_fraction": ("pin", 1.0)}
-    clean = graph.beliefs(torch.from_numpy(synthetic(1, 8).obs))
-    fit.inject_faults(graph, net1, faults)
-    bad = graph.beliefs(torch.from_numpy(synthetic(1, 8).obs))
+    obs = torch.from_numpy(synthetic(1, 8).obs)
+    with torch.no_grad():
+        clean = fit.policy_graph(net1, actor, 1.0).beliefs(obs)
+        bad = fit.policy_graph(net1, actor, 1.0, faults=faults).beliefs(obs)
     reps = net1.width // k
     center, spread = net1.lcf_scaler.center.repeat(reps), net1.lcf_scaler.spread.repeat(reps)
     v0, v1 = clean * spread + center, bad * spread + center

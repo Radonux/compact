@@ -87,13 +87,20 @@ def import_expliccit(
     make chosen beliefs wrong on purpose (fit.inject_faults)."""
     out.mkdir(parents=True, exist_ok=True)
     net1, actor = fit.load_expliccit(models)
-    graph = fit.policy_graph(net1, actor, 1.0, truth=truth)
-    fit.inject_faults(graph, net1, fit.parse_faults(list(faults), net1.lcfs))
-    graph.as_deployed = as_deployed
-    if unrounded:  # deployed, but these of the first six LCFs left unrounded
-        graph.rounded = torch.tensor(
-            [i < 6 and n not in unrounded for i, n in enumerate(net1.lcfs)], dtype=torch.bool
-        )
+    # Deployed: the first six LCFs rounded, except those left unrounded.
+    deployed = (
+        tuple(i < 6 and n not in unrounded for i, n in enumerate(net1.lcfs))
+        if as_deployed
+        else None
+    )
+    graph = fit.policy_graph(
+        net1,
+        actor,
+        1.0,
+        truth=truth,
+        faults=fit.parse_faults(list(faults), net1.lcfs),
+        deployed=deployed,
+    )
     (out / "policy.onnx").write_bytes(to_onnx(graph))
     report: dict[str, Any] = {
         "as_deployed": as_deployed,

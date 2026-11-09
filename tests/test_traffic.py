@@ -1,5 +1,5 @@
-"""net1's traffic head and the wrappers that put it into a policy
-(train/traffic.py)."""
+"""net1's traffic head (train/traffic.py) and the policy parts that read
+it: the front end (graph.Front) and a gate3 head (ppo.Head)."""
 
 from __future__ import annotations
 
@@ -10,17 +10,16 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
+from expliccit_env.train import fit, ppo  # noqa: E402
 from expliccit_env.train.traffic import (  # noqa: E402
     CLASSES,
-    Beliefs,
-    CopiesGated,
-    HeadQ,
     TrafficHead,
-    WithTraffic,
     fit_head,
     load_head,
     save_head,
 )
+
+from .test_ppo import _bdp_net1  # noqa: E402
 
 
 def test_the_head_learns_separable_classes() -> None:
@@ -34,32 +33,34 @@ def test_the_head_learns_separable_classes() -> None:
     assert (p.argmax(1).numpy() == y).mean() > 0.9
 
 
-class _Echo(torch.nn.Module):
-    """A gate that returns what it was given, to read HeadQ's arguments."""
-
-    def forward(self, z: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
-        return torch.cat([z, a], dim=1)
-
-
-def test_head_q_takes_q_from_the_head_and_hides_its_columns() -> None:
-    beliefs = torch.tensor([[0.1, 0.2]])
+def test_a_gate3_head_takes_its_beliefs_from_the_traffic_head() -> None:
+    _, net1 = _bdp_net1()
+    spec = ppo.PPOSpec(
+        paths_from=Path("x"), net1_from=Path("x"), algo="dagger", student="gate3", u_rule=0.25
+    )
+    plain = ppo.Head(net1, spec)
+    z = torch.from_numpy(net1.beliefs(np.zeros((1, 78), np.float32)))
     head = torch.tensor([[0.2, 0.7, 0.1]])  # none, copies, stock
-    out = HeadQ(_Echo())(torch.cat([beliefs, head], dim=1), torch.tensor([[0.5, -1.0]]))
-    # The gate sees the beliefs alone, p as given and q = 2 P(copies) - 1.
-    assert torch.allclose(out, torch.tensor([[0.1, 0.2, 0.5, 0.4]]))
-    # With p_too, p = 2 P(stock) - 1 as well: no learned output is left.
-    out = HeadQ(_Echo(), p_too=True)(torch.cat([beliefs, head], dim=1), torch.tensor([[0.5, -1.0]]))
-    assert torch.allclose(out, torch.tensor([[0.1, 0.2, -0.8, 0.4]]))
+    a = torch.tensor([[0.5, -1.0]])
+    # q = 2 P(copies) - 1 replaces the student's; p stays the student's.
+    want = plain(torch.tensor([[0.5, 0.4]]), z, None)
+    assert torch.allclose(ppo.Head(net1, spec, traffic_q=True)(a, z, head), want)
+    # With p from the head too, p = 2 P(stock) - 1: no learned output is left.
+    want = plain(torch.tensor([[-0.8, 0.4]]), z, None)
+    assert torch.allclose(ppo.Head(net1, spec, traffic_q=True, traffic_p=True)(a, z, head), want)
+    with pytest.raises(ValueError, match="gate3"):
+        ppo.Head(net1, spec.model_copy(update={"student": "u"}), traffic_q=True)
 
 
-def test_with_traffic_appends_the_head_and_beliefs_strip_it() -> None:
-    head = TrafficHead(4)
-    net1 = torch.nn.Linear(4, 6)
-    x = torch.randn(3, 4)
-    z = WithTraffic(net1, head)(x)
-    assert z.shape == (3, 6 + len(CLASSES))
-    assert torch.allclose(Beliefs(None)(z), net1(x))
-    assert torch.allclose(Beliefs(torch.nn.Identity())(z), net1(x))
+def test_the_front_end_states_the_traffic_beside_the_beliefs() -> None:
+    _, net1 = _bdp_net1()
+    head = TrafficHead(net1.scaler.cols.numel())
+    obs = torch.randn(3, 78)
+    z, x, traffic = fit.front(net1, traffic=head)(obs)
+    assert traffic is not None and traffic.shape == (3, len(CLASSES))
+    with torch.no_grad():
+        assert torch.allclose(traffic, head(net1.scaler(obs)))
+        assert torch.allclose(z, net1.net(net1.scaler(obs))) and torch.equal(x, z)
 
 
 def test_a_saved_head_loads_unchanged(tmp_path: Path) -> None:
@@ -71,23 +72,3 @@ def test_a_saved_head_loads_unchanged(tmp_path: Path) -> None:
         assert torch.equal(
             load_head(tmp_path / "head.pt")(torch.from_numpy(x)), head(torch.from_numpy(x))
         )
-
-
-class _Plus(torch.nn.Module):
-    """A target that adds a constant to the first column."""
-
-    def __init__(self, c: float) -> None:
-        super().__init__()
-        self.c = c
-
-    def forward(self, z: torch.Tensor) -> torch.Tensor:
-        return z[:, 0] + self.c
-
-
-def test_copies_gated_lifts_the_target_by_one_minus_p_copies() -> None:
-    gated = CopiesGated(_Plus(1.0), _Plus(0.0))
-    beliefs = torch.tensor([[3.0], [3.0], [3.0]])
-    head = torch.tensor([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.25, 0.75]])
-    out = gated(torch.cat([beliefs, head], dim=1))
-    # No other traffic: the full lift; copies: none; P(copies) 0.25: 0.75 of it.
-    assert torch.allclose(out, torch.tensor([4.0, 3.0, 3.75]))

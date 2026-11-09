@@ -15,7 +15,7 @@ import onnx
 import torch
 
 from expliccit_env.policy import OBS_DIM, TRUTH_DIM
-from expliccit_env.train.models import PolicyGraph
+from expliccit_env.train.graph import PolicyGraph
 
 
 class _ByName(torch.nn.Module):

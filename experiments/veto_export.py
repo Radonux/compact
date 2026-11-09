@@ -17,23 +17,21 @@ from torch import nn
 
 from expliccit_env.train import fit, ppo
 from expliccit_env.train.export import to_onnx
-from expliccit_env.train.recurrent import (
-    ConcatActor,
-    EnsembleActor,
-    HeldPolicyGraph,
-    RecurrentActor,
-)
+from expliccit_env.train.recurrent import ConcatActor, EnsembleActor, RecurrentActor
 
 
 class Veto(nn.Module):
-    """The concatenated outputs [u / max, 2p - 1, 2q - 1] -> u."""
+    """A Held decision's head (train/recurrent.py): the concatenated outputs
+    [u / max, 2p - 1, 2q - 1] -> u."""
 
     def __init__(self, u_rule: float, action_max: float, tq: float) -> None:
         super().__init__()
         self.u_rule, self.action_max, self.tq = u_rule, action_max, tq
 
-    def forward(self, z: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
-        del z
+    def forward(
+        self, a: torch.Tensor, z: torch.Tensor, traffic: torch.Tensor | None
+    ) -> torch.Tensor:
+        del z, traffic
         q = (a[:, 2] + 1) / 2
         q = torch.clamp((q - self.tq) / (1 - self.tq), 0.0, 1.0) if self.tq > 0 else q
         return self.u_rule + (1 - q) * (a[:, 0] * self.action_max - self.u_rule)
@@ -64,16 +62,8 @@ def main() -> None:
     width = ppo._width(net1, spec)  # pyright: ignore[reportPrivateUsage]
     beliefs = EnsembleActor([_actor(r, width, s, 2) for r, s in zip(args.q, qspecs, strict=True)])
     actor = ConcatActor([_actor(args.policy, width, spec, 1), beliefs])
-    base = fit.policy_graph(
-        net1,
-        actor,
-        spec.action_max,
-        action="bdp",
-        view=spec.view,
-        input_bins=spec.input_bins if spec.view == "bins" else None,
-    )
     veto = Veto(spec.u_rule, spec.action_max, args.tq)
-    graph = HeldPolicyGraph(base, actor, gate=veto).eval()
+    graph = ppo.policy_graph(net1, actor, spec, head=veto)
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / f"{args.name}.onnx").write_bytes(to_onnx(graph))
     print(f"{args.name}.onnx")

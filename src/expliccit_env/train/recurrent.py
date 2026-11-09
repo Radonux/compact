@@ -4,8 +4,9 @@ net2 reads net1's output (pooled bins, or means) and its own previous u
 through a GRU, and answers u: the window is 2^u times the believed BDP. It
 decides once per clamp(min RTT, 10 ms, 50 ms) and holds u in between,
 aiming each step's window at that step's believed BDP. All of this lives
-in the policy graph's state, so the guest runs it as any stateful policy
-(contract sage-v1, guest/src/step.rs).
+in the policy graph's state (``Held``, a decision of graph.PolicyGraph), so
+the guest runs it as any stateful policy (contract sage-v1,
+guest/src/step.rs).
 
 The guest adds exploration noise to every step's action. The graph takes
 the u that the decision step's noise produced as the decision it made (it
@@ -32,7 +33,7 @@ import numpy.typing as npt
 import torch
 from torch import nn
 
-from expliccit_env.train.models import PolicyGraph
+from expliccit_env.train.graph import Seen
 
 # The step message's last column: the kernel's min RTT in ms (step.rs).
 OBS_MIN_RTT: Final = 77
@@ -53,7 +54,7 @@ def block_steps(min_rtt_ms: torch.Tensor) -> torch.Tensor:
 
 
 def decision_steps(min_rtt_ms: npt.NDArray[np.float32]) -> npt.NDArray[np.int64]:
-    """The steps of one trajectory at which HeldPolicyGraph decides, from its
+    """The steps of one trajectory at which a Held decision decides, from its
     steps' min RTT column, as the graph's counter runs (in float32, as the
     graph computes it)."""
     m = np.asarray(min_rtt_ms, np.float32)
@@ -133,7 +134,7 @@ class RecurrentActor(nn.Module):
 
 
 class HeldActor(Protocol):
-    """What HeldPolicyGraph needs of its actor: one GRU step and its output."""
+    """What Held needs of its actor: one GRU step and its output."""
 
     hidden: int
 
@@ -191,8 +192,9 @@ class ConcatActor(nn.Module):
         return torch.cat([o.unsqueeze(-1) if o.dim() == 1 else o for o in outs], dim=-1)
 
 
-class HeldPolicyGraph(PolicyGraph):
-    """PolicyGraph with a RecurrentActor that decides once per block.
+class Held(nn.Module):
+    """A PolicyGraph decision (graph.py) for a recurrent net2 that decides
+    once per block and holds its decision.
 
     A decision holds its realized u (the u it asked for, plus the guest's
     exploration noise on that step) for the block, and every step aims the
@@ -201,6 +203,10 @@ class HeldPolicyGraph(PolicyGraph):
     from: copies of the rule cloned that way queued more than copies of the
     rule and lost 0.12 in log utility to them (exp-net2-clone-copies-107).
 
+    ``head`` maps the actor's output a in [-1, 1], net1's beliefs z and the
+    traffic head's probabilities to u (ppo.Head: a times action_max, a
+    residual on a rule, or a gate between rules).
+
     State, [1, hidden + 5]: the GRU's hidden state, the previous decision's
     realized u, the steps left in the block, the window of this step (log2
     packets), the believed BDP at the decision (log2 packets), and 1 on
@@ -208,58 +214,35 @@ class HeldPolicyGraph(PolicyGraph):
 
     def __init__(
         self,
-        base: PolicyGraph,
         actor: RecurrentActor | EnsembleActor | ConcatActor,
-        offset: nn.Module | None = None,
-        gate: nn.Module | None = None,
+        head: nn.Module,
+        action_max: float,
     ) -> None:
-        """``offset``, when given, maps net1's output to a u the actor's
-        output is added to (a residual on a rule, such as the share rule).
-        ``gate``, when given, maps net1's output and the actor's output in
-        [-1, 1] to u in place of both (a learned switch between rules)."""
-        super().__init__(base.scaler, base.net1, base.lcf_scaler, actor, base.action_max)
-        if base.target is None:
-            raise ValueError("a held net2 needs a window target (action 'bdp')")
-        if offset is not None and gate is not None:
-            raise ValueError("a held net2 takes an offset or a gate, not both")
-        self.view, self.target = base.view, base.target
-        self.offset, self.gate = offset, gate
-        for name in ("truth_cols", "truth_units", "from_truth", "truth_bounds"):
-            setattr(self, name, getattr(base, name))
+        super().__init__()
+        self.actor, self.head, self.action_max = actor, head, action_max
 
     @property
-    def actor(self) -> HeldActor:
-        return cast(HeldActor, self.net2)
+    def held(self) -> HeldActor:
+        return cast(HeldActor, self.actor)
 
     @property
     def state_dim(self) -> int:
-        return self.actor.hidden + 5
+        return self.held.hidden + 5
 
-    def step(
-        self,
-        obs: torch.Tensor,
-        state: torch.Tensor | None,
-        truth: torch.Tensor | None = None,
-        cwnd: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor | None]:
-        if state is None or cwnd is None or self.target is None:
-            raise ValueError("a held net2 needs its state and the cwnd input")
-        z = self.beliefs(obs, truth)
-        x = z if self.view is None else self.view(z)
-        lb = self.target(z)
+    def forward(self, seen: Seen, state: torch.Tensor | None) -> tuple[torch.Tensor, torch.Tensor]:
+        cwnd, lb, obs = seen.cwnd, seen.lb, seen.obs
+        if state is None or cwnd is None or lb is None:
+            raise ValueError("a held net2 needs its state, a window target and the cwnd input")
         lc = torch.log2(torch.clamp(cwnd, min=1.0)).squeeze(1)
-        n = self.actor.hidden
+        n = self.held.hidden
         h = state[:, :n]
         prev_u, left, _, lb_dec, pending = (state[:, n + i] for i in range(5))
         captured = pending > 0.5
         prev_u = torch.where(captured, lc - lb_dec, prev_u)
         decide = left < 0.5
-        inp = torch.cat([x, (prev_u / self.action_max).unsqueeze(1)], dim=1)
-        h_new = self.actor.cell(inp, h)
-        a_new = self.actor.mean(h_new)
-        u = a_new * self.action_max if self.gate is None else self.gate(z, a_new)
-        if self.offset is not None:
-            u = u + self.offset(z)
+        inp = torch.cat([seen.x, (prev_u / self.action_max).unsqueeze(1)], dim=1)
+        h_new = self.held.cell(inp, h)
+        u = self.head(self.held.mean(h_new), seen.z, seen.traffic)
         h = torch.where(decide.unsqueeze(1), h_new, h)
         window = torch.where(decide, lb + u, lb + prev_u)
         a = torch.clamp(window - lc, -_A_LIMIT, _A_LIMIT).unsqueeze(1)
