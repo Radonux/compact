@@ -155,7 +155,7 @@ def load(out: Path) -> tuple[Scores, set[str]]:
 def markdown(cands: dict[str, Candidate], kept: str | None, rule: str = RULE) -> str:
     head = [*FAMILIES, "five-family mean", "new-20, competition", "copies", "per seed"]
     lines = [
-        f"Learned net2 against the fixed rule ({rule}), validation links: per link the mean over",
+        f"Learned net2 against the fixed rule ({rule}) on this run's links: per link the mean over",
         "seeds of policy minus rule, then the mean over links with its 95% interval.",
         "A * marks a candidate with a failed episode.",
         "",
