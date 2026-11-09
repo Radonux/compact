@@ -68,3 +68,42 @@ def fit_head(x: F32, y: npt.NDArray[np.int64], *, epochs: int = 30, seed: int = 
             loss_fn(head.logits(xt[b]), yt[b]).backward()
             opt.step()
     return head.eval()
+
+
+class WithTraffic(nn.Module):
+    """net1 with its traffic head: net1's scaled measurements -> [net1's
+    output, the head's probabilities of CLASSES] (the last three columns)."""
+
+    def __init__(self, net1: nn.Module, head: TrafficHead) -> None:
+        super().__init__()
+        self.net1, self.head = net1, head
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return torch.cat([self.net1(x), self.head(x)], dim=1)
+
+
+class Beliefs(nn.Module):
+    """A module on net1's output, given WithTraffic's: it sees the beliefs
+    without the head's columns (``inner`` None passes them as they are)."""
+
+    def __init__(self, inner: nn.Module | None) -> None:
+        super().__init__()
+        self.inner = inner
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        b = z[:, : -len(CLASSES)]
+        return b if self.inner is None else self.inner(b)
+
+
+class HeadQ(nn.Module):
+    """A gate3 gate (train/ppo.py) with q, the belief that copies share the
+    link, from net1's traffic head instead of the students: the students'
+    output [p, q] in [-1, 1] keeps p and takes 2 P(copies) - 1 for q."""
+
+    def __init__(self, gate: nn.Module) -> None:
+        super().__init__()
+        self.gate = gate
+
+    def forward(self, z: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
+        copies = z[:, CLASSES.index("copies") - len(CLASSES)]
+        return self.gate(z[:, : -len(CLASSES)], torch.stack([a[:, 0], 2 * copies - 1], dim=1))
