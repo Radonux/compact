@@ -415,6 +415,36 @@ Divergences from expliCCit's and Sage's setting, each a possible cause:
   (expliCCit's released policy uses 0.50 of the case-study link there,
   Sage 0.92).
 
+### What the released policy's decisions are attributed to
+
+Each decision of the released policy, as deployed (beliefs clamped and
+rounded), was split into exact Shapley values over its seven LCFs: 2^7
+evaluations per decision, against the mean LCF vector of the same
+campaign's steps. The values sum to each decision's change within
+2.4e-8 on every campaign
+([`exp-expliccit-attribution-190`](https://github.com/Radonux/palaestra/releases/tag/exp-expliccit-attribution-190),
+validation links, every fifth step).
+
+| Campaign | Steps | Share of a decision's total abs value held by its largest three LCFs | Largest mean shares |
+|---|---|---|---|
+| Case Studies 1 and 2's links | 3,178 | 0.82 | one-way delay 0.36, receive rate 0.18, capacity 0.17 |
+| New family | 45,085 | 0.77 | one-way delay 0.20, capacity 0.20, queue delay 0.18 |
+| Cellular traces | 8,189 | 0.80 | queue delay 0.35, queue 0.19, one-way delay 0.13 |
+| Rising capacity | 11,290 | 0.77 | capacity 0.25, one-way delay 0.18, queue 0.17 |
+
+On the case-study links busy fraction gets exactly 0. As deployed, its
+belief is the same at every step there, so it never differs from the
+reference. Yet it is the wrong belief on that link (1.00 against 0.51),
+and the true value lifts utilization from 0.48 to 0.71 (above). A
+Shapley value against a mean reference says how a decision varies with
+an input, not whether the input is right. A belief that is wrong but
+constant gets no attribution, so attribution alone could not find this
+fault; replacing the belief with the truth did. The leave-one-out
+intervention tracks the Shapley value closely (correlation 0.83 to 0.99
+for every LCF but capacity, 0.60 to 0.90 for capacity), so the policy
+is close to additive over its LCFs, and capacity is the one that
+interacts most with the others.
+
 ## Alarms and repair
 
 Alarms computed without ground truth catch beliefs that the flow's own

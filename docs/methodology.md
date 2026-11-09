@@ -154,7 +154,8 @@ links; the claim rests on that measurement. The plan:
 
 - Explain a decision by evaluating net2 on a changed belief: exact
   counterfactuals, and exact Shapley values over the seven LCFs in 2^7 =
-  128 evaluations. UNRUN.
+  128 evaluations (`train/attribution.py`). Run on expliCCit's released
+  policy ([results.md](results.md)); on palaestra's own net2, UNRUN.
 - Test leakage (H4) with probes that try to recover non-LCF quantities
   (the controller that produced the episode, raw columns) from net1's
   output. UNRUN.
