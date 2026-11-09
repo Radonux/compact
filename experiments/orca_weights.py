@@ -17,13 +17,16 @@ works): ENV/bin/python experiments/orca_weights.py ORCA_CHECKOUT STATES.npy OUT
     OUT         gets weights.npz, states.npy and actions.npy
 """
 
+import os
 import sys
 from pathlib import Path
 
 import numpy as np
 import tensorflow as tf
 
-orca, states_path, out = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])
+orca, states_path, out = (Path(a).resolve() for a in sys.argv[1:4])
+out.mkdir(parents=True, exist_ok=True)
+os.chdir(out)  # Orca's utils.py logs to ./rl_logging on import
 tf1 = tf.compat.v1
 tf1.disable_v2_behavior()
 # agent.py is TensorFlow 1 code: give it the v1 API under its own name.
@@ -44,7 +47,6 @@ with tf1.Session() as sess:
     tf1.train.Saver(var_list=variables).restore(sess, str(CKPT))
     weights = {v.name.split(":")[0]: sess.run(v) for v in variables}  # Python 3.8
     actions = sess.run(action, {s0: states, is_training: False})
-out.mkdir(parents=True, exist_ok=True)
 np.savez(out / "weights.npz", **weights)
 np.save(out / "states.npy", states)
 np.save(out / "actions.npy", actions.astype(np.float32))
