@@ -16,7 +16,7 @@ import numpy as np
 import numpy.typing as npt
 
 PLAN_VERSION: Final = 7
-AGENT_CCS: Final = ("agent", "agent_reno")
+AGENT_CCS: Final = ("agent", "agent_cubic")
 U32: Final = 2**32
 # The largest trace the guest's qdisc reads from its file (sch_mmlink.h
 # MMLINK_TRACE_MAX): 64 MiB, 18.6 hours at one byte per millisecond.
@@ -80,7 +80,7 @@ class TcpCrossPlan:
 
     def __post_init__(self) -> None:
         if (self.cc in AGENT_CCS) != (self.agent is not None):
-            raise ValueError("a cross flow with cc agent/agent_reno and an agent plan go together")
+            raise ValueError("a cross flow with cc agent/agent_cubic and an agent plan go together")
         if not 0 <= self.extra_delay_ns <= 10**10:
             raise ValueError("extra_delay_ns must be in [0, 10 s]")
 
@@ -112,7 +112,7 @@ class GuestPlan:
 
     def __post_init__(self) -> None:
         if (self.cc in AGENT_CCS) != (self.agent is not None):
-            raise ValueError("cc agent/agent_reno and an agent plan go together")
+            raise ValueError("cc agent/agent_cubic and an agent plan go together")
 
     def write(self, directory: Path) -> None:
         directory.mkdir(parents=True, exist_ok=True)

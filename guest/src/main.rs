@@ -345,7 +345,7 @@ fn episode(plan_dir: &Path, out: &Path, module_dir: &Path) -> Result<Report> {
         loops.push(match (flow, flow.agent(), &truth) {
             (CrossFlow::Tcp { start_ms, stop_ms, .. }, Some(a), Some(truth)) => Some(step::Loop::new(
                 &out.join(format!("steps-cross{i}.bin")),
-                Some(step::Policy::load(&a.policy, a.noise).ctx(format!("cross flow {i}"))?),
+                Some(step::Policy::load(&a.policy, a.noise, a.mode).ctx(format!("cross flow {i}"))?),
                 truth.clone(),
                 cross::port(i)?,
                 at(*start_ms),
@@ -368,7 +368,7 @@ fn episode(plan_dir: &Path, out: &Path, module_dir: &Path) -> Result<Report> {
         (Some(truth), true) => {
             let policy = match &plan.control {
                 Control::Stock => None,
-                Control::Agent(a) => Some(step::Policy::load(&a.policy, a.noise)?),
+                Control::Agent(a) => Some(step::Policy::load(&a.policy, a.noise, a.mode)?),
             };
             let lp = step::Loop::new(
                 &out.join("steps.bin"),

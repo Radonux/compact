@@ -107,10 +107,21 @@ pub enum Control {
 }
 
 /// A sage-v1 policy driving one socket's tcp_agent controller ("agent" or
-/// "agent_reno") through /dev/expl_agent after every step.
+/// "agent_cubic") through /dev/expl_agent after every step.
 pub struct Agent {
     pub policy: PathBuf,
     pub noise: Noise,
+    pub mode: Mode,
+}
+
+/// How an action sets the window, by the socket's controller.
+#[derive(Clone, Copy)]
+pub enum Mode {
+    /// "agent": Sage's window accumulator times 2^a, held with its pacing.
+    Hold,
+    /// "agent_cubic": the kernel's current window times 2^a, as Orca sets
+    /// it; Cubic evolves it until the next action.
+    Cubic,
 }
 
 /// Exploration: Gaussian noise added to every action the policy takes,
@@ -185,10 +196,14 @@ impl Agent {
     /// The agent section for a socket running `cc`: present exactly when
     /// `cc` is an agent controller.
     fn parse(cc: &str, raw: Option<RawAgent>, dir: &Path) -> Result<Option<Agent>> {
-        let is_agent = matches!(cc, "agent" | "agent_reno");
-        match (is_agent, raw) {
-            (false, None) => Ok(None),
-            (true, Some(a)) => {
+        let mode = match cc {
+            "agent" => Some(Mode::Hold),
+            "agent_cubic" => Some(Mode::Cubic),
+            _ => None,
+        };
+        match (mode, raw) {
+            (None, None) => Ok(None),
+            (Some(mode), Some(a)) => {
                 if !(0.0..=2.0).contains(&a.noise_sigma) {
                     return fail(format!("agent.noise_sigma {} outside [0, 2]", a.noise_sigma));
                 }
@@ -202,10 +217,11 @@ impl Agent {
                         seed: a.noise_seed,
                         hold: nonzero(a.noise_hold, "agent.noise_hold")?,
                     },
+                    mode,
                 }))
             }
-            (true, None) => fail(format!("cc {cc} needs an agent section")),
-            (false, Some(_)) => fail(format!("cc {cc} takes no agent section")),
+            (Some(_), None) => fail(format!("cc {cc} needs an agent section")),
+            (None, Some(_)) => fail(format!("cc {cc} takes no agent section")),
         }
     }
 }

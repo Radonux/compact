@@ -9,12 +9,12 @@
  *   "agent"       Sage-style. cong_control holds snd_cwnd and the pacing rate
  *                 at the latest action on every delivery. Until the first
  *                 action the initial window is held.
- *   "agent_reno"  Orca-style. Each new action sets snd_cwnd once; between
- *                 actions Reno grows the window and the core stack handles
- *                 loss. Orca proper runs Cubic underneath; Cubic's internals
- *                 are not exported, so this base is Reno.
- *                 ponytail: Reno base, vendor Cubic's update if Orca
- *                 fidelity needs it.
+ *   "agent_cubic" Orca-style. Each new action sets snd_cwnd once, at the
+ *                 next ACK; between actions Cubic (Linux 7.0's, with
+ *                 HyStart, vendored in cubic.h) evolves the window and the
+ *                 core stack handles loss and pacing. TCP_CC_INFO returns
+ *                 Orca's per-period statistics (struct agent_cubic_info)
+ *                 and starts a new period.
  *
  * Each action is for one socket: the writer names it by its own file
  * descriptor, and the action is kept in that socket's congestion-control
@@ -28,6 +28,7 @@
  * which run with the socket locked.
  */
 #include <linux/fs.h>
+#include <linux/inet_diag.h>
 #include <linux/miscdevice.h>
 #include <linux/module.h>
 #include <linux/net.h>
@@ -35,6 +36,7 @@
 #include <linux/uaccess.h>
 #include <net/tcp.h>
 
+#include "cubic.h"
 #include "expl_rec.h"
 
 static DEFINE_SPINLOCK(action_lock);	/* guards seq, cwnd and pacing_rate */
@@ -42,16 +44,54 @@ static DEFINE_SPINLOCK(action_lock);	/* guards seq, cwnd and pacing_rate */
 /* In icsk_ca_priv, so each agent socket carries its own action. */
 struct agent_priv {
 	u32 seq;			/* actions accepted; 0: none yet */
-	u32 applied_seq;		/* agent_reno: last action applied */
+	u32 applied_seq;		/* agent_cubic: last action applied */
 	u32 cwnd;
 	u32 pad;
 	u64 pacing_rate;
 };
 
+/* Orca's per-period statistics (its kernel's deepcc_api): RTT samples, rate
+ * samples and lost packets since the last TCP_CC_INFO read.
+ */
+struct orca_stats {
+	u64 rate_sum;			/* bytes per second, summed over samples */
+	u64 read_us;			/* when the period began */
+	u32 rate_cnt;
+	u32 rtt_cnt;
+	u32 rtt_min_us;			/* over the connection, as Orca's */
+	u32 pre_lost;			/* tp->lost when the period began */
+	u32 pre_delivered;		/* tp->delivered at the last ACK */
+};
+
+/* agent_cubic's area: Cubic first, where cubic.h expects it. */
+struct agent_cubic_priv {
+	struct bictcp cubic;
+	struct agent_priv agent;
+	struct orca_stats stats;
+};
+
+/* TCP_CC_INFO of agent_cubic, in place of union tcp_cc_info. */
+struct agent_cubic_info {
+	u32 rtt_samples;		/* Orca's cnt */
+	u32 rate;			/* Orca's thr: mean rate sample, bytes/s */
+	u32 lost_bytes;
+	u32 elapsed_us;			/* the period's length */
+	u32 min_rtt_us;
+};
+
+static struct tcp_congestion_ops tcp_agent_cubic;
+
+static struct agent_priv *agent_of(struct sock *sk)
+{
+	if (READ_ONCE(inet_csk(sk)->icsk_ca_ops) == &tcp_agent_cubic)
+		return &((struct agent_cubic_priv *)inet_csk_ca(sk))->agent;
+	return inet_csk_ca(sk);
+}
+
 /* This socket's latest action into *out; its seq (0: none yet). */
 static u32 agent_current(struct sock *sk, struct expl_agent_action *out)
 {
-	const struct agent_priv *p = inet_csk_ca(sk);
+	const struct agent_priv *p = agent_of(sk);
 	unsigned long flags;
 	u32 seq;
 
@@ -86,10 +126,9 @@ static void agent_apply(struct sock *sk, const struct expl_agent_action *a)
 
 static void agent_init(struct sock *sk)
 {
-	struct agent_priv *p = inet_csk_ca(sk);
+	struct agent_priv *p = agent_of(sk);
 	unsigned long flags;
 
-	BUILD_BUG_ON(sizeof(struct agent_priv) > ICSK_CA_PRIV_SIZE);
 	spin_lock_irqsave(&action_lock, flags);
 	memset(p, 0, sizeof(*p));
 	spin_unlock_irqrestore(&action_lock, flags);
@@ -105,20 +144,86 @@ static void agent_cong_control(struct sock *sk, u32 ack, int flag,
 		agent_apply(sk, &a);
 }
 
-/* "agent_reno": apply each new action once, at the next ACK of any kind
- * (cong_avoid alone would miss actions while not cwnd-limited); Reno runs
- * as cong_avoid in between.
+/* "agent_cubic": apply each new action's window once, at the next ACK of any
+ * kind (cong_avoid alone would miss actions while not cwnd-limited); Cubic
+ * runs in between. The pacing rate is the stack's, as under Orca.
  */
-static void agent_reno_in_ack_event(struct sock *sk, u32 flags)
+static void agent_cubic_init(struct sock *sk)
 {
-	struct agent_priv *p = inet_csk_ca(sk);
+	struct agent_cubic_priv *ca = inet_csk_ca(sk);
+	struct tcp_sock *tp = tcp_sk(sk);
+
+	cubictcp_init(sk);
+	agent_init(sk);
+	memset(&ca->stats, 0, sizeof(ca->stats));
+	ca->stats.read_us = tcp_clock_us();
+	ca->stats.pre_lost = tp->lost;
+	ca->stats.pre_delivered = tp->delivered;
+}
+
+static void agent_cubic_in_ack_event(struct sock *sk, u32 flags)
+{
+	struct agent_cubic_priv *ca = inet_csk_ca(sk);
+	struct orca_stats *st = &ca->stats;
+	struct tcp_sock *tp = tcp_sk(sk);
 	struct expl_agent_action a;
 	u32 seq = agent_current(sk, &a);
 
-	if (seq != p->applied_seq) {
-		p->applied_seq = seq;
-		agent_apply(sk, &a);
+	if (seq != ca->agent.applied_seq) {
+		ca->agent.applied_seq = seq;
+		tcp_snd_cwnd_set(tp, min(a.cwnd, tp->snd_cwnd_clamp));
 	}
+	/* Orca averages every rate sample. This hook runs before the stack
+	 * takes this ACK's sample, so each ACK that delivered data counts the
+	 * latest saved sample: one ACK late.
+	 */
+	if (tp->delivered != st->pre_delivered) {
+		st->pre_delivered = tp->delivered;
+		if (tp->rate_interval_us) {
+			st->rate_sum += div_u64((u64)tp->rate_delivered * tp->mss_cache *
+						USEC_PER_SEC, tp->rate_interval_us);
+			st->rate_cnt++;
+		}
+	}
+}
+
+static void agent_cubic_acked(struct sock *sk, const struct ack_sample *sample)
+{
+	struct orca_stats *st = &((struct agent_cubic_priv *)inet_csk_ca(sk))->stats;
+
+	cubictcp_acked(sk, sample);
+	if (sample->rtt_us > 0) {
+		st->rtt_cnt++;
+		if (!st->rtt_min_us || st->rtt_min_us > sample->rtt_us)
+			st->rtt_min_us = sample->rtt_us;
+	}
+}
+
+/* Only TCP_CC_INFO (ext ~0U) reads and resets the period; inet_diag gets
+ * nothing, so it cannot cut a period short.
+ */
+static size_t agent_cubic_get_info(struct sock *sk, u32 ext, int *attr,
+				   union tcp_cc_info *info)
+{
+	struct orca_stats *st = &((struct agent_cubic_priv *)inet_csk_ca(sk))->stats;
+	struct agent_cubic_info *out = (struct agent_cubic_info *)info;
+	struct tcp_sock *tp = tcp_sk(sk);
+	u64 now = tcp_clock_us();
+
+	if (ext != ~0U)
+		return 0;
+	out->rtt_samples = st->rtt_cnt;
+	out->rate = st->rate_cnt ? min_t(u64, div_u64(st->rate_sum, st->rate_cnt), U32_MAX) : 0;
+	out->lost_bytes = (tp->lost - st->pre_lost) * tp->mss_cache;
+	out->elapsed_us = min_t(u64, now - st->read_us, U32_MAX);
+	out->min_rtt_us = st->rtt_min_us;
+	st->rate_sum = 0;
+	st->rate_cnt = 0;
+	st->rtt_cnt = 0;
+	st->read_us = now;
+	st->pre_lost = tp->lost;
+	*attr = 0;
+	return sizeof(*out);
 }
 
 static u32 agent_ssthresh(struct sock *sk)
@@ -140,21 +245,25 @@ static struct tcp_congestion_ops tcp_agent __read_mostly = {
 	.name = "agent",
 };
 
-static struct tcp_congestion_ops tcp_agent_reno __read_mostly = {
-	.init = agent_init,
-	.ssthresh = tcp_reno_ssthresh,
-	.in_ack_event = agent_reno_in_ack_event,
-	.cong_avoid = tcp_reno_cong_avoid,
+static struct tcp_congestion_ops tcp_agent_cubic __read_mostly = {
+	.init = agent_cubic_init,
+	.ssthresh = cubictcp_recalc_ssthresh,
+	.cong_avoid = cubictcp_cong_avoid,
+	.set_state = cubictcp_state,
 	.undo_cwnd = tcp_reno_undo_cwnd,
+	.cwnd_event = cubictcp_cwnd_event,
+	.pkts_acked = agent_cubic_acked,
+	.in_ack_event = agent_cubic_in_ack_event,
+	.get_info = agent_cubic_get_info,
 	.owner = THIS_MODULE,
-	.name = "agent_reno",
+	.name = "agent_cubic",
 };
 
 static bool is_agent(const struct sock *sk)
 {
 	const struct tcp_congestion_ops *ops = READ_ONCE(inet_csk(sk)->icsk_ca_ops);
 
-	return ops == &tcp_agent || ops == &tcp_agent_reno;
+	return ops == &tcp_agent || ops == &tcp_agent_cubic;
 }
 
 /* Context: process. Untrusted input: one whole, valid action per write,
@@ -189,7 +298,7 @@ static ssize_t agent_write(struct file *file, const char __user *buf,
 		return -EINVAL;
 	}
 
-	p = inet_csk_ca(sk);
+	p = agent_of(sk);
 	spin_lock_irqsave(&action_lock, flags);
 	p->cwnd = a.cwnd;
 	p->pacing_rate = a.pacing_rate;
@@ -223,19 +332,23 @@ static int __init tcp_agent_init(void)
 
 	BUILD_BUG_ON(sizeof(struct expl_rec_agent_action) != 40);
 	BUILD_BUG_ON(sizeof(struct expl_agent_action) != 24);
+	BUILD_BUG_ON(sizeof(struct agent_priv) > ICSK_CA_PRIV_SIZE);
+	BUILD_BUG_ON(sizeof(struct agent_cubic_priv) > ICSK_CA_PRIV_SIZE);
+	BUILD_BUG_ON(sizeof(struct agent_cubic_info) > sizeof(union tcp_cc_info));
+	cubic_scales_init();
 	err = tcp_register_congestion_control(&tcp_agent);
 	if (err)
 		return err;
-	err = tcp_register_congestion_control(&tcp_agent_reno);
+	err = tcp_register_congestion_control(&tcp_agent_cubic);
 	if (err)
 		goto err_agent;
 	err = misc_register(&agent_dev);
 	if (err)
-		goto err_reno;
+		goto err_cubic;
 	return 0;
 
-err_reno:
-	tcp_unregister_congestion_control(&tcp_agent_reno);
+err_cubic:
+	tcp_unregister_congestion_control(&tcp_agent_cubic);
 err_agent:
 	tcp_unregister_congestion_control(&tcp_agent);
 	return err;
@@ -244,7 +357,7 @@ err_agent:
 static void __exit tcp_agent_exit(void)
 {
 	misc_deregister(&agent_dev);
-	tcp_unregister_congestion_control(&tcp_agent_reno);
+	tcp_unregister_congestion_control(&tcp_agent_cubic);
 	tcp_unregister_congestion_control(&tcp_agent);
 }
 

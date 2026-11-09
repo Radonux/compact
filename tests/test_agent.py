@@ -118,12 +118,16 @@ def test_recurrent_state_round_trips(build: UmlBuild, tmp_path: Path) -> None:
     assert np.array_equal(applied, expect)
 
 
-def test_reno_agent_grows_between_actions(build: UmlBuild, tmp_path: Path) -> None:
-    _, rec = run_raw(build, tmp_path, agent_spec(tmp_path, onnx_policies.constant(0.0), "reno"))
-    obs, acts = rec.tcp_obs, rec.agent_action
-    assert set(acts["cwnd"].tolist()) == {10}
-    between = (obs["t_ns"] > acts["t_ns"][3]) & (obs["t_ns"] < acts["t_ns"][4])
-    assert obs["snd_cwnd"][between].max() > 10  # Reno grew it before the next action
+def test_cubic_agent_at_zero_leaves_the_window_to_cubic(build: UmlBuild, tmp_path: Path) -> None:
+    outcome, _ = run_raw(
+        build, tmp_path, agent_spec(tmp_path, onnx_policies.constant(0.0), "cubic")
+    )
+    steps = steps_of(outcome)
+    read, wrote = steps["cwnd"].to_numpy(), steps["cwnd_set"].to_numpy()
+    # 2^0 times the kernel's window: each action sets the window it read.
+    assert np.array_equal(wrote, np.maximum(4, read))
+    # Cubic grew it from 10, past the path's BDP (33 packets).
+    assert wrote.max() > 40
 
 
 def test_bad_policy_output_fails_the_episode(build: UmlBuild, tmp_path: Path) -> None:

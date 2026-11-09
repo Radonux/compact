@@ -50,14 +50,14 @@ def link(bw_mbps: float, buffer: int) -> PathSpec:
 
 def mixed(tmp: Path) -> EpisodeSpec:
     """The observed agent holds 10 packets; cross flow 0 is an agent that
-    grows by 2^0.05 a step, flow 1 an agent_reno that shrinks by 2^-0.02,
-    then a Cubic flow and UDP."""
+    grows by 2^0.05 a step, flow 1 an agent_cubic that halves the kernel's
+    window every two steps, then a Cubic flow and UDP."""
     return EpisodeSpec(
         path=link(30, 300),
         cc=agent(tmp, onnx_policies.constant(0.0)),
         cross=[
             TcpCross(cc=agent(tmp, onnx_policies.constant(0.05))),
-            TcpCross(cc=agent(tmp, onnx_policies.constant(-0.02), "reno"), start_ms=500),
+            TcpCross(cc=agent(tmp, onnx_policies.constant(-0.5), "cubic"), start_ms=500),
             TcpCross(cc="cubic", start_ms=1000),
             UdpCross(rate_mbps=2),
         ],
@@ -88,10 +88,19 @@ def test_each_agent_drives_only_its_own_socket(build: UmlBuild, tmp_path: Path) 
     assert row["cross_actions"] == row["cross_steps"]
     acts = rec.agent_action
     assert set(acts["sport"].tolist()) == {MAIN_SPORT, CROSS_PORT_BASE, CROSS_PORT_BASE + 1}
-    for sport, a in ((MAIN_SPORT, 0.0), (CROSS_PORT_BASE, 0.05), (CROSS_PORT_BASE + 1, -0.02)):
+    for sport, a in ((MAIN_SPORT, 0.0), (CROSS_PORT_BASE, 0.05)):
         mine = acts[acts["sport"] == sport]
         assert mine["cwnd"].tolist() == sage_window([a] * mine.size), sport
+    for sport in (MAIN_SPORT, CROSS_PORT_BASE, CROSS_PORT_BASE + 1):
+        mine = acts[acts["sport"] == sport]
         assert mine["action_seq"].tolist() == list(range(1, mine.size + 1))
+    # agent_cubic: each step's window is the kernel's window it read times
+    # 2^a, rounded down and at least 4, and Cubic grows it in between.
+    cubic = flow_steps(out, 1)
+    read, wrote = cubic["cwnd"].to_numpy(), cubic["cwnd_set"].to_numpy()
+    ratio = 2.0 ** cubic["applied_action"].to_numpy()
+    assert np.array_equal(wrote, np.maximum(4, np.floor(ratio * read + 1e-3)))
+    assert np.mean(wrote == 4) > 0.5 and read.max() > 4
     assert acts[acts["sport"] == MAIN_SPORT].size == row["agent_actions"]
     grow = flow_steps(out, 0)
     assert grow.num_rows == row["cross_steps"][0]

@@ -175,8 +175,14 @@ only the named tables; most experiments keep only `steps`.
 The step loop writes each action to `/dev/expl_agent`, naming its socket
 by file descriptor (agent ABI 2); `tcp_agent` keeps it in that socket's
 congestion-control state and applies it at the next ACK, so any number of
-agents share a bottleneck. `agent` holds window and pacing (Sage-style);
-`agent_reno` sets the window once per action and lets Reno grow it.
+agents share a bottleneck. `agent` holds window and pacing (Sage-style).
+`agent_cubic` (Orca-style) sets the window once per action, to the
+kernel's current window times 2^a, and lets Cubic grow it in between. The
+Cubic is Linux 7.0's, copied into `kernel/modules/cubic.h` because the
+kernel exports none of it. `getsockopt(TCP_CC_INFO)` on an `agent_cubic`
+socket returns Orca's statistics for the period since the last read (RTT
+samples, mean rate sample, lost bytes, period length, min RTT) and starts
+a new period.
 
 `mahak.py` ports Mahak's `mahak_online.py` and its `helper.py`: the grid,
 min-max scaling and PCA, the Gaussian process (RBF, length scale 0.1, 10

@@ -10,7 +10,7 @@ stream to the host ([docs/architecture.md](../../docs/architecture.md)).
 | `sch_mmlink` | qdisc `mmlink`: one direction of a trace-driven link and its delay line, with Mahimahi's semantics and optional i.i.d. random loss on entry (`mm-loss`). The path namespace runs two. |
 | `sch_flowdelay` | qdisc `flowdelay`: extra delay per TCP destination port, one FIFO per port, on the receiver's device, so a cross flow's ACKs give it a longer base RTT. Loaded only when an episode has such a flow. |
 | `expl_tcpobs` | Sender state at every arriving segment, from the `tcp:tcp_probe` tracepoint, for sockets with `SO_MARK == mark`. It reads only the generic TCP socket, so it works for any congestion control. |
-| `tcp_agent` | Congestion controls `agent` (holds the window and pacing rate a policy set, as Sage does) and `agent_reno` (each action sets the window once, then Reno grows it, as Orca does), driven through `/dev/expl_agent`. Each write names its socket by the writer's file descriptor, and each socket keeps its own action. |
+| `tcp_agent` | Congestion controls `agent` (holds the window and pacing rate a policy set, as Sage does) and `agent_cubic` (each action sets the window once, then Cubic, vendored from Linux 7.0 in `cubic.h`, grows it, as Orca does; `TCP_CC_INFO` gives Orca's statistics per period), driven through `/dev/expl_agent`. Each write names its socket by the writer's file descriptor, and each socket keeps its own action. |
 
 ## Building
 

@@ -28,15 +28,19 @@
 //!                  a policy can set an absolute window as a multiplier
 //!   output 0       float32 [1, 1], a: the window is multiplied by 2^a
 //!   output 1       float32 [1, S], the next state, when "state" exists
-//! a must be finite with |a| <= 8; anything else fails the episode. The
-//! window follows Sage: a precise accumulator starting at 10 packets,
-//! rounded up and kept in [4, 20000]. Pacing follows Sage's evaluation
-//! setting (pace with the smoothed RTT, coefficient 100), computed here as
-//! cwnd * mss / srtt and refreshed every step.
+//! a must be finite with |a| <= 8; anything else fails the episode. Under
+//! "agent" the window follows Sage: a precise accumulator starting at 10
+//! packets, rounded up and kept in [4, 20000]; pacing follows Sage's
+//! evaluation setting (pace with the smoothed RTT, coefficient 100),
+//! computed here as cwnd * mss / srtt and refreshed every step. Under
+//! "agent_cubic" the window is the kernel's current one (the cwnd input)
+//! times 2^a, rounded down and kept in [4, 20000], as Orca sets it; a = 0
+//! leaves Cubic's window as it is, and the stack paces.
 //! ponytail: pacing is refreshed per step, not per ACK as Sage's patched
 //! kernel may do (its source is not public); move it into tcp_agent if it
 //! matters.
 
+use crate::plan::Mode;
 use crate::recorder::Truth;
 use crate::sys::{self, Context, Result, fail};
 use crate::truth;
@@ -486,6 +490,7 @@ enum Input {
 /// An ONNX policy under contract sage-v1, with optional exploration noise.
 pub struct Policy {
     plan: TypedRunnableModel<TypedModel>,
+    mode: Mode,
     inputs: Vec<Input>,
     state: Option<Tensor>,
     sigma: f64,
@@ -495,7 +500,7 @@ pub struct Policy {
 }
 
 impl Policy {
-    pub fn load(path: &Path, noise: crate::plan::Noise) -> Result<Policy> {
+    pub fn load(path: &Path, noise: crate::plan::Noise, mode: Mode) -> Result<Policy> {
         let mut model =
             tract_onnx::onnx().model_for_path(path).ctx(format!("loading ONNX policy {}", path.display()))?;
         let names: Vec<String> = model.inputs.iter().map(|o| model.node(o.node).name.clone()).collect();
@@ -541,6 +546,7 @@ impl Policy {
             .ctx(format!("optimizing ONNX policy {}", path.display()))?;
         Ok(Policy {
             plan,
+            mode,
             inputs,
             state,
             sigma: noise.sigma,
@@ -613,13 +619,22 @@ impl Window {
     }
 }
 
-/// struct expl_agent_action (kernel/modules/expliccit_rec.h) for the socket
-/// `fd` of this process.
+/// Orca's window: the kernel's current one times `ratio`, rounded down
+/// (Orca's integer arithmetic; the margin absorbs float error when the
+/// product is a whole number), kept in [4, 20000].
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-fn agent_action(fd: i32, cwnd: u32, info: &Info) -> [u8; 24] {
-    let pacing = match info.rtt() {
-        0 => 0, // unpaced until the first RTT sample
-        srtt => {
+fn on_kernel_window(ratio: f64, snd_cwnd: u32) -> u32 {
+    let w = (ratio * f64::from(snd_cwnd) + 1e-3).floor();
+    (w.clamp(f64::from(MIN_CWND), f64::from(MAX_CWND))) as u32
+}
+
+/// struct expl_agent_action (kernel/modules/expliccit_rec.h) for the socket
+/// `fd` of this process. agent_cubic leaves pacing to the stack.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn agent_action(fd: i32, cwnd: u32, info: &Info, mode: Mode) -> [u8; 24] {
+    let pacing = match (mode, info.rtt()) {
+        (Mode::Cubic, _) | (Mode::Hold, 0) => 0, // unpaced until the first RTT sample
+        (Mode::Hold, srtt) => {
             (f64::from(cwnd) * f64::from(info.snd_mss()) * 1e6 / f64::from(srtt) * PACE_COEF / 100.0) as u64
         }
     };
@@ -733,8 +748,11 @@ impl Loop {
                     }
                     a = (act + p.sigma * p.held).clamp(-f64::from(MAX_ACTION), f64::from(MAX_ACTION));
                     ratio = 2f64.powf(a);
-                    cwnd = window.apply(ratio);
-                    dev.write_all(&agent_action(fd, cwnd, &info)).ctx("writing action")?;
+                    cwnd = match p.mode {
+                        Mode::Hold => window.apply(ratio),
+                        Mode::Cubic => on_kernel_window(ratio, info.snd_cwnd()),
+                    };
+                    dev.write_all(&agent_action(fd, cwnd, &info, p.mode)).ctx("writing action")?;
                     actions += 1;
                 }
                 let mut rec = Vec::with_capacity(RECORD_LEN);

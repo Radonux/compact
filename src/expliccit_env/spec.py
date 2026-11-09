@@ -192,11 +192,11 @@ class OnnxPolicy(_Frozen):
 class AgentCC(_Frozen):
     """A sage-v1 policy (policy.py) driving tcp_agent after every step.
     "hold" is Sage-style (the window and pacing stay as the policy set
-    them); "reno" is Orca-style (the policy sets the window, Reno evolves it
-    until the next action; Orca proper uses Cubic as the base)."""
+    them); "cubic" is Orca-style (each action multiplies the kernel's
+    current window, and Cubic evolves it until the next action)."""
 
     kind: Literal["agent"] = "agent"
-    mode: Literal["hold", "reno"] = "hold"
+    mode: Literal["hold", "cubic"] = "hold"
     policy: OnnxPolicy
     # Exploration (online training): Gaussian noise on each action, seeded
     # from the episode's seed. 0 runs the policy as it is.
@@ -220,7 +220,7 @@ class AgentCC(_Frozen):
 
     @property
     def name(self) -> str:
-        return "agent" if self.mode == "hold" else "agent_reno"
+        return "agent" if self.mode == "hold" else "agent_cubic"
 
     @property
     def label(self) -> str:

@@ -102,7 +102,7 @@ def test_cross_flows_take_their_own_agents(tmp_path: Path) -> None:
             "sha256": hashlib.sha256(name.encode() * 10).hexdigest(),
         }
     agent = {"kind": "agent", "policy": pol["a"], "noise_sigma": 0.1}
-    reno = {"kind": "agent", "mode": "reno", "policy": pol["b"]}
+    cubic = {"kind": "agent", "mode": "cubic", "policy": pol["b"]}
     spec = EpisodeSpec.parse(
         episode(
             {"base_rtt_ms": 20},
@@ -111,13 +111,13 @@ def test_cross_flows_take_their_own_agents(tmp_path: Path) -> None:
             cross=[
                 {"kind": "tcp", "cc": agent},
                 {"kind": "tcp", "cc": agent, "start_ms": 500},
-                {"kind": "tcp", "cc": reno},
+                {"kind": "tcp", "cc": cubic},
                 {"kind": "tcp", "cc": "cubic"},
             ],
         )
     )
     assert [c.label for c in spec.cross if c.kind == "tcp"][2:] == [
-        f"agent_reno:{pol['b']['sha256'][:12]}",
+        f"agent_cubic:{pol['b']['sha256'][:12]}",
         "cubic",
     ]
     assert '"cc":"cubic"' in spec.canonical_json()
@@ -126,7 +126,7 @@ def test_cross_flows_take_their_own_agents(tmp_path: Path) -> None:
     assert [c.cc for c in plan.cross if isinstance(c, TcpCrossPlan)] == [
         "agent",
         "agent",
-        "agent_reno",
+        "agent_cubic",
         "cubic",
     ]
     assert agents[3] is None
