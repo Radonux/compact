@@ -184,6 +184,7 @@ def _export(path: Path, net1: fit.Net1, actor: torch.nn.Module, net2: Net2Spec) 
         action=net2.action,
         view=net2.view,
         input_bins=net2.input_bins,
+        inputs=net2.inputs,
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(to_onnx(graph))

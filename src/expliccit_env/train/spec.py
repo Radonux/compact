@@ -114,7 +114,11 @@ class Net2Spec(_Frozen):
     # "true_lcfs" trains on the labels instead of net1's beliefs: the oracle
     # arm that splits a policy's loss into the LCF set's cost and net1's
     # error. Its exported policy reads the guest's live truth (policy.py).
-    inputs: Literal["net1", "true_lcfs"] = "net1"
+    # "raw" gives net2 the measurements net1 reads, scaled by net1's input
+    # scaler, and no LCFs: the black box with the same actor, data and
+    # training, which prices the LCF bottleneck. "net1+raw" gives it both,
+    # net1's output first, which measures what the LCFs leave out.
+    inputs: Literal["net1", "true_lcfs", "raw", "net1+raw"] = "net1"
     # Distribution net1 only. "bins": net2 sees each LCF's distribution,
     # summed into input_bins groups of adjacent bins when set (net1's bin
     # count must be a multiple), which bounds its input and replay buffer.
@@ -174,6 +178,8 @@ class Net2Spec(_Frozen):
     def _view(self) -> Net2Spec:
         if self.view == "means" and self.input_bins is not None:
             raise ValueError("input_bins applies to the bins view only")
+        if self.inputs in ("raw", "net1+raw") and self.action != "multiplier":
+            raise ValueError(f'inputs "{self.inputs}" act on the window multiplier only')
         return self
 
 

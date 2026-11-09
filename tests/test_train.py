@@ -697,3 +697,22 @@ def test_expliccits_released_models_load_and_act() -> None:
     assert z.shape == (4, len(EXPLICCIT_LCFS)) and np.isfinite(z).all()
     a = actor(torch.from_numpy(z)).detach().numpy()
     assert a.shape == (4, 1) and np.all(np.abs(a) <= 1)
+
+
+@pytest.mark.parametrize("inputs", ["raw", "net1+raw"])
+def test_a_net2_on_the_measurements_sees_them_in_training_and_in_the_graph(inputs: str) -> None:
+    torch.manual_seed(0)
+    net1 = _net1()
+    steps = synthetic(n_episodes=2, steps=50)
+    spec = Net2Spec(inputs=inputs)  # pyright: ignore[reportArgumentType]
+    states, _ = fit.net2_view(net1, spec, steps)
+    raw = fit.raw_width(net1)
+    assert raw == len(EXPLICCIT_OBS_COLS)
+    assert states.shape[1] == fit.net2_width(net1, spec) == raw + (7 if inputs == "net1+raw" else 0)
+    actor = ExpliccitActor(states.shape[1], 32).eval()
+    graph = fit.policy_graph(net1, actor, 1.0, inputs=spec.inputs)
+    obs = torch.from_numpy(steps.obs[:8])
+    with torch.no_grad():
+        assert torch.allclose(graph(obs), actor(torch.from_numpy(states[:8])), atol=1e-5)
+    with pytest.raises(ValueError, match="multiplier"):
+        Net2Spec(inputs=inputs, action="bdp")  # pyright: ignore[reportArgumentType]

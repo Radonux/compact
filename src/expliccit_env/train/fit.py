@@ -20,7 +20,7 @@ import numpy.typing as npt
 import torch
 from torch import nn
 
-from expliccit_env.policy import EXPLICCIT_OBS_COLS, TRUTH_COLUMNS
+from expliccit_env.policy import EXPLICCIT_OBS_COLS, OBS_DIM, TRUTH_COLUMNS
 from expliccit_env.train.data import Split, Steps
 from expliccit_env.train.models import (
     NET1,
@@ -694,14 +694,24 @@ def _view(net1: Net1, view: Literal["bins", "means"], input_bins: int | None) ->
     return PoolBins(net1.net.k, net1.net.b, input_bins)
 
 
+def raw_width(net1: Net1) -> int:
+    """Numbers per row in the measurements net1 reads (its input scaler)."""
+    with torch.no_grad():
+        return int(net1.scaler(torch.zeros(1, OBS_DIM)).shape[1])
+
+
 def net2_width(net1: Net1, spec: Net2Spec) -> int:
     """Numbers per row in net2's input."""
+    if spec.inputs == "raw":
+        return raw_width(net1)
     view = _view(net1, spec.view, spec.input_bins)
     if isinstance(view, ScaledMeans):
-        return len(net1.lcfs)
-    if isinstance(view, PoolBins):
-        return view.k * view.into
-    return net1.width
+        width = len(net1.lcfs)
+    elif isinstance(view, PoolBins):
+        width = view.k * view.into
+    else:
+        width = net1.width
+    return width + (raw_width(net1) if spec.inputs == "net1+raw" else 0)
 
 
 def _oracle(net1: Net1, z: torch.Tensor, y: F32) -> torch.Tensor:
@@ -730,11 +740,18 @@ def net2_view(net1: Net1, spec: Net2Spec, steps: Steps) -> tuple[F32, F32]:
     y = targets(steps, net1.lcfs) if spec.inputs == "true_lcfs" else None
     states, log2_bdp = [], []
     for i in range(0, steps.obs.shape[0], _EVAL_BATCH):
-        z = torch.from_numpy(net1.beliefs(steps.obs[i : i + _EVAL_BATCH]))
+        obs = steps.obs[i : i + _EVAL_BATCH]
+        raw = net1.scaler(torch.from_numpy(obs))
+        if spec.inputs == "raw":
+            log2_bdp.append(torch.full((raw.shape[0],), float("nan")))
+            states.append(raw)
+            continue
+        z = torch.from_numpy(net1.beliefs(obs))
         if y is not None:
             z = _oracle(net1, z, y[i : i + _EVAL_BATCH])
         log2_bdp.append(target(z) if target else torch.full((z.shape[0],), float("nan")))
-        states.append(z if view is None else view(z))
+        x = z if view is None else view(z)
+        states.append(torch.cat([x, raw], dim=1) if spec.inputs == "net1+raw" else x)
     if not states:
         return np.zeros((0, net2_width(net1, spec)), np.float32), np.zeros(0, np.float32)
     return torch.cat(states).numpy(), torch.cat(log2_bdp).numpy()
@@ -831,6 +848,38 @@ def _net1_module(spec: Net1Spec) -> nn.Module:
     return IntervalNet1(NET1[spec.arch](f, k, spec.width, spec.dropout, 3), k)
 
 
+class _Measurements(nn.Module):
+    """net1's slot in a graph whose net2 reads the measurements alone."""
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x
+
+
+class _WithMeasurements(nn.Module):
+    """net1's slot in a graph whose net2 reads both: scaled measurements ->
+    [net1's output, the scaled measurements]."""
+
+    def __init__(self, net1: nn.Module) -> None:
+        super().__init__()
+        self.net1 = net1
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return torch.cat([self.net1(x), x], dim=1)
+
+
+class _ViewFirst(nn.Module):
+    """net2's view on the first ``width`` columns (net1's output); the rest
+    (the measurements) pass as they are."""
+
+    def __init__(self, view: nn.Module | None, width: int) -> None:
+        super().__init__()
+        self.view, self.width = view, width
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        head = z[:, : self.width]
+        return torch.cat([head if self.view is None else self.view(head), z[:, self.width :]], 1)
+
+
 def policy_graph(
     net1: Net1,
     actor: nn.Module,
@@ -841,13 +890,25 @@ def policy_graph(
     action: Literal["multiplier", "bdp"] = "multiplier",
     view: Literal["bins", "means"] = "bins",
     input_bins: int | None = None,
+    inputs: Literal["net1", "true_lcfs", "raw", "net1+raw"] = "net1",
 ) -> PolicyGraph:
     """The exported policy; the LCFs named in ``truth`` come from the
     contract's "truth" input (policy.TRUTH_COLUMNS) instead of net1.
-    ``action``, ``view`` and ``input_bins`` are net2's (Net2Spec)."""
+    ``action``, ``view``, ``input_bins`` and ``inputs`` are net2's
+    (Net2Spec); with inputs "raw" or "net1+raw" net2 also reads the
+    measurements net1 does."""
+    if inputs in ("raw", "net1+raw") and (truth or action != "multiplier"):
+        raise ValueError(f'inputs "{inputs}" take no truth and act on the multiplier only')
     graph = PolicyGraph(net1.scaler, net1.net, net1.lcf_scaler, actor, action_max)
     graph.action_decimals = action_decimals
     graph.view = _view(net1, view, input_bins)
+    if inputs == "raw":
+        graph.net1, graph.view = _Measurements(), None
+        return graph.eval()
+    if inputs == "net1+raw":
+        graph.net1 = _WithMeasurements(net1.net)
+        graph.view = _ViewFirst(graph.view, net1.width)
+        return graph.eval()
     if action == "bdp":
         graph.target = window_target(net1)
     if truth:

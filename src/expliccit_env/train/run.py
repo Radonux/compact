@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -32,14 +33,18 @@ def train(spec: TrainSpec, out: Path) -> dict[str, Any]:
         pairs=True,  # net2 learns from consecutive steps
         split_by=spec.split_by,
     )
+    started = time.perf_counter()
     if spec.net1_from is None:
         net1, net1_log = fit.fit_net1(spec.net1, steps, spec.seed)
         net1_spec = spec.net1
     else:
         net1, net1_spec = fit.load_net1(spec.net1_from)
-        net1_log = {"loaded_from": str(spec.net1_from)}
+        net1_log: dict[str, Any] = {"loaded_from": str(spec.net1_from)}
+    net1_log["seconds"] = time.perf_counter() - started  # wall time, this host
     fit.save_net1(net1, net1_spec, out / "net1.pt")
+    started = time.perf_counter()
     actor, net2_log = fit.fit_net2(spec.net2, steps, net1, spec.seed)
+    net2_log["seconds"] = time.perf_counter() - started
     torch.save(actor.state_dict(), out / "net2.pt")
     report: dict[str, Any] = {
         "rows": {s: int(steps.rows(s).sum()) for s in ("train", "val", "test")},
@@ -58,6 +63,7 @@ def train(spec: TrainSpec, out: Path) -> dict[str, Any]:
         action=spec.net2.action,
         view=spec.net2.view,
         input_bins=spec.net2.input_bins,
+        inputs=spec.net2.inputs,
     )
     (out / "policy.onnx").write_bytes(to_onnx(graph))
     _write(out, report)
