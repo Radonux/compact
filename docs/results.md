@@ -232,6 +232,12 @@ reaches a balanced accuracy of 0.753 from the raw measurements and 0.496
 from net1 v6's beliefs (chance 0.333), and calls a stock flow copies 14%
 of the time from the measurements against 33% from the beliefs
 ([`exp-net2-competitor-info-177`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-competitor-info-177)).
+net1 can learn it: a head on net1's scaled measurements, trained on the
+training links (round 21,
+[`exp-net1-traffic-data-178`](https://github.com/Radonux/palaestra/releases/tag/exp-net1-traffic-data-178)), reaches 0.909
+on the same validation links and calls a stock flow copies 15% of the time
+(BBRv1 6%, Cubic 11%, the held-out BBRv3 and Westwood 19% and 25%;
+[`exp-net1-traffic-head-val-180`](https://github.com/Radonux/palaestra/releases/tag/exp-net1-traffic-head-val-180)).
 
 - The share rule matches the rule on the true BDP over the five families
   and gains on the fixed rule where competitors fill the buffer (+0.108
@@ -347,7 +353,7 @@ fixed rule on the validation links (campaign seed 21;
 | 18, the same at gain 0.5 (passed; above) | +0.017 | +0.049 (+0.017 to +0.085) | +0.031 (+0.006 to +0.056) | -0.022 (-0.058 to +0.017) |
 
 Averaging the seeds removed little of PPO's copies loss, so unlike round
-7's misfires (below) the seeds share the push: what wins against Cubic
+7's single-seed misfires ([rounds.md](rounds.md)) the seeds share the push: what wins against Cubic
 deepens the queue among copies (inferred). More training made it worse:
 continued up to 120 more iterations (round 14's stage 2), every cell lost
 ground after about 40, mostly where the flow was alone (tau 5 s peaked
@@ -356,50 +362,44 @@ tau 1 s fell to -0.035 to -0.075), and more copies in training (round 17)
 fell the same way. A veto by round 18's copies belief halved the copies
 loss but not enough.
 
-Reinforcement learning from the reward follows its training mixture. In
-rounds 1 to 3 every PPO and TD3+BC learner stayed at the rule (spread of
-u 0.02 to 0.04): noise of sigma 0.05 drawn anew at each decision tells a
-return over thousands of decisions too little about any one (rounds 1
-and 2 also lost 0.13 as copies to a graph bug, fixed in `85de8d0`,
-[`exp-net2-clone-copies-107`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-clone-copies-107)).
-Noise held 200 ms at sigma 0.2 (round 10) moved PPO toward larger
-windows: +0.05 to +0.07 with Cubic from the start, -0.22 to -0.39 alone,
-as competition on 80% of the training links left the flow alone on 8%.
-A longer horizon pushed harder (round 11, tau 20 s: windows of 4 to 7
-believed BDPs, 1.5 to 2.2 below), always alone the learner beat the rule
-there by up to 0.08 (round 13), and alone on half the links it matched
-the rule on every family but lost 0.1 as copies (round 12). Longer
-episodes did not help at equal compute (round 16: 120 s no better than
-30 s at tau 1 s, pushing at tau 5 s), since they hold long stretches
-where a competitor yields and give two links per update, not eight
-(inferred).
-
-Imitation learns state dependence. DAgger labels each decision with a
-privileged teacher's u (the share rule while a stock TCP flow shares the
-link, the fixed rule otherwise), which the student must infer from net1's
-output. Round 4's students kept 62% to 77% of the share rule's gain
-against Cubic for 31% to 34% of its copies loss; from round 4c to 6b a
-seed's copies loss (0.02 to 0.16) followed how well it told the cases
-apart, since one copy's push looks like a buffer-filling flow to the
-others. Round 7's students also learned q, a belief that copies are
-present (0.55 to 0.72 with copies, 0.21 to 0.26 elsewhere). Cooperating
-with copies cost most of the gain against Cubic, as some seeds took
-Cubic for copies and yielded; with q vetoing the push instead,
-`u = u_rule + p'(1 - q')(share - u_rule)` (round 7v), mistaking Cubic
-for copies costs at most the push. The copies loss left (-0.145) was
-single seeds misfiring (in 12 of 42 pairs of link and number of copies
-one seed lost 0.5 or more, never all three; 72% of the loss), and one
-policy on the three seeds' mean beliefs (round 7e) passed. Neither more
-iterations (round 8) nor 16 times the links (round 9) beat it. On net1 v6
-the students separate less sharply (q 0.53 to 0.76 with copies, 0.10 to
-0.52 elsewhere), and the same recipe passed again. Following the
-cooperative window where q believes copies, instead of the veto, still
-trades Cubic for copies on v6, even averaged over seeds: +0.211 (+0.028
-to +0.398) as copies but -0.156 (-0.288 to -0.037) with Cubic from the
-start
+Reinforcement learning from the reward follows its training mixture.
+With noise drawn anew at each decision every learner stayed at the rule;
+with noise held 200 ms PPO learned to push, which pays where competitors
+fill the mixture and costs alone and among copies; a longer horizon pushed
+harder, and longer episodes did not help at equal compute (rounds 1 to 16,
+[rounds.md](rounds.md)). Imitation of a privileged teacher learns state
+dependence instead: DAgger students learn from net1's output p, that a
+stock TCP flow shares the link, and q, that copies of itself do. With q
+vetoing the push, `u = u_rule + p'(1 - q')(share - u_rule)`, mistaking
+Cubic for copies costs at most the push, and one policy on three seeds'
+mean beliefs passed on net1 v5 and again on v6. Following the cooperative
+window where q believes copies instead trades Cubic for copies on v6,
+even averaged over seeds: +0.211 (+0.028 to +0.398) as copies but -0.156
+(-0.288 to -0.037) with Cubic from the start
 ([`exp-net2-eval-v6-coop-176`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-eval-v6-coop-176)).
 Yielding to Cubic costs more than pushing among copies, so the veto,
 which only withholds the push, is the safer use of an imperfect q.
+
+A better q moves the trade-off but does not remove it. With q from net1's
+traffic head (round 21, above) in place of the students', each minus the
+rule at campaign seed 21
+([`exp-net2-eval-v6-head-179`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-eval-v6-head-179),
+[`-head2-182`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-eval-v6-head2-182)):
+
+| q from | Uses q to | Five-family mean | cubic-first-60 | copies-30s |
+|---|---|---|---|---|
+| the students (r18e05) | veto the push | +0.017 | +0.049 | -0.022 |
+| net1's head, past 0.7 | veto the push | +0.018 | +0.051 (+0.009 to +0.100) | -0.002 |
+| the students | cooperate | | -0.156 | +0.211 |
+| net1's head | cooperate | -0.012 | -0.038 | +0.290 (+0.097 to +0.510) |
+| net1's head, past 0.5 to 0.9 | cooperate | +0.000 to +0.005 | +0.005 to +0.011 | +0.204 to +0.315 |
+| net1's head, p from it too (no learned output) | cooperate | -0.018 | -0.093 (-0.282 to +0.054) | +0.418 (+0.211 to +0.617) |
+
+The copies belief can live in net1 at no cost. Cooperating on it repairs
+most of the Cubic loss and gains more as copies, net2 unchanged, but gives
+up the gain against Cubic at every threshold, with wide intervals: a flow
+that yields to Cubic by mistake seems not to win its share back
+(inferred).
 
 Every gate, evaluation and training run of each round, on net1 v5 and
 v6, is listed in [rounds.md](rounds.md).
