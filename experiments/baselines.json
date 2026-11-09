@@ -1,0 +1,14 @@
+{
+  "title": "Baselines: throughput and delay per scenario, fairness and several flows (R11.2, R11.4)",
+  "description": "expliCCit's released policy as deployed (third_party/expliccit-models, the files its own evaluation loads), Sage's released policy (exp-sage-model-24), and the kernel's BBRv1, BBRv3, Cubic and Vegas, each alone as the observed flow on the 27 test links of every held-out family (experiments/heldout.py, campaign seed 31): training conditions, new conditions, deep buffers with long delays, Cubic first, rising capacity and cellular for 30 s (cubic-first 60 s), and expliCCit's case-study links for 80 s; then 2 and 4 copies of each controller for 30 s (experiments/copies.py). experiments/baselines_report.py reports, per scenario (family and condition) and controller, over links with 95% bootstrap intervals: the observed flow's throughput and share of capacity, the mean and 95th percentile of its queueing delay at the bottleneck per packet, its share of the TCP bytes and Jain's index where other TCP flows share the link, and for copies Jain's index, link utilization and queueing delay. Orca and Aurora are not in this run: Orca's released checkpoint needs a port (a Cubic underlay in tcp_agent and its state from the step contract), and Aurora has no released model. Each can run later on the same links and seeds and join this report.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "sage": "release:exp-sage-model-24"
+  },
+  "prepare": "SAGE=\"$IN/sage/sage/sage.onnx\"; echo \"fc0d6f1da45e4948ee3d96784642793954ed5e52adc1eddd0c9883d5d8fe2f9e  $SAGE\" | sha256sum -c; uv run expliccit train import-expliccit third_party/expliccit-models \"$OUT/expliccit\" --as-deployed; P=(--policy \"expliccit=$OUT/expliccit/policy.onnx\" --policy \"sage=$SAGE\"); S=bbr,bbr3,cubic,vegas; for fd in training:30 new:30 deep-long:30 cubic-first:60 rise:30 cellular:30 case-studies:80; do f=${fd%:*} d=${fd#*:}; uv run python experiments/heldout.py \"$OUT/spec-$f-$d\" --split test --family \"$f\" --duration-ms \"${d}000\" --seed 31 --stock \"$S\" \"${P[@]}\"; uv run expliccit campaign plan \"$OUT/spec-$f-$d/campaign.json\" \"$OUT/c-$f-$d\"; done; uv run python experiments/copies.py \"$OUT/copies\" --split test --duration-ms 30000 --seed 31 --n 2 4 --stock \"$S\" \"${P[@]}\"; mv \"$OUT/copies/c-copies-30s\" \"$OUT/\"; cp \"$OUT/spec-training-30/aliases.json\" \"$OUT/aliases.json\"",
+  "shards": 30,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables flow_seconds; done",
+  "collect": "uv run python experiments/baselines_report.py \"$OUT\"",
+  "timeout_minutes": 180
+}
