@@ -51,16 +51,14 @@ outside the training ranges.
   training range, so one-way delays above 60 ms look covered (0.90) while
   the mean cannot leave the range (R^2 -2.54). On buffers deeper than any
   in training, its free-buffer statements hold 44% of the time.
-- An unseen arrival pattern broke an earlier net1. net1 v3 was trained
-  only with competitors that arrived after the observed flow had measured
-  the link alone. With a Cubic flow from the start, its median capacity
-  belief was 0.59 of the truth and its 90% capacity statements held 26% of
-  the time (local run). The broad data, with competitors from the start,
-  repaired that ([alarms and repair](#alarms-and-repair)).
-- A distribution per LCF was the right output. On expliCCit-like data it
-  was at least as accurate as a single value or an interval on every LCF
-  but free buffer, and its CRPS was 3 to 6 times lower than the single
-  value's absolute error (local runs).
+- An unseen arrival pattern broke net1 v3, trained only with competitors
+  arriving after the flow had measured the link alone: with Cubic from
+  the start its capacity belief was 0.59 of the truth and its 90%
+  statements held 26% of the time (local run), until the broad data
+  repaired it ([alarms and repair](#alarms-and-repair)).
+- A distribution per LCF was as accurate as a single value or an interval
+  on every LCF but free buffer, with a CRPS 3 to 6 times below the single
+  value's absolute error (expliCCit-like data, local runs).
 
 Wider training data moves that edge; it does not remove it. net1 v6
 has net1 v5's settings and data plus links with one-way delays of 5 to
@@ -90,25 +88,22 @@ recall of training links, not estimation.
 
 ### Breadth of links mattered more than any setting
 
-On 132 training links (local runs, as is everything on net1 v3 here
-without a release), net1 v3's validation loss rose from the first epoch
-and its 90% capacity statements held 71% of the time: with few links the
-min RTT nearly names a link, and net1 recalls that link's capacity. Adding
-1,050 links raised capacity's coverage to 0.89 with the same settings.
-On the broad data, six settings of dropout and width span a mean CRPS
-skill of only 0.768 to 0.780
+With few links the min RTT nearly names a link and net1 recalls its
+capacity: on 132 training links net1 v3's validation loss rose from the
+first epoch and its 90% capacity statements held 71% of the time; 1,050
+more links raised that to 0.89 (local runs, as is everything on net1 v3
+here without a release). On the broad data six settings of dropout and
+width span a mean CRPS skill of only 0.768 to 0.780
 ([`exp-net1v4-grid-10`](https://github.com/Radonux/palaestra/releases/tag/exp-net1v4-grid-10)),
 lower learning rates did worse
 ([`exp-net1v4-lr-12`](https://github.com/Radonux/palaestra/releases/tag/exp-net1v4-lr-12)),
-and the choice held over two more seeds
-([`exp-net1v4-seeds-13`](https://github.com/Radonux/palaestra/releases/tag/exp-net1v4-seeds-13)).
-In the grid every member's validation loss was lowest after 1 to 4 epochs
-and rose after, as the network began to fit its training links; a lower
-learning rate did not prevent it. For the same reason a minimal
-set of quantities (capacity, queue, buffer size, one-way delay,
-cross-traffic share) lost to the seven LCFs (mean CRPS skill 0.74 against
-0.81): buffer size and cross-traffic share are constant over a link, so
-predicting them rewards recognizing it.
+the choice held over two more seeds
+([`exp-net1v4-seeds-13`](https://github.com/Radonux/palaestra/releases/tag/exp-net1v4-seeds-13)),
+and every member's validation loss was lowest after 1 to 4 epochs. For
+the same reason a minimal set of quantities (capacity, queue, buffer
+size, one-way delay, cross-traffic share) lost to the seven LCFs (mean
+CRPS skill 0.74 against 0.81): buffer size and cross-traffic share are
+constant over a link, so predicting them rewards recognizing it.
 
 ## The split costs little
 
@@ -329,73 +324,52 @@ fixed rule on the validation links (campaign seed 21;
 | 18, the same at gain 0.5 (passed; above) | +0.017 | +0.049 (+0.017 to +0.085) | +0.031 (+0.006 to +0.056) | -0.022 (-0.058 to +0.017) |
 
 Averaging the seeds removed little of PPO's copies loss, so unlike round
-7's misfires (below) it is a push the seeds share: the push that wins
-against Cubic deepens the queue among copies (inferred). More training
-made it worse. Continued for up to 120 more iterations (round 14's stage
-2), every cell lost ground after about 40, the loss falling where the
-flow was alone: the tau 5 s cells peaked at +0.021 and +0.032 on the new
-family's validation links and ended at -0.114 and -0.039, the tau 1 s
-cells fell from their start to -0.035 to -0.075. More copies in training
-(round 17: copies on 67% or 80% of the competing links) fell the same
-way, to -0.04 to -0.13. A veto by round 18's copies belief halved the
-copies loss and kept most of the gain against Cubic, but not enough.
+7's misfires (below) the seeds share the push: what wins against Cubic
+deepens the queue among copies (inferred). More training made it worse:
+continued up to 120 more iterations (round 14's stage 2), every cell lost
+ground after about 40, mostly where the flow was alone (tau 5 s peaked
+at +0.021 and +0.032 on the new family and ended at -0.114 and -0.039;
+tau 1 s fell to -0.035 to -0.075), and more copies in training (round 17)
+fell the same way. A veto by round 18's copies belief halved the copies
+loss but not enough.
 
-Reinforcement learning from the reward first stayed at its start, then
-learned what its training mixture rewarded. In rounds 1 to 3 the spread
-of u across states after 60 iterations was 0.02 to 0.04 for every PPO and
-TD3+BC learner: noise of sigma 0.05 drawn anew at each decision tells a
+Reinforcement learning from the reward follows its training mixture. In
+rounds 1 to 3 every PPO and TD3+BC learner stayed at the rule (spread of
+u 0.02 to 0.04): noise of sigma 0.05 drawn anew at each decision tells a
 return over thousands of decisions too little about any one (rounds 1
-and 2 also lost about 0.13 as copies to a graph bug that froze the BDP a
-held window was computed from, fixed in `85de8d0`;
+and 2 also lost 0.13 as copies to a graph bug, fixed in `85de8d0`,
 [`exp-net2-clone-copies-107`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-clone-copies-107)).
-Held for 200 ms at sigma 0.2 (round 10), the noise moved PPO off the rule
-(spread 0.3 to 0.6) toward larger windows: +0.05 to +0.07 with Cubic from
-the start, -0.22 to -0.39 alone, since competition on 80% of the training
-links left the flow alone on 8% of them, against half of the
-evaluation's. A longer horizon pushed harder (round 11: at tau 20 s the
-window reached 4 to 7 times the believed BDP, losing 1.5 to 2.2); trained
-always alone, the same learner lowered the window and beat the rule there
-by up to 0.08 (round 13). The mixture sets the direction. With the flow
-alone on half the links (round 12), PPO matched the rule on every family,
-beat it nowhere beyond the noise, and lost about 0.1 as copies. Longer
-episodes did not help: at equal compute (round 16, net1 v6), 120 s
-episodes did no better than 30 s ones at tau 1 s and kept pushing at
-tau 5 s (mean u 0.6 to 1.5, 0.4 to 1.5 below the rule), since a long
-episode holds long stretches where a competitor yields to a push and
-gives two links per update instead of eight (inferred).
+Noise held 200 ms at sigma 0.2 (round 10) moved PPO toward larger
+windows: +0.05 to +0.07 with Cubic from the start, -0.22 to -0.39 alone,
+as competition on 80% of the training links left the flow alone on 8%.
+A longer horizon pushed harder (round 11, tau 20 s: windows of 4 to 7
+believed BDPs, 1.5 to 2.2 below), always alone the learner beat the rule
+there by up to 0.08 (round 13), and alone on half the links it matched
+the rule on every family but lost 0.1 as copies (round 12). Longer
+episodes did not help at equal compute (round 16: 120 s no better than
+30 s at tau 1 s, pushing at tau 5 s), since they hold long stretches
+where a competitor yields and give two links per update, not eight
+(inferred).
 
-Imitation learns state dependence. DAgger labels every decision with a
+Imitation learns state dependence. DAgger labels each decision with a
 privileged teacher's u (the share rule while a stock TCP flow shares the
 link, the fixed rule otherwise), which the student must infer from net1's
-output. Round 4's students spread u by 0.16 to 0.48 across states and kept
-62% to 77% of the share rule's gain against Cubic, paying 31% to 34% of
-its loss as copies. From round 4c to 6b the best candidates lost 0.08 to
-0.14 as copies, and a seed's loss followed how well it told the cases
-apart (p of 0.78 with a stock flow and 0.13 without lost 0.02; p of 0.44
-to 0.47 without lost 0.13 to 0.16): one copy's push deepens the queue,
-which then looks like a buffer-filling flow to the others.
-
-Explicit beliefs about the other flows, and their average over seeds,
-removed that floor. Round 7's students also learned q, a belief that
-copies are present (0.55 to 0.72 with copies, 0.21 to 0.26 elsewhere).
-Following a teacher that cooperates with copies cost most of the gain
-against Cubic (+0.051): on buffers of 20 to 112 packets some seeds took
-Cubic for copies and yielded, losing 0.4 to 1.1 (per link, from round
-7's gate). The beliefs are trained
-on their labels whatever the policy does, so the same students can act
-differently: with q vetoing the push,
-`u = u_rule + p'(1 - q')(share - u_rule)` (round 7v), taking Cubic for
-copies costs at most the push. The copies loss that remained (-0.145)
-was single seeds misfiring: in 12 of the 42 pairs of link and number of
-copies one seed lost 0.5 or more, in none did all three, and those cells
-carry 72% of the loss. One policy on the three seeds' mean beliefs
-(round 7e) diluted the misfires and passed at teacher gain 0.5. Neither
-60 more iterations (round 8) nor 16 times the training links (round 9)
-beat it: the beliefs sharpened, but the gain moved between conditions
-rather than rising (inferred: the student is limited by something other
-than its data). On net1 v6 the students separate less sharply (q 0.53 to
-0.76 with copies, 0.10 to 0.52 elsewhere), and the same recipe passed
-again.
+output. Round 4's students kept 62% to 77% of the share rule's gain
+against Cubic for 31% to 34% of its copies loss; from round 4c to 6b a
+seed's copies loss (0.02 to 0.16) followed how well it told the cases
+apart, since one copy's push looks like a buffer-filling flow to the
+others. Round 7's students also learned q, a belief that copies are
+present (0.55 to 0.72 with copies, 0.21 to 0.26 elsewhere). Cooperating
+with copies cost most of the gain against Cubic, as some seeds took
+Cubic for copies and yielded; with q vetoing the push instead,
+`u = u_rule + p'(1 - q')(share - u_rule)` (round 7v), mistaking Cubic
+for copies costs at most the push. The copies loss left (-0.145) was
+single seeds misfiring (in 12 of 42 pairs of link and number of copies
+one seed lost 0.5 or more, never all three; 72% of the loss), and one
+policy on the three seeds' mean beliefs (round 7e) passed. Neither more
+iterations (round 8) nor 16 times the links (round 9) beat it. On net1 v6
+the students separate less sharply (q 0.53 to 0.76 with copies, 0.10 to
+0.52 elsewhere), and the same recipe passed again.
 
 Every gate, evaluation and training run of each round, on net1 v5 and
 v6, is listed in [rounds.md](rounds.md).
@@ -418,9 +392,9 @@ Divergences from expliCCit's and Sage's setting, each a possible cause:
   no virtual time.
 - Sage and expliCCit's policies run on links they were not trained on,
   and expliCCit's ground-truth definitions are not in its code, so ours
-  may differ. On our expliCCit-like data its released net1 had R^2 1.000
-  for one-way delay (its "mRTT"), 0.361 for capacity, -0.743 for busy
-  fraction and -59.0 for free buffer (local run).
+  may differ: on our expliCCit-like data its released net1 had R^2 1.000
+  for one-way delay, 0.361 for capacity, -0.743 for busy fraction and
+  -59.0 for free buffer (local run).
 - The emulator itself matches Mahimahi: the link model equals a port of
   Mahimahi's link queue event for event, and the state message equals
   `sage.cc`'s at every compared step ([validation.md](validation.md)). The
@@ -464,11 +438,18 @@ repairs its calibration (90% coverage 0.62 to 0.93) but recovers +0.16 in
 closed loop where all of net1 gained +0.52: a new head on frozen features
 cannot supply cues the features never learned (inferred).
 
-The case study above shows the other half of the method: replacing one
-belief at a time with the truth localized expliCCit's fault to busy
-fraction. On our own early models some such patches hurt (a cloned policy
-fell to 0.144 utilization with the true busy fraction; local run), because
-a net2 has adapted to its net1's errors.
+Replacing one belief at a time with the truth localizes a fault (busy
+fraction, in expliCCit's case study above), but a net2 adapts to its
+net1's errors, so a patch can also hurt. For the learned net2 on net1 v6
+(validation seed 11,
+[`exp-net2-patch-v6-172`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-patch-v6-172)),
+six of the seven patches moved it by 0.026 or less in every measure. The
+true capacity gained against competitors (the competition conditions
++0.098 against +0.029) and collapsed as copies (-1.247 against -0.008),
+as with all seven true (-1.205): each copy then aims at the whole link,
+where net1's lower belief on a shared link (above) kept the copies safe.
+That belief carries something about the other flows that the LCF leaves
+out, and net2 relies on it.
 
 ## Stated uncertainty has not helped net2 yet
 
