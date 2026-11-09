@@ -126,12 +126,39 @@ def test_cubic_agent_reads_orca_statistics_every_period(build: UmlBuild, tmp_pat
     assert 0.8 * 20e6 < np.median(rate) < 1.05 * 20e6
 
 
+def test_rate_agent_paces_at_its_rate_each_half_rtt(build: UmlBuild, tmp_path: Path) -> None:
+    # a = 1e-7 * the window's length in us: about 0.001, so the rate stays
+    # near its start, 6 Mbit/s, and a reveals each step's length.
+    spec = agent_spec(tmp_path / "p", onnx_policies.on_cc_info(0, 1e-7, 7), "rate")
+    outcome, rec = run_raw(build, tmp_path / "p", spec)
+    acts, obs = rec.agent_action, rec.tcp_obs
+    assert set(acts["cwnd"].tolist()) == {20000}
+    # From 6 Mbit/s, times 2^a with a about 0.001 a step: at most 1.3 times it in 3 s.
+    assert acts["pacing_rate"].min() >= 6e6 / 8 and acts["pacing_rate"].max() < 1.3 * 6e6 / 8
+    # The kernel paces at the rate the last action wrote, from the next
+    # delivery on: each arriving segment sees the action that stood when the
+    # one before it arrived.
+    k = np.searchsorted(acts["t_ns"], obs["t_ns"], side="right") - 1
+    seen, wrote = obs["pacing_rate"][1:][k[:-1] >= 0], acts["pacing_rate"][k[:-1][k[:-1] >= 0]]
+    assert np.mean(seen[5:] == wrote[5:]) > 0.95
+    # Each step lasts half the last one's mean RTT.
+    period_us = steps_of(outcome)["applied_action"].to_numpy()[5:] / 1e-7
+    srtt_us = np.median(obs["srtt_us"][obs["srtt_us"] > 0])
+    assert 0.35 * srtt_us < np.median(period_us) < 0.75 * srtt_us
+    # The window's mean RTT is the flow's RTT.
+    spec = agent_spec(tmp_path / "m", onnx_policies.on_cc_info(5, 1e-7, 7), "rate")
+    outcome, rec = run_raw(build, tmp_path / "m", spec)
+    mean_us = steps_of(outcome)["applied_action"].to_numpy()[5:] / 1e-7
+    srtt_us = np.median(rec.tcp_obs["srtt_us"][rec.tcp_obs["srtt_us"] > 0])
+    assert 0.8 * srtt_us < np.median(mean_us) < 1.25 * srtt_us
+
+
 def test_cc_info_needs_the_cubic_agent(build: UmlBuild, tmp_path: Path) -> None:
     outcome = run_episode(
         agent_spec(tmp_path, onnx_policies.on_cc_info(0, 0.0), "hold"), build, tmp_path / "work"
     )
     assert not isinstance(outcome, EpisodeOk)
-    assert "cc_info needs cc agent_cubic" in str(outcome.row.get("failure"))
+    assert "cc_info needs cc agent_cubic or agent_rate" in str(outcome.row.get("failure"))
 
 
 def test_policy_reads_the_observation(build: UmlBuild, tmp_path: Path) -> None:

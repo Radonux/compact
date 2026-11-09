@@ -194,12 +194,14 @@ class AgentCC(_Frozen):
     "hold" is Sage-style (the window and pacing stay as the policy set
     them); "pure" is Sage's own controller on Linux 7.0's
     stack (the same window, paced by the module at every delivery, as
-    Sage's "pure" with DeepCC pacing does); "cubic" is Orca-style (each action
+    Sage's "pure" with DeepCC pacing does); "rate" is Aurora-style (each
+    action multiplies a sending rate the kernel paces at, and each step
+    lasts half the last step's mean RTT); "cubic" is Orca-style (each action
     multiplies the kernel's current window, and Cubic evolves it until the
     next action)."""
 
     kind: Literal["agent"] = "agent"
-    mode: Literal["hold", "pure", "cubic"] = "hold"
+    mode: Literal["hold", "pure", "rate", "cubic"] = "hold"
     policy: OnnxPolicy
     # Exploration (online training): Gaussian noise on each action, seeded
     # from the episode's seed. 0 runs the policy as it is.
@@ -228,7 +230,13 @@ class AgentCC(_Frozen):
 
     @property
     def name(self) -> str:
-        return {"hold": "agent", "pure": "agent_pure", "cubic": "agent_cubic"}[self.mode]
+        names = {
+            "hold": "agent",
+            "pure": "agent_pure",
+            "rate": "agent_rate",
+            "cubic": "agent_cubic",
+        }
+        return names[self.mode]
 
     @property
     def label(self) -> str:

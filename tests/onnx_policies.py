@@ -85,14 +85,15 @@ def on_truth(column: int, slope: float, bias: float) -> bytes:
     )
 
 
-def on_cc_info(column: int, slope: float) -> bytes:
-    """a = slope * cc_info[column] (agent_cubic's TCP_CC_INFO)."""
+def on_cc_info(column: int, slope: float, width: int = 5) -> bytes:
+    """a = slope * cc_info[column] (TCP_CC_INFO: 5 values for agent_cubic,
+    7 for agent_rate)."""
     return _model(
         [
             helper.make_node("Gather", ["cc_info", "col"], ["x"], axis=1),
             helper.make_node("Mul", ["x", "k"], ["a"]),
         ],
-        [_obs(), _tensor("cc_info", 5)],
+        [_obs(), _tensor("cc_info", width)],
         [_tensor("a", 1)],
         {"k": np.array([[slope]])},
         ints={"col": np.array([column])},

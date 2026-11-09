@@ -26,10 +26,14 @@
 //!   input  "cwnd"  float32 [1, 1], optional; the sender's window in packets
 //!                  (TCP_INFO's snd_cwnd, the steps table's cwnd column), so
 //!                  a policy can set an absolute window as a multiplier
-//!   input  "cc_info" float32 [1, 5], optional, agent_cubic only; Orca's
-//!                  statistics since the previous step, from TCP_CC_INFO
+//!   input  "cc_info" float32 [1, 5] under agent_cubic: Orca's statistics
+//!                  since the previous step, from TCP_CC_INFO
 //!                  (kernel/modules/tcp_agent.c): RTT samples, mean rate
-//!                  sample (bytes/s), lost bytes, the period (us), min RTT (us)
+//!                  sample (bytes/s), lost bytes, the period (us), min RTT (us);
+//!                  float32 [1, 7] under agent_rate: Aurora's monitor interval
+//!                  since the previous step: its length (us), packets sent,
+//!                  delivered and lost, RTT samples, their mean (us) and the
+//!                  second half's mean less the first's (us); optional
 //!   output 0       float32 [1, 1], a: the window is multiplied by 2^a
 //!   output 1       float32 [1, S], the next state, when "state" exists
 //! a must be finite with |a| <= 8; anything else fails the episode. Under
@@ -41,7 +45,11 @@
 //! delivery as Sage's kernel does (kernel/modules/tcp_agent.c). Under
 //! "agent_cubic" the window is the kernel's current one (the cwnd input)
 //! times 2^a, rounded down and kept in [4, 20000], as Orca sets it; a = 0
-//! leaves Cubic's window as it is, and the stack paces. A policy may ask for
+//! leaves Cubic's window as it is, and the stack paces. Under "agent_rate"
+//! a sets a sending rate, from 6 Mbit/s, times 2^a and kept in [0.5, 300]
+//! Mbit/s (PCC-RL's deployment), which the kernel paces under a window of
+//! 20000; each step lasts half the previous step's mean RTT (cc_info), as
+//! Aurora's monitor interval does. A policy may ask for
 //! its own step period (Orca's is 20 ms); the message's features keep
 //! Sage's definitions whatever the period.
 //! ponytail: pacing is refreshed per step, not per ACK as Sage's patched
@@ -245,19 +253,38 @@ impl Info {
     }
 }
 
-/// agent_cubic's statistics since the last read (struct agent_cubic_info);
-/// the read starts a new period.
-fn read_cc_info(stream: &TcpStream) -> Result<[f64; CC_INFO]> {
-    let mut b = [0u8; 4 * CC_INFO];
+/// The controller's statistics since the last read (TCP_CC_INFO; the read
+/// starts a new period): struct agent_cubic_info, five u32, or struct
+/// agent_rate_info, a u32, four u16, a u32 and an i32.
+fn read_cc_info(stream: &TcpStream, mode: Mode) -> Result<[f64; CC_INFO_MAX]> {
+    let mut b = [0u8; 20];
     let n = sys::getsockopt_bytes(stream.as_fd(), libc::IPPROTO_TCP, libc::TCP_CC_INFO, &mut b)
         .ctx("TCP_CC_INFO")?;
     if n != b.len() {
         return fail(format!("TCP_CC_INFO returned {n} bytes, need {}", b.len()));
     }
-    let mut out = [0f64; CC_INFO];
-    for (v, c) in out.iter_mut().zip(b.chunks_exact(4)) {
-        let w: [u8; 4] = c.try_into().ctx("TCP_CC_INFO field")?;
-        *v = f64::from(u32::from_ne_bytes(w));
+    let word = |i: usize| -> Option<[u8; 4]> { b.get(i..i + 4).and_then(|w| w.try_into().ok()) };
+    let half = |i: usize| -> Option<[u8; 2]> { b.get(i..i + 2).and_then(|w| w.try_into().ok()) };
+    let u32_at = |i: usize| -> Result<f64> {
+        word(i).map_or_else(|| fail("TCP_CC_INFO field"), |w| Ok(f64::from(u32::from_ne_bytes(w))))
+    };
+    let u16_at = |i: usize| -> Result<f64> {
+        half(i).map_or_else(|| fail("TCP_CC_INFO field"), |w| Ok(f64::from(u16::from_ne_bytes(w))))
+    };
+    let i32_at = |i: usize| -> Result<f64> {
+        word(i).map_or_else(|| fail("TCP_CC_INFO field"), |w| Ok(f64::from(i32::from_ne_bytes(w))))
+    };
+    let mut out = [0f64; CC_INFO_MAX];
+    match mode {
+        Mode::Cubic => {
+            for (k, v) in out.iter_mut().take(5).enumerate() {
+                *v = u32_at(4 * k)?;
+            }
+        }
+        Mode::Rate => {
+            out = [u32_at(0)?, u16_at(4)?, u16_at(6)?, u16_at(8)?, u16_at(10)?, u32_at(12)?, i32_at(16)?];
+        }
+        Mode::Hold | Mode::Pure => return fail("TCP_CC_INFO is read only under agent_cubic or agent_rate"),
     }
     Ok(out)
 }
@@ -515,8 +542,14 @@ enum Input {
     CcInfo,
 }
 
-/// TCP_CC_INFO of agent_cubic (struct agent_cubic_info), as policy input.
-pub const CC_INFO: usize = 5;
+/// TCP_CC_INFO as policy input: 5 values under agent_cubic, 7 under agent_rate.
+pub const CC_INFO_MAX: usize = 7;
+/// agent_rate's starting rate and bounds, bits/s (PCC-RL's loaded_client.py).
+const RATE_INIT_BPS: f64 = 6e6;
+const RATE_MIN_BPS: f64 = 0.5e6;
+const RATE_MAX_BPS: f64 = 300e6;
+/// agent_rate's shortest step, us.
+const RATE_MIN_PERIOD_US: u64 = 1_000;
 
 /// An ONNX policy under contract sage-v1, with optional exploration noise.
 pub struct Policy {
@@ -542,8 +575,13 @@ impl Policy {
                 "obs" => (Input::Obs, OBS),
                 "truth" => (Input::Truth, truth::N),
                 "cwnd" => (Input::Cwnd, 1),
-                "cc_info" if matches!(mode, Mode::Cubic) => (Input::CcInfo, CC_INFO),
-                "cc_info" => return fail("policy input cc_info needs cc agent_cubic"),
+                "cc_info" => match mode {
+                    Mode::Cubic => (Input::CcInfo, 5),
+                    Mode::Rate => (Input::CcInfo, CC_INFO_MAX),
+                    Mode::Hold | Mode::Pure => {
+                        return fail("policy input cc_info needs cc agent_cubic or agent_rate");
+                    }
+                },
                 "state" => {
                     let fact = model.input_fact(i).ctx("state input")?;
                     let dims: Option<Vec<usize>> = fact
@@ -608,7 +646,7 @@ impl Policy {
         obs: &[f64; OBS],
         truth: &[f64; truth::N],
         cwnd: u32,
-        cc: &[f64; CC_INFO],
+        cc: &[f64; CC_INFO_MAX],
     ) -> Result<f32> {
         let row = |v: &[f64]| -> Result<TValue> {
             let x: Vec<f32> = v.iter().map(|&v| v as f32).collect();
@@ -622,7 +660,7 @@ impl Policy {
                 Input::Obs => row(obs)?,
                 Input::Truth => row(truth)?,
                 Input::Cwnd => row(&[f64::from(cwnd)])?,
-                Input::CcInfo => row(cc)?,
+                Input::CcInfo => row(if matches!(self.mode, Mode::Cubic) { &cc[..5] } else { cc })?,
                 Input::State => match self.state.take() {
                     Some(s) => s.into(),
                     None => return fail("policy state was not returned by the previous step"),
@@ -682,17 +720,38 @@ fn on_kernel_window(ratio: f64, snd_cwnd: u32) -> u32 {
     (w.clamp(f64::from(MIN_CWND), f64::from(MAX_CWND))) as u32
 }
 
-/// struct expl_agent_action (kernel/modules/expliccit_rec.h) for the socket
-/// `fd` of this process. agent_cubic leaves pacing to the stack.
+/// Aurora's sending rate (PCC-RL's loaded_client.py): from 6 Mbit/s, each
+/// action multiplies it, and it is kept in [0.5, 300] Mbit/s.
+struct Rate {
+    bps: f64,
+}
+
+impl Rate {
+    /// The new rate, bytes per second.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn apply(&mut self, ratio: f64) -> u64 {
+        self.bps = (self.bps * ratio).clamp(RATE_MIN_BPS, RATE_MAX_BPS);
+        (self.bps / 8.0) as u64
+    }
+}
+
+/// The pacing rate an action carries: Sage's (cwnd * mss / srtt, unpaced
+/// until the first RTT sample) under agent, Aurora's rate under agent_rate,
+/// none where the kernel paces (agent_pure, agent_cubic).
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-fn agent_action(fd: i32, cwnd: u32, info: &Info, mode: Mode) -> [u8; 24] {
-    let pacing = match (mode, info.rtt()) {
-        // The kernel paces (pure, cubic); hold is unpaced until the first RTT sample.
+fn pacing_of(mode: Mode, cwnd: u32, info: &Info, rate: u64) -> u64 {
+    match (mode, info.rtt()) {
         (Mode::Pure | Mode::Cubic, _) | (Mode::Hold, 0) => 0,
+        (Mode::Rate, _) => rate,
         (Mode::Hold, srtt) => {
             (f64::from(cwnd) * f64::from(info.snd_mss()) * 1e6 / f64::from(srtt) * PACE_COEF / 100.0) as u64
         }
-    };
+    }
+}
+
+/// struct expl_agent_action (kernel/modules/expliccit_rec.h) for the socket
+/// `fd` of this process.
+fn agent_action(fd: i32, cwnd: u32, pacing: u64) -> [u8; 24] {
     let mut b = [0u8; 24];
     b[0..4].copy_from_slice(&AGENT_ABI.to_ne_bytes());
     b[4..8].copy_from_slice(&fd.to_ne_bytes());
@@ -758,13 +817,14 @@ impl Loop {
             let end_us = end_ns / 1000;
             let mut feat = Featurizer::new(start_us, base_ns / 1_000_000);
             let mut window = Window { precise: CWND_INIT };
+            let mut rate = Rate { bps: RATE_INIT_BPS };
             // The multiplier applied since the last step: the policy's, or
             // for any other controller the observed change of the window
             // (Sage's collector logs cwnd / previous cwnd, starting from 10).
             let mut ratio = 1.0f64;
             let mut pre_cwnd = CWND_INIT;
             let (mut count, mut actions) = (0u64, 0u64);
-            let period = policy.as_ref().map_or(REPORT_PERIOD_US, |p| p.period_us);
+            let mut period = policy.as_ref().map_or(REPORT_PERIOD_US, |p| p.period_us);
             let mut poll = start_us + period;
             while poll < end_us && !stop.load(Ordering::Acquire) {
                 sys::sleep_until(poll * 1000);
@@ -793,7 +853,8 @@ impl Loop {
                 let true_state = truth.at(now * 1000, base_ns, sport)?;
                 let (mut a, mut cwnd) = (f64::NAN, 0u32);
                 if let (Some(p), Some(dev)) = (policy.as_mut(), dev.as_mut()) {
-                    let cc = if p.reads_cc_info() { read_cc_info(stream)? } else { [0.0; CC_INFO] };
+                    let cc =
+                        if p.reads_cc_info() { read_cc_info(stream, p.mode)? } else { [0.0; CC_INFO_MAX] };
                     let act = f64::from(p.act(&obs, &true_state, info.snd_cwnd(), &cc)?);
                     // The noise is drawn every step whatever sigma and hold
                     // are, so the stream does not depend on them; each
@@ -805,11 +866,22 @@ impl Loop {
                     }
                     a = (act + p.sigma * p.held).clamp(-f64::from(MAX_ACTION), f64::from(MAX_ACTION));
                     ratio = 2f64.powf(a);
+                    let mut bytes_per_s = 0;
                     cwnd = match p.mode {
                         Mode::Hold | Mode::Pure => window.apply(ratio),
                         Mode::Cubic => on_kernel_window(ratio, info.snd_cwnd()),
+                        Mode::Rate => {
+                            bytes_per_s = rate.apply(ratio);
+                            // Aurora's next monitor interval: half this one's mean RTT.
+                            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                            if cc[5] > 0.0 {
+                                period = RATE_MIN_PERIOD_US.max((cc[5] / 2.0) as u64);
+                            }
+                            MAX_CWND
+                        }
                     };
-                    dev.write_all(&agent_action(fd, cwnd, &info, p.mode)).ctx("writing action")?;
+                    let pacing = pacing_of(p.mode, cwnd, &info, bytes_per_s);
+                    dev.write_all(&agent_action(fd, cwnd, pacing)).ctx("writing action")?;
                     actions += 1;
                 }
                 let mut rec = Vec::with_capacity(RECORD_LEN);

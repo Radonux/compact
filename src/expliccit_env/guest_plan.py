@@ -16,7 +16,7 @@ import numpy as np
 import numpy.typing as npt
 
 PLAN_VERSION: Final = 8
-AGENT_CCS: Final = ("agent", "agent_pure", "agent_cubic")
+AGENT_CCS: Final = ("agent", "agent_pure", "agent_rate", "agent_cubic")
 U32: Final = 2**32
 # The largest trace the guest's qdisc reads from its file (sch_mmlink.h
 # MMLINK_TRACE_MAX): 64 MiB, 18.6 hours at one byte per millisecond.

@@ -193,6 +193,15 @@ interfaces lives in its controller in `tcp_agent`: Sage's pacing in
 `agent_pure`, and Orca's per-period statistics in `agent_cubic`, read
 through `TCP_CC_INFO`.
 
+`agent_rate` (Aurora-style) is rate-based: each action multiplies a
+sending rate (from 6 Mbit/s, kept in 0.5 to 300 Mbit/s, as PCC-RL's
+deployment does) that the module paces at under a window of 20000, and
+each step lasts half the previous step's mean RTT, Aurora's monitor
+interval. `TCP_CC_INFO` on it returns that interval (its length, packets
+sent, delivered and lost, and the mean of its RTT samples and of their
+second half less their first, from a per-socket buffer of samples) and
+starts the next.
+
 `agent_cubic` (Orca-style) sets the window once per action, to the
 kernel's current window times 2^a, and lets Cubic grow it in between. The
 Cubic is Linux 7.0's, copied into `kernel/modules/cubic.h` because the

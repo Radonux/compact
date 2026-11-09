@@ -11,10 +11,13 @@ and runs the policy:
                    step, columns as in TRUTH_COLUMNS
     input  "cwnd"  float32 [1, 1], optional; the sender's window in packets
                    (TCP_INFO's snd_cwnd, the steps table's cwnd column)
-    input  "cc_info" float32 [1, 5], optional, for mode "cubic" only: Orca's
-                   statistics since the previous step from TCP_CC_INFO (RTT
-                   samples, mean rate sample in bytes/s, lost bytes, the
-                   period in us, min RTT in us)
+    input  "cc_info" optional, from TCP_CC_INFO, the controller's statistics
+                   since the previous step: float32 [1, 5] for mode "cubic"
+                   (Orca's: RTT samples, mean rate sample in bytes/s, lost
+                   bytes, the period in us, min RTT in us), float32 [1, 7] for
+                   mode "rate" (Aurora's monitor interval: its length in us,
+                   packets sent, delivered and lost, RTT samples, their mean
+                   in us, the second half's mean less the first's in us)
     output 0       float32 [1, 1], a: the window is multiplied by 2**a
     output 1       float32 [1, S], the next state, present iff "state" is
 
@@ -39,7 +42,9 @@ window depends on the agent's mode (spec.AgentCC): in "hold" and "pure" it
 follows Sage, a precise accumulator from 10 packets, rounded up, kept in
 [4, 20000] (pacing cwnd * mss / srtt once a step in "hold", Sage's kernel
 pacing in "pure"); in "cubic" the window is the kernel's current one times
-2**a, rounded down, in [4, 20000], with Cubic in between. An agent may run
+2**a, rounded down, in [4, 20000], with Cubic in between; in "rate" a
+multiplies a sending rate (from 6 Mbit/s, in [0.5, 300] Mbit/s) the kernel
+paces at, and each step lasts half the last step's mean RTT. An agent may run
 its policy at a longer period than Sage's 10 ms (AgentCC.period_ms).
 """
 

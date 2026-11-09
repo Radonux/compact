@@ -4,7 +4,7 @@
  *
  * A policy (Orca- or Sage-style agent, or an exported expliCCit policy)
  * observes the flow itself (TCP_INFO) and writes struct expl_agent_action
- * to /dev/expl_agent. Three controllers apply it:
+ * to /dev/expl_agent. Four controllers apply it:
  *
  *   "agent"       Sage-style. cong_control holds snd_cwnd and the pacing rate
  *                 at the latest action on every delivery. Until the first
@@ -16,6 +16,11 @@
  *                 max(cwnd, packets_out) * MTU / srtt; its hooks ask for a
  *                 send buffer of three windows, as pure's do. Nothing below
  *                 the controller is changed.
+ *   "agent_rate"  Aurora-style, rate-based. Every delivery holds the window
+ *                 and pacing rate the latest action set, as "agent" does;
+ *                 the policy sets a large window and paces at its rate.
+ *                 TCP_CC_INFO returns Aurora's monitor interval since the
+ *                 last read (struct agent_rate_info) and starts a new one.
  *   "agent_cubic" Orca-style. Each new action sets snd_cwnd once, at the
  *                 next ACK; between actions Cubic (Linux 7.0's, with
  *                 HyStart, vendored in cubic.h) evolves the window and the
@@ -39,6 +44,7 @@
 #include <linux/miscdevice.h>
 #include <linux/module.h>
 #include <linux/net.h>
+#include <linux/slab.h>
 #include <linux/spinlock.h>
 #include <linux/uaccess.h>
 #include <net/tcp.h>
@@ -84,6 +90,41 @@ struct agent_cubic_info {
 	u32 lost_bytes;
 	u32 elapsed_us;			/* the period's length */
 	u32 min_rtt_us;
+};
+
+/* Aurora's monitor interval as PCC-RL's simulator (64bea6e) measures it:
+ * the packets sent, delivered and lost, and every RTT sample, since the last
+ * TCP_CC_INFO read. The samples are kept, so the read can give their mean and
+ * Aurora's latency increase: the mean of the second half of the samples less
+ * the mean of the first. ponytail: at most AURORA_SAMPLES samples a window
+ * (one per ACK; 4096 is 2 s at 24 Mbit/s with delayed ACKs), the rest
+ * dropped; grow it if a window ever fills.
+ */
+#define AURORA_SAMPLES 4096
+struct aurora_stats {
+	u64 read_us;			/* when the window began */
+	u32 *rtt_us;			/* AURORA_SAMPLES of them; NULL if no memory */
+	u32 n;
+	u32 pre_segs;			/* tp->data_segs_out when the window began */
+	u32 pre_delivered;
+	u32 pre_lost;
+};
+
+/* agent_rate's area: the action first, where agent_of() finds it. */
+struct agent_rate_priv {
+	struct agent_priv agent;
+	struct aurora_stats stats;
+};
+
+/* TCP_CC_INFO of agent_rate: one monitor interval, in packets and us. */
+struct agent_rate_info {
+	u32 elapsed_us;			/* the window's length */
+	u16 sent;			/* data segments, retransmissions included */
+	u16 delivered;
+	u16 lost;
+	u16 samples;			/* RTT samples */
+	u32 rtt_mean_us;
+	s32 rtt_rise_us;		/* second half's mean less the first's */
 };
 
 static struct tcp_congestion_ops tcp_agent_cubic;
@@ -272,6 +313,84 @@ static size_t agent_cubic_get_info(struct sock *sk, u32 ext, int *attr,
 	return sizeof(*out);
 }
 
+/* "agent_rate": the action holds as under "agent"; each delivery's RTT
+ * sample goes into the window.
+ */
+static void agent_rate_start(struct sock *sk, u64 now)
+{
+	struct aurora_stats *st = &((struct agent_rate_priv *)inet_csk_ca(sk))->stats;
+	struct tcp_sock *tp = tcp_sk(sk);
+
+	st->read_us = now;
+	st->n = 0;
+	st->pre_segs = tp->data_segs_out;
+	st->pre_delivered = tp->delivered;
+	st->pre_lost = tp->lost;
+}
+
+static void agent_rate_init(struct sock *sk)
+{
+	struct aurora_stats *st = &((struct agent_rate_priv *)inet_csk_ca(sk))->stats;
+
+	agent_init(sk);
+	memset(st, 0, sizeof(*st));
+	/* init may run in softirq, when the connection is established */
+	st->rtt_us = kmalloc_array(AURORA_SAMPLES, sizeof(u32), GFP_ATOMIC);
+	agent_rate_start(sk, tcp_clock_us());
+}
+
+static void agent_rate_release(struct sock *sk)
+{
+	struct aurora_stats *st = &((struct agent_rate_priv *)inet_csk_ca(sk))->stats;
+
+	kfree(st->rtt_us);
+	st->rtt_us = NULL;
+}
+
+static void agent_rate_cong_control(struct sock *sk, u32 ack, int flag,
+				    const struct rate_sample *rs)
+{
+	struct aurora_stats *st = &((struct agent_rate_priv *)inet_csk_ca(sk))->stats;
+	struct expl_agent_action a;
+
+	if (agent_current(sk, &a))
+		agent_apply(sk, &a);
+	if (rs->rtt_us >= 0 && st->rtt_us && st->n < AURORA_SAMPLES)
+		st->rtt_us[st->n++] = min_t(long, rs->rtt_us, U32_MAX);
+}
+
+/* Only TCP_CC_INFO (ext ~0U) reads and closes the window, as for agent_cubic. */
+static size_t agent_rate_get_info(struct sock *sk, u32 ext, int *attr,
+				  union tcp_cc_info *info)
+{
+	struct aurora_stats *st = &((struct agent_rate_priv *)inet_csk_ca(sk))->stats;
+	struct agent_rate_info *out = (struct agent_rate_info *)info;
+	struct tcp_sock *tp = tcp_sk(sk);
+	u64 now = tcp_clock_us(), first = 0, second = 0;
+	u32 half = st->n / 2, i;
+
+	if (ext != ~0U)
+		return 0;
+	for (i = 0; i < st->n; i++) {
+		if (i < half)
+			first += st->rtt_us[i];
+		else
+			second += st->rtt_us[i];
+	}
+	out->elapsed_us = min_t(u64, now - st->read_us, U32_MAX);
+	out->sent = min_t(u32, tp->data_segs_out - st->pre_segs, U16_MAX);
+	out->delivered = min_t(u32, tp->delivered - st->pre_delivered, U16_MAX);
+	out->lost = min_t(u32, tp->lost - st->pre_lost, U16_MAX);
+	out->samples = min_t(u32, st->n, U16_MAX);
+	out->rtt_mean_us = st->n ? div_u64(first + second, st->n) : 0;
+	out->rtt_rise_us = 0;
+	if (half)
+		out->rtt_rise_us = (s32)div_u64(second, st->n - half) - (s32)div_u64(first, half);
+	agent_rate_start(sk, now);
+	*attr = 0;
+	return sizeof(*out);
+}
+
 static u32 agent_ssthresh(struct sock *sk)
 {
 	return max(tcp_snd_cwnd(tcp_sk(sk)) >> 1U, 2U);
@@ -302,6 +421,17 @@ static struct tcp_congestion_ops tcp_agent_pure __read_mostly = {
 	.name = "agent_pure",
 };
 
+static struct tcp_congestion_ops tcp_agent_rate __read_mostly = {
+	.init = agent_rate_init,
+	.release = agent_rate_release,
+	.ssthresh = agent_ssthresh,
+	.cong_control = agent_rate_cong_control,
+	.undo_cwnd = agent_undo_cwnd,
+	.get_info = agent_rate_get_info,
+	.owner = THIS_MODULE,
+	.name = "agent_rate",
+};
+
 static struct tcp_congestion_ops tcp_agent_cubic __read_mostly = {
 	.init = agent_cubic_init,
 	.ssthresh = cubictcp_recalc_ssthresh,
@@ -320,7 +450,8 @@ static bool is_agent(const struct sock *sk)
 {
 	const struct tcp_congestion_ops *ops = READ_ONCE(inet_csk(sk)->icsk_ca_ops);
 
-	return ops == &tcp_agent || ops == &tcp_agent_pure || ops == &tcp_agent_cubic;
+	return ops == &tcp_agent || ops == &tcp_agent_pure || ops == &tcp_agent_rate ||
+	       ops == &tcp_agent_cubic;
 }
 
 /* Context: process. Untrusted input: one whole, valid action per write,
@@ -392,6 +523,8 @@ static int __init tcp_agent_init(void)
 	BUILD_BUG_ON(sizeof(struct agent_priv) > ICSK_CA_PRIV_SIZE);
 	BUILD_BUG_ON(sizeof(struct agent_cubic_priv) > ICSK_CA_PRIV_SIZE);
 	BUILD_BUG_ON(sizeof(struct agent_cubic_info) > sizeof(union tcp_cc_info));
+	BUILD_BUG_ON(sizeof(struct agent_rate_priv) > ICSK_CA_PRIV_SIZE);
+	BUILD_BUG_ON(sizeof(struct agent_rate_info) > sizeof(union tcp_cc_info));
 	cubic_scales_init();
 	err = tcp_register_congestion_control(&tcp_agent);
 	if (err)
@@ -399,9 +532,12 @@ static int __init tcp_agent_init(void)
 	err = tcp_register_congestion_control(&tcp_agent_pure);
 	if (err)
 		goto err_agent;
-	err = tcp_register_congestion_control(&tcp_agent_cubic);
+	err = tcp_register_congestion_control(&tcp_agent_rate);
 	if (err)
 		goto err_pure;
+	err = tcp_register_congestion_control(&tcp_agent_cubic);
+	if (err)
+		goto err_rate;
 	err = misc_register(&agent_dev);
 	if (err)
 		goto err_cubic;
@@ -409,6 +545,8 @@ static int __init tcp_agent_init(void)
 
 err_cubic:
 	tcp_unregister_congestion_control(&tcp_agent_cubic);
+err_rate:
+	tcp_unregister_congestion_control(&tcp_agent_rate);
 err_pure:
 	tcp_unregister_congestion_control(&tcp_agent_pure);
 err_agent:
@@ -420,6 +558,7 @@ static void __exit tcp_agent_exit(void)
 {
 	misc_deregister(&agent_dev);
 	tcp_unregister_congestion_control(&tcp_agent_cubic);
+	tcp_unregister_congestion_control(&tcp_agent_rate);
 	tcp_unregister_congestion_control(&tcp_agent_pure);
 	tcp_unregister_congestion_control(&tcp_agent);
 }

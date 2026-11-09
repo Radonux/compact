@@ -37,7 +37,7 @@ def main() -> None:
         "--policy",
         action="append",
         default=[],
-        help="NAME=PATH[@MODE[:PERIOD_MS]] of an ONNX policy (mode hold, pure or cubic)",
+        help="NAME=PATH[@MODE[:PERIOD_MS]] of an ONNX policy (mode hold, pure, rate or cubic)",
     )
     a = p.parse_args()
     links = list(split_links(a.split).values())
