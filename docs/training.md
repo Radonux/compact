@@ -73,7 +73,7 @@ idle steps. `fit.quantiles` reads a median and intervals off a belief.
 
 `train run` also trains an offline net2 on net1's beliefs, and `train
 online` one in closed loop from a replay buffer. Neither beat the fixed
-rule ([results](results.md#a-learned-net2-matches-the-rule-and-beats-it-against-cubic)), and the
+rule ([results](results.md#a-learned-net2-beats-the-rule-against-competitors)), and the
 defaults are untuned (TD3+BC on Sage's reward collapsed the window).
 
 | `net2` field | Default | Meaning |

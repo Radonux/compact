@@ -149,6 +149,21 @@ minus BBRv3:
   utilization on clean links and 1.7 to 2.6 times Sage's under 1% and 3%
   random loss, with up to 70% less queueing delay on deep, long paths.
 
+Against a black box with the same inputs, learner and budget, the split
+leads by far (arm A4, round 19b,
+[`exp-net2-r19b-bbr-165`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-r19b-bbr-165)).
+net2's recurrent PPO, trained on the 78 measurements net1 reads with no
+belief, aimed its window at BBR's own BDP estimate (the largest per-ACK
+delivery rate over 2 s times the minimum RTT). On the validation links it
+started 0.554 below net1 v6's fixed rule (0.981 below in the competition
+conditions) and after 120 iterations ended 0.22 to 0.39 below in three
+seeds, still improving; with Cubic from the start it stayed 0.63 below.
+A window aimed at the flow's own delivery rate shrinks as a competitor
+takes share, where net1's capacity estimate does not (inferred). Its
+first form, aimed at a 1 s average of the delivery rate, collapsed to 2.8
+to 3.0 below (round 19): a black box's result depends on its design as
+much as on its inputs.
+
 Nothing was chosen on two outside benchmarks, ccperf's experiments
 ([`exp-ccperf-77`](https://github.com/Radonux/palaestra/releases/tag/exp-ccperf-77),
 [`exp-ccperf-v5-87`](https://github.com/Radonux/palaestra/releases/tag/exp-ccperf-v5-87))
@@ -222,19 +237,132 @@ LCFs: it describes the other endpoints, not the path, changes as flows
 come and go, and one sender's measurements fit several values of it. It
 is net2's to infer from how the others respond.
 
-## A learned net2 matches the rule and beats it against Cubic
+## A learned net2 beats the rule against competitors
 
-One learned net2 passed its gate, and on the test links it matched the
-fixed rule in every family and beat it with Cubic from the start, by
-0.042 (0.004 to 0.083). The gains are small, and the gain in the
-competition conditions shrank from +0.054 on validation to +0.019 on
-test, with an interval spanning zero. It was one of 19 gates on the same
-validation links, but it passed again, unchanged, on new validation
-episodes. Reinforcement learning from the reward now reaches the rule's
-level on every family but not beyond it. What worked is imitation of a privileged teacher (DAgger), a student
-that learns from net1's output alone two beliefs, p that a stock TCP
-flow shares the link and q that copies of itself do, a policy in which q
-vetoes the push, and the mean belief of three seeds.
+A learned net2 on net1 v6 beat the fixed rule against competitors on the
+test links and matched it everywhere else, copies included. It is round
+7e's recipe trained again on v6 (round 18): DAgger students that learn,
+from net1's output alone, two beliefs (p, that a stock TCP flow shares
+the link, and q, that copies of itself do), run as one policy on three
+seeds' mean beliefs, with q vetoing the push. It was picked among seven
+candidates on the validation links
+([`exp-net2-eval-v6-veto-166`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-eval-v6-veto-166)),
+passed its gate alone on new validation episodes
+([`exp-net2-gate-r18e05-s11-167`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r18e05-s11-167)),
+and then ran once on the 27 test links
+([`exp-net2-test-r18e05-168`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-test-r18e05-168)),
+with no failed episode:
+
+| Family | net2 minus the rule | net2 minus BBRv3 | rule minus BBRv3 |
+|---|---|---|---|
+| training-20 | -0.002 (-0.013 to +0.010) | +0.093 | +0.095 |
+| training-60 | +0.011 (-0.001 to +0.026) | +0.123 | +0.112 |
+| new-20 | +0.018 (+0.001 to +0.035) | +0.271 | +0.253 |
+| deep-long-20 | -0.005 (-0.025 to +0.010) | +0.257 | +0.262 |
+| cubic-first-60 | +0.068 (+0.023 to +0.120) | -0.041 | -0.109 |
+| five-family mean | +0.018 | +0.141 | +0.123 |
+| new-20, competition | +0.039 (+0.005 to +0.075) | | |
+| held-competitors-60 | | +0.104 | +0.089 |
+| copies-30s | -0.005 (-0.067 to +0.053) | -0.017 | -0.012 |
+
+The gains are small and held across both validation seeds and the test:
+with Cubic from the start +0.049, +0.056 and +0.068, in the competition
+conditions +0.031, +0.027 and +0.039, each interval above zero. The same
+recipe on net1 v5 (round 7e) passed one of 19 gates there, but on test
+its competition gain shrank to +0.019 (-0.015 to +0.051), with +0.042
+(+0.004 to +0.083) with Cubic from the start
+([`exp-net2-test-r7e-k0.5-134`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-test-r7e-k0.5-134)).
+Reinforcement learning from the reward gains more against competitors
+but pushes among copies (below). What worked, twice, is imitation of a
+privileged teacher, explicit beliefs about the other flows, and averaging
+the seeds.
+
+On net1 v6, PPO gains more against competitors than any earlier net2
+and loses more as copies. Each candidate over three seeds, minus v6's
+fixed rule on the validation links (campaign seed 21;
+[`exp-net2-eval-v6-159`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-eval-v6-159),
+[`-v6-ens-160`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-eval-v6-ens-160),
+[`-v6-veto-166`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-eval-v6-veto-166)):
+
+| Round | Five-family mean | cubic-first-60 | competition | copies-30s |
+|---|---|---|---|---|
+| 14, tau 1 s | +0.002 | +0.068 (-0.033 to +0.177) | +0.059 (-0.008 to +0.129) | -0.223 (-0.524 to +0.042) |
+| 14, tau 5 s | -0.012 | +0.110 (-0.028 to +0.262) | +0.032 (-0.045 to +0.114) | -0.258 (-0.514 to -0.022) |
+| 15, more copies in training | +0.004 | +0.174 (+0.057 to +0.292) | +0.085 (+0.011 to +0.161) | -0.300 (-0.605 to -0.007) |
+| 15, one policy on the seeds' mean u | +0.011 | +0.149 (+0.044 to +0.262) | +0.065 (-0.005 to +0.139) | -0.258 (-0.594 to +0.043) |
+| 14, stage 2's best checkpoint (iteration 39) | +0.031 | +0.230 (+0.062 to +0.419) | +0.066 (-0.036 to +0.178) | -0.444 (-0.776 to -0.146) |
+| 15, push vetoed by round 18's copies belief | +0.017 | +0.097 (+0.027 to +0.166) | +0.053 (-0.012 to +0.121) | -0.143 (-0.291 to -0.022) |
+| 18, DAgger students as round 7e, gain 1 | +0.028 | +0.098 (+0.040 to +0.163) | +0.030 (-0.022 to +0.082) | -0.019 (-0.078 to +0.030) |
+| 18, the same at gain 0.5 (passed; above) | +0.017 | +0.049 (+0.017 to +0.085) | +0.031 (+0.006 to +0.056) | -0.022 (-0.058 to +0.017) |
+
+Averaging the seeds removed little of PPO's copies loss, so unlike round
+7's misfires (below) it is a push the seeds share: the push that wins
+against Cubic deepens the queue among copies (inferred). More training
+made it worse. Continued for up to 120 more iterations (round 14's stage
+2), every cell lost ground after about 40, the loss falling where the
+flow was alone: the tau 5 s cells peaked at +0.021 and +0.032 on the new
+family's validation links and ended at -0.114 and -0.039, the tau 1 s
+cells fell from their start to -0.035 to -0.075. More copies in training
+(round 17: copies on 67% or 80% of the competing links) fell the same
+way, to -0.04 to -0.13. A veto by round 18's copies belief halved the
+copies loss and kept most of the gain against Cubic, but not enough.
+
+Reinforcement learning from the reward first stayed at its start, then
+learned what its training mixture rewarded. In rounds 1 to 3 the spread
+of u across states after 60 iterations was 0.02 to 0.04 for every PPO and
+TD3+BC learner: noise of sigma 0.05 drawn anew at each decision tells a
+return over thousands of decisions too little about any one (rounds 1
+and 2 also lost about 0.13 as copies to a graph bug that froze the BDP a
+held window was computed from, fixed in `85de8d0`;
+[`exp-net2-clone-copies-107`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-clone-copies-107)).
+Held for 200 ms at sigma 0.2 (round 10), the noise moved PPO off the rule
+(spread 0.3 to 0.6) toward larger windows: +0.05 to +0.07 with Cubic from
+the start, -0.22 to -0.39 alone, since competition on 80% of the training
+links left the flow alone on 8% of them, against half of the
+evaluation's. A longer horizon pushed harder (round 11: at tau 20 s the
+window reached 4 to 7 times the believed BDP, losing 1.5 to 2.2); trained
+always alone, the same learner lowered the window and beat the rule there
+by up to 0.08 (round 13). The mixture sets the direction. With the flow
+alone on half the links (round 12), PPO matched the rule on every family,
+beat it nowhere beyond the noise, and lost about 0.1 as copies. Longer
+episodes did not help: at equal compute (round 16, net1 v6), 120 s
+episodes did no better than 30 s ones at tau 1 s and kept pushing at
+tau 5 s (mean u 0.6 to 1.5, 0.4 to 1.5 below the rule), since a long
+episode holds long stretches where a competitor yields to a push and
+gives two links per update instead of eight (inferred).
+
+Imitation learns state dependence. DAgger labels every decision with a
+privileged teacher's u (the share rule while a stock TCP flow shares the
+link, the fixed rule otherwise), which the student must infer from net1's
+output. Round 4's students spread u by 0.16 to 0.48 across states and kept
+62% to 77% of the share rule's gain against Cubic, paying 31% to 34% of
+its loss as copies. From round 4c to 6b the best candidates lost 0.08 to
+0.14 as copies, and a seed's loss followed how well it told the cases
+apart (p of 0.78 with a stock flow and 0.13 without lost 0.02; p of 0.44
+to 0.47 without lost 0.13 to 0.16): one copy's push deepens the queue,
+which then looks like a buffer-filling flow to the others.
+
+Explicit beliefs about the other flows, and their average over seeds,
+removed that floor. Round 7's students also learned q, a belief that
+copies are present (0.55 to 0.72 with copies, 0.21 to 0.26 elsewhere).
+Following a teacher that cooperates with copies cost most of the gain
+against Cubic (+0.051): on buffers of 20 to 112 packets some seeds took
+Cubic for copies and yielded, losing 0.4 to 1.1 (per link, from round
+7's gate). The beliefs are trained
+on their labels whatever the policy does, so the same students can act
+differently: with q vetoing the push,
+`u = u_rule + p'(1 - q')(share - u_rule)` (round 7v), taking Cubic for
+copies costs at most the push. The copies loss that remained (-0.145)
+was single seeds misfiring: in 12 of the 42 pairs of link and number of
+copies one seed lost 0.5 or more, in none did all three, and those cells
+carry 72% of the loss. One policy on the three seeds' mean beliefs
+(round 7e) diluted the misfires and passed at teacher gain 0.5. Neither
+60 more iterations (round 8) nor 16 times the training links (round 9)
+beat it: the beliefs sharpened, but the gain moved between conditions
+rather than rising (inferred: the student is limited by something other
+than its data). On net1 v6 the students separate less sharply (q 0.53 to
+0.76 with copies, 0.10 to 0.52 elsewhere), and the same recipe passed
+again.
 
 Every round on net1 v5, minus the fixed rule on the 21 validation links
 (campaign seed 21); the kept candidate unless named. "Competition" is
@@ -264,27 +392,6 @@ new-20's three competition conditions.
 | 9b | Those links with stock competitors that join within the first 10 s (named: gain 0.5; gain 1 had +0.020 with Cubic from the start) | [`exp-net2-gate-r9broad05-142`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r9broad05-142), [`-r9broad1-141`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-gate-r9broad1-141) | +0.015 (-0.010 to +0.043) | +0.039 (+0.004 to +0.078) | -0.033 (-0.100 to +0.025) |
 | 12 | PPO from the reward, the flow alone on about half the training links; checkpoint at iteration 79, picked on these links (an evaluation, not a gate) | [`exp-net2-eval-r12-155`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-eval-r12-155) | +0.026 (-0.064 to +0.129) | +0.013 (-0.060 to +0.088) | -0.099 (-0.406 to +0.199) |
 
-The test of round 7e's candidate
-([`exp-net2-test-r7e-k0.5-134`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-test-r7e-k0.5-134)),
-27 test links, once, no failed episode; the net2 minus the fixed rule,
-paired by link, and each minus BBRv3 in the same run:
-
-| Family | net2 minus the rule | net2 minus BBRv3 | rule minus BBRv3 |
-|---|---|---|---|
-| training-20 | -0.003 (-0.014 to +0.008) | +0.083 | +0.085 |
-| training-60 | +0.014 (+0.004 to +0.025) | +0.128 | +0.114 |
-| new-20 | +0.009 (-0.008 to +0.026) | +0.274 | +0.264 |
-| deep-long-20 | +0.005 (-0.009 to +0.019) | +0.253 | +0.248 |
-| cubic-first-60 | +0.042 (+0.004 to +0.083) | -0.014 | -0.056 |
-| five-family mean | +0.014 | +0.145 | +0.131 |
-| new-20, competition | +0.019 (-0.015 to +0.051) | | |
-| held-competitors-60 | | +0.103 | +0.084 |
-| copies-30s | +0.035 (-0.031 to +0.102) | +0.035 | +0.000 |
-
-The rule's scores differ a little from `exp-final-test-100`'s (-0.056
-against -0.041 with Cubic from the start); each comparison here is
-within this run.
-
 Every candidate's five-family mean is within 0.04 of the rule's. Each
 gate's notes name its candidates' policy release (`model-net2-...`). The
 training runs: round 1 `exp-net2-ppo-search1-90`, `-search2-96`,
@@ -299,100 +406,9 @@ round 5 `exp-net2-r5-gate-115`; round 6 `exp-net2-r6-gate-119`, 6b
 `exp-net2-r12-mix-147`; round 13 `exp-net2-r13-alone-151`; on net1 v6,
 round 14 `exp-net2-r14-v6-154`, round 15 run 156 (no release; its final
 copies-arm policies are in `model-net2-v6-cands`), round 16
-`exp-net2-r16-long-157`, round 14's stage 2 `exp-net2-r14-s2-158`.
-
-Reinforcement learning first stayed at its start, then learned what its
-training mixture rewarded. In rounds 1 to 3 the spread of u across states
-after 60 iterations was 0.02 to 0.04 for every PPO and TD3+BC learner:
-noise of sigma 0.05 drawn anew at each decision tells a return over
-thousands of decisions too little about any one. Held for 200 ms at sigma
-0.2 (round 10), it moved PPO off the rule (spread 0.3 to 0.6) toward
-larger windows: +0.05 to +0.07 with Cubic from the start but -0.22 to
--0.39 alone, since competition on 80% of the training links left the flow
-alone on about 8% of them, against half of the evaluation's. A longer
-horizon pushed harder (round 11: at tau 20 s the window reached 4 to 7
-times the believed BDP, losing 1.5 to 2.2), and trained always alone the
-same learner lowered the window and beat the rule there by up to 0.08
-(round 13). The learner follows its objective; the mixture sets the
-direction. With the flow alone on about half the links (round 12), PPO
-matched the rule on every family, beat it nowhere beyond the noise,
-and lost about 0.1 as copies. Longer episodes did not help: at equal
-compute per iteration (round 16, net1 v6), 120 s episodes did no better
-than 30 s ones at tau 1 s, and at tau 5 s they kept pushing (mean u 0.6
-to 1.5) and stayed 0.4 to 1.5 below the rule. A long episode holds long
-stretches where a competitor yields to a push, and gives two links per
-update instead of eight (inferred).
-
-On net1 v6, PPO gains more against competitors than any earlier net2
-and loses more as copies. Its final policies, each over three seeds,
-minus v6's fixed rule on the same links
-([`exp-net2-eval-v6-159`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-eval-v6-159),
-the seeds' mean u in
-[`-v6-ens-160`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-eval-v6-ens-160)):
-
-| Round | Five-family mean | cubic-first-60 | competition | copies-30s |
-|---|---|---|---|---|
-| 14, tau 1 s | +0.002 | +0.068 (-0.033 to +0.177) | +0.059 (-0.008 to +0.129) | -0.223 (-0.524 to +0.042) |
-| 14, tau 5 s | -0.012 | +0.110 (-0.028 to +0.262) | +0.032 (-0.045 to +0.114) | -0.258 (-0.514 to -0.022) |
-| 15, more copies in training | +0.004 | +0.174 (+0.057 to +0.292) | +0.085 (+0.011 to +0.161) | -0.300 (-0.605 to -0.007) |
-| 15, one policy on the seeds' mean u | +0.011 | +0.149 (+0.044 to +0.262) | +0.065 (-0.005 to +0.139) | -0.258 (-0.594 to +0.043) |
-
-Averaging the seeds removed little of the copies loss, so unlike round
-7's misfires it is a push the seeds share: the push that wins against
-Cubic deepens the queue among copies (inferred). More training made it
-worse. Continued for up to 120 more iterations (round 14's stage 2), every
-cell lost ground after about 40: on the new family's validation links the
-tau 5 s cells peaked at +0.021 and +0.032 at iteration 39 and ended at
--0.114 and -0.039, the loss falling where the flow was alone, and the
-tau 1 s cells fell from their start to -0.035 to -0.075.
-
-A graph bug cost rounds 1 and 2 about 0.13 as copies: the exported graph
-held a decision's window, freezing the BDP it was computed from, where
-the rule re-reads its belief every step (the clone of the rule lost
-0.132 to it as copies, and 0.003 once fixed in `85de8d0`;
-[`exp-net2-clone-copies-107`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-clone-copies-107)).
-
-Imitation learns state dependence. DAgger labels every decision with a
-privileged teacher's u (the share rule while a stock TCP flow shares the
-link, the fixed rule otherwise), which the student must infer from net1's
-output. Round 4's students spread u by 0.16 to 0.48 across states and kept
-62% to 77% of the share rule's gain against Cubic, paying 31% to 34% of
-its loss as copies (round 4c removed their overfitting).
-
-Copies set a floor. From round 4c to 6b the best candidates lose 0.08 to
-0.14 as copies, and a seed's loss follows how well it told the cases
-apart in training (p of 0.78 with a stock flow and 0.13 without lost
-0.02; p of 0.44 to 0.47 without lost 0.13 to 0.16): one copy's push
-deepens the queue, which then looks like a buffer-filling flow to the
-others. Round 7's teacher cooperates while only copies share the link,
-and its students learned q, a belief that copies are present (0.55 to
-0.72 with copies, 0.21 to 0.26 elsewhere). The copies loss vanished on
-average, but so did most of the gain against Cubic (+0.051), with the
-widest copies interval of any round: on buffers of 20 to 112 packets with
-Cubic from the start, some seeds took Cubic for copies and yielded,
-losing 0.4 to 1.1 (per link, from the round-7 gate's episodes).
-
-The beliefs are trained on their labels whatever the policy does, so the
-same students can act differently. With q vetoing the push instead,
-`u = u_rule + p'(1 - q')(share - u_rule)` (round 7v), taking Cubic for
-copies costs at most the push; the gain-1 candidate then met every gate
-condition but copies (-0.145), and a stronger veto did not change that
-(round 7vq). That loss was single seeds misfiring: in 12 of the 42 pairs
-of link and number of copies one seed lost 0.5 or more, in none did all
-three, and those cells carry 72% of the loss. One policy on the three
-seeds' mean beliefs (round 7e) diluted the misfires: at teacher gain 0.5
-the copies loss fell to 0.005 and the candidate passed; at gain 1 copies
-still lost 0.113.
-
-Neither more training nor more data beat round 7e. Round 8 trained 60
-more iterations under the veto; round 9 used 9,600 training links instead
-of 600, with competitors from 0 s (9) or joining within 10 s (9b). The
-beliefs sharpened, but the gain moved between conditions rather than
-rising (9b cleared the competition interval but fell to +0.015 with Cubic
-from the start), so the student seems limited by something other than its
-data (inferred). Unchanged, round 7e passed again on new validation
-episodes (campaign seed 11), so its smaller competition gain on test more
-likely reflects the test links than luck of the episodes (inferred).
+`exp-net2-r16-long-157`, round 14's stage 2 `exp-net2-r14-s2-158`,
+round 17 run 161 (rerun of one cell pending), round 18
+`exp-net2-r18-gate3-v6-162`.
 
 Before the gate existed, learning from other controllers' logs failed
 (cloning and IQL on net1 v3: -0.97 to -1.61 on validation, against -0.48

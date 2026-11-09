@@ -36,11 +36,17 @@ the claims and defines every term used below.
    flow (Cubic) pays, pushing against copies of oneself hurts, and the
    seven LCFs do not say which is present. Told the number of flows, a
    rule on the true state handles both (an oracle bound).
-4. A learned net2 matched the rule and beat it only against Cubic. RL
-   from the rule (recurrent PPO, TD3+BC) never moved off it. Imitation of
-   a teacher that knows the other flows (DAgger), with a student inferring
-   stock TCP and copies of itself from net1's output, matched the rule on
-   every test family and beat it with Cubic from the start (+0.042).
+4. A learned net2 beats the rule against competitors and matches it
+   elsewhere. Imitation of a teacher that knows the other flows (DAgger),
+   with a student inferring stock TCP and copies of itself from net1's
+   output alone, passed its gate and on test beat the rule with Cubic
+   from the start (+0.068) and in the competition conditions (+0.039),
+   both intervals above zero, matching it in every other family and as
+   copies
+   ([`exp-net2-test-r18e05-168`](https://github.com/Radonux/palaestra/releases/tag/exp-net2-test-r18e05-168)).
+   RL from the reward (PPO) gains more against competitors but pushes
+   among copies, and a black box trained the same way on the raw
+   measurements ends 0.2 to 0.4 below the rule.
 5. None of expliCCit's three checked results reproduced as stated: R^2
    above 0.9 for every LCF, the split's cost against Sage, and its
    case-study diagnosis.
