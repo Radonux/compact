@@ -29,7 +29,7 @@ from expliccit_env.train.graph import Front
 from expliccit_env.train.handoff import PolicyTeacher
 from expliccit_env.train.mixture import active
 from expliccit_env.train.recurrent import OBS_MIN_RTT, decision_steps
-from expliccit_env.train.spec import LCF_UNITS, Net2Spec, PPOSpec
+from expliccit_env.train.spec import LCF_UNITS, Gate3, Net2Spec, PPOSpec
 
 type F32 = npt.NDArray[np.float32]
 # Per-step reward: the validation tables' log utility (delay weight 0.5,
@@ -147,7 +147,7 @@ def trajectory(
     if spec.critic_flows:
         parts.append(counts)
     critic = np.concatenate(parts, axis=1).astype(np.float32)
-    if spec.algo != "dagger" and spec.student == "u":
+    if spec.algo != "dagger" and spec.student.kind == "u":
         return Trajectory(group, inp, critic, u, reward, gamma, base)
     # The teachers read net1's beliefs, also for the black box ("raw"), whose
     # label is then the teacher's window on its own measured BDP.
@@ -164,7 +164,7 @@ def trajectory(
     else:
         label = (
             teacher3_u(share_u, coop_u, counts, spec.u_rule)
-            if spec.student == "gate3" and spec.gate3_copies == "coop"
+            if isinstance(spec.student, Gate3) and spec.student.copies == "coop"
             else teacher_u(share_u, counts, spec.u_rule)
         )
         if spec.inputs == "raw":

@@ -271,6 +271,54 @@ class TrainSpec(_Frozen):
         return cls.model_validate_json(text)
 
 
+class U(_Frozen):
+    """The actor learns u itself (by DAgger, squared error on the teacher's
+    u). ``base`` "fixed": u is the actor's, starting as the fixed rule
+    (u_rule everywhere). "share": the actor's output adds to the share rule
+    on net1's mean beliefs, u = u_rule + share_k * busy * max(0, 1 - share)
+    (train/share.py); it starts at 0, a residual on the share rule."""
+
+    kind: Literal["u"] = "u"
+    base: Literal["fixed", "share"] = "fixed"
+
+
+class Gate(_Frozen):
+    """The actor learns p, the probability that a stock TCP flow shares the
+    link (by DAgger, cross-entropy on that label at every decision), and u
+    is u_rule + p (share rule's u - u_rule): the teacher's u with its switch
+    replaced by the student's belief. p starts at 0.02. The policy acts on p
+    only past ``threshold`` t, p' = clamp((p - t) / (1 - t), 0, 1), as copies
+    lose more per unit of push than a flow against Cubic gains; set at
+    export (experiments/gate_threshold_export.py), or here so that the
+    rollouts DAgger labels come from the policy that would be deployed. The
+    belief itself is learned without it."""
+
+    kind: Literal["gate"] = "gate"
+    threshold: Annotated[float, Field(ge=0, lt=1)] = 0.0
+
+
+class Gate3(_Frozen):
+    """Two beliefs, p of a stock TCP flow and q of copies of this policy,
+    each by cross-entropy on its label; the teacher is the share rule with
+    stock TCP, the mode rule's cooperative window with copies only
+    (train/share.py CoopRule), and the fixed rule otherwise. u is u_rule +
+    p (share - u_rule) + (1 - p) q (coop - u_rule); both beliefs start at
+    0.02. ``threshold_q`` is q's threshold where it differs from p's.
+    ``copies`` "rule": q vetoes the push instead, u = u_rule + p (1 - q)
+    (share - u_rule), so taking a buffer-filling flow for copies costs at
+    most the push, while the cooperative window yields to it. The beliefs
+    train the same either way; this sets the policy that acts."""
+
+    kind: Literal["gate3"] = "gate3"
+    threshold: Annotated[float, Field(ge=0, lt=1)] = 0.0
+    threshold_q: Annotated[float, Field(ge=0, lt=1)] | None = None
+    copies: Literal["coop", "rule"] = "coop"
+
+
+type Student = Annotated[U | Gate | Gate3, Field(discriminator="kind")]
+_FLAT_STUDENT: Final = ("base", "gate_threshold", "gate_threshold_q", "gate3_copies")
+
+
 class PPOSpec(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -376,35 +424,10 @@ class PPOSpec(BaseModel):
     # (u_rule) otherwise; "gate3" has its own teacher (below). The teacher
     # knows the other flows, which the actor must infer from net1's output.
     algo: Literal["ppo", "td3bc", "dagger"] = "ppo"
-    # What a "dagger" student learns. "u": u itself, by squared error on the
-    # teacher's u. "gate": only the probability p that a stock TCP flow
-    # shares the link, by cross-entropy on that label at every decision;
-    # its u is u_rule + p (share rule's u - u_rule), the teacher's u with
-    # its switch replaced by the student's belief. It starts at p = 0.02.
-    # "gate3": two beliefs, p of a stock TCP flow and q of copies of this
-    # policy, each by cross-entropy on its label; the teacher is the share
-    # rule with stock TCP, the mode rule's cooperative window with copies
-    # only (train/share.py CoopRule), and the fixed rule otherwise. Its u
-    # is u_rule + p (share - u_rule) + (1 - p) q (coop - u_rule); both
-    # beliefs start at 0.02.
-    student: Literal["u", "gate", "gate3"] = "u"
-    # A gate student's policy ("gate" or "gate3") acts on each belief p
-    # only past this threshold t: p' = clamp((p - t) / (1 - t), 0, 1), as
-    # copies lose more per unit of push than a flow against Cubic gains. Set
-    # at export (experiments/gate_threshold_export.py), or here so that the
-    # rollouts DAgger labels come from the policy that would be deployed;
-    # the beliefs themselves are learned without it.
-    gate_threshold: Annotated[float, Field(ge=0, lt=1)] = 0.0
-    # A "gate3" student's threshold for q, its belief in copies, where it
-    # differs from p's; None applies gate_threshold to both.
-    gate_threshold_q: Annotated[float, Field(ge=0, lt=1)] | None = None
-    # What a "gate3" student does where it believes copies share the link.
-    # "coop": moves toward the cooperative window by q. "rule": q vetoes
-    # the push instead, u = u_rule + p (1 - q) (share - u_rule), so taking
-    # a buffer-filling flow for copies costs at most the push, while the
-    # cooperative window yields to it. The beliefs train the same either
-    # way (cross-entropy on their labels); this sets the policy that acts.
-    gate3_copies: Literal["coop", "rule"] = "coop"
+    # What the actor learns and how its output becomes u (U, Gate, Gate3
+    # below; actors.policy_u computes it, the same in every learner and in
+    # the exported graph).
+    student: Student = U()
     # Start the actor from a saved state (an earlier run's actor.pt) instead
     # of the rule; its width and hidden size must match this spec's.
     init_actor: Path | None = None
@@ -436,12 +459,6 @@ class PPOSpec(BaseModel):
     # believed (or, for "raw", measured) BDP: the student learns to act as
     # if it knew the path, from what net1 says about it.
     teacher_from: Path | None = None
-    # What the actor's output is added to. "fixed": nothing; the actor starts
-    # as the fixed rule, u_rule everywhere. "share": the share rule on net1's
-    # mean beliefs, u = u_rule + share_k * busy * max(0, 1 - share)
-    # (train/share.py); the actor starts at 0, so training starts from the
-    # share rule and learns a residual on it.
-    base: Literal["fixed", "share"] = "fixed"
     # What the actor reads. "net1": net1's beliefs (the split). "truth": the
     # oracle (arm A1): net1's output with all probability on the true
     # LCF's bin, from the guest's live truth, so the actor and the window
@@ -469,21 +486,16 @@ class PPOSpec(BaseModel):
     def _dagger_from_the_rule(self) -> PPOSpec:
         if self.algo == "dagger" and self.base != "fixed":
             raise ValueError('algo "dagger" learns the whole u: base must be "fixed"')
-        if self.student != "u" and (self.algo == "td3bc" or self.base != "fixed"):
+        if self.student.kind != "u" and self.algo == "td3bc":
             raise ValueError(
-                f'student "{self.student}" is taught by algo "dagger" and continued by "ppo",'
-                ' on base "fixed"'
+                f'student "{self.student.kind}" is taught by algo "dagger" and continued by "ppo"'
             )
         if self.init_from is not None and (self.init_actor or self.init_critic):
             raise ValueError("init_from replaces init_actor and init_critic: set one or the other")
         if self.anchor > 0 and self.algo != "ppo":
             raise ValueError('anchor is a penalty in algo "ppo" only')
-        if self.teacher_from is not None and (self.algo != "dagger" or self.student != "u"):
+        if self.teacher_from is not None and (self.algo != "dagger" or self.student.kind != "u"):
             raise ValueError('teacher_from teaches u to a student "u" of algo "dagger" only')
-        if self.gate_threshold_q is not None and self.student != "gate3":
-            raise ValueError('gate_threshold_q is the threshold of student "gate3" only')
-        if self.gate3_copies != "coop" and self.student != "gate3":
-            raise ValueError('gate3_copies is a choice of student "gate3" only')
         if self.init_critic is not None and self.algo != "ppo":
             raise ValueError('init_critic continues algo "ppo" only')
         if self.alone + self.compete + self.info > 1:
@@ -494,9 +506,65 @@ class PPOSpec(BaseModel):
             raise ValueError(
                 'an actor on the truth ("truth") has nothing to learn from the teacher'
             )
-        if self.inputs == "raw" and self.student != "u":
+        if self.inputs == "raw" and self.student.kind != "u":
             raise ValueError('a gate student mixes rules on net1\'s beliefs: not for "raw"')
         return self
+
+    def with_gate(
+        self,
+        threshold: float,
+        threshold_q: float | None = None,
+        copies: Literal["coop", "rule"] | None = None,
+    ) -> PPOSpec:
+        """This spec with its gate student's thresholds (and a gate3's
+        copies policy, when given) replaced: the same beliefs, sharpened
+        otherwise at export (experiments/gate_threshold_export.py)."""
+        match self.student:
+            case Gate():
+                if threshold_q is not None or copies is not None:
+                    raise ValueError('threshold_q and copies belong to student "gate3" only')
+                student: U | Gate | Gate3 = Gate(threshold=threshold)
+            case Gate3(copies=c):
+                student = Gate3(threshold=threshold, threshold_q=threshold_q, copies=copies or c)
+            case U():
+                raise ValueError('a student "u" has no gate')
+        return self.model_copy(update={"student": student})
+
+    @property
+    def base(self) -> Literal["fixed", "share"]:
+        """What the actor's u is added to (U.base); "fixed" for a gate."""
+        return self.student.base if isinstance(self.student, U) else "fixed"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _flat_student(cls, data: Any) -> Any:
+        """Specs written before ``student`` held the whole head (every saved
+        ppo_spec.json up to round 23, and the experiment files) name it by
+        flat fields; read them as the student they meant."""
+        if not isinstance(data, dict):
+            return data
+        d = cast(dict[str, Any], dict(data))  # pyright: ignore[reportUnknownArgumentType]
+        flat = [k for k in _FLAT_STUDENT if k in d]
+        if not flat and not isinstance(d.get("student"), str):
+            return d
+        if flat and isinstance(d.get("student"), dict):
+            raise ValueError(f"student holds {', '.join(flat)}: give one or the other")
+        kind = d.pop("student", "u")
+        base = d.pop("base", "fixed")
+        t, tq = d.pop("gate_threshold", 0.0), d.pop("gate_threshold_q", None)
+        copies = d.pop("gate3_copies", "coop")
+        if kind != "gate3" and (tq is not None or copies != "coop"):
+            raise ValueError('gate_threshold_q and gate3_copies belong to student "gate3" only')
+        if kind != "u" and base != "fixed":
+            raise ValueError(f'student "{kind}" mixes rules itself: base must be "fixed"')
+        d["student"] = (
+            {"kind": "u", "base": base}
+            if kind == "u"
+            else {"kind": "gate", "threshold": t}
+            if kind == "gate"
+            else {"kind": "gate3", "threshold": t, "threshold_q": tq, "copies": copies}
+        )
+        return d
 
     @classmethod
     def parse(cls, text: str) -> PPOSpec:

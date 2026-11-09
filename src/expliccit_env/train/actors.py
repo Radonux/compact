@@ -26,7 +26,7 @@ from expliccit_env.train.graph import Front, MeasuredBdp, PolicyGraph
 from expliccit_env.train.recurrent import ConcatActor, EnsembleActor, Held, RecurrentActor
 from expliccit_env.train.share import ACTION_MAX as SHARE_ACTION_MAX
 from expliccit_env.train.share import CoopRule, ShareRule
-from expliccit_env.train.spec import PPOSpec
+from expliccit_env.train.spec import Gate, Gate3, PPOSpec, U
 from expliccit_env.train.traffic import CLASSES
 
 type F32 = npt.NDArray[np.float32]
@@ -48,18 +48,20 @@ def policy_u(
     a times action_max, plus the base rule's u where one is given. "gate"
     and "gate3": beliefs (a + 1) / 2 past their thresholds (a [..., 2] for
     "gate3"), mixing the share rule's u and the cooperative window's."""
-    if spec.student == "u":
-        u = a * spec.action_max
-        return u if base is None else u + base
-    if share is None or (spec.student == "gate3" and coop is None):
-        raise ValueError(f'student "{spec.student}" needs the rules\' u at each decision')
-    t = spec.gate_threshold
-    if spec.student == "gate":
-        return gated_u(sharpen((a + 1) / 2, t), share, spec.u_rule)
-    assert coop is not None
-    tq = t if spec.gate_threshold_q is None else spec.gate_threshold_q
-    p, q = sharpen((a[..., 0] + 1) / 2, t), sharpen((a[..., 1] + 1) / 2, tq)
-    return gated3_u(p, q, share, coop, spec.u_rule, copies=spec.gate3_copies)
+    match spec.student:
+        case U():
+            u = a * spec.action_max
+            return u if base is None else u + base
+        case Gate(threshold=t):
+            if share is None:
+                raise ValueError('student "gate" needs the share rule\'s u at each decision')
+            return gated_u(sharpen((a + 1) / 2, t), share, spec.u_rule)
+        case Gate3(threshold=t, threshold_q=tq, copies=copies):
+            if share is None or coop is None:
+                raise ValueError('student "gate3" needs the rules\' u at each decision')
+            q_t = t if tq is None else tq
+            p, q = sharpen((a[..., 0] + 1) / 2, t), sharpen((a[..., 1] + 1) / 2, q_t)
+            return gated3_u(p, q, share, coop, spec.u_rule, copies=copies)
 
 
 def gated_u(p: torch.Tensor, share: torch.Tensor, u_rule: float) -> torch.Tensor:
@@ -123,10 +125,10 @@ class Head(nn.Module):
         traffic_p: bool = False,
     ) -> None:
         super().__init__()
-        if (traffic_q or traffic_p) and spec.student != "gate3":
+        if (traffic_q or traffic_p) and spec.student.kind != "gate3":
             raise ValueError('the traffic head stands in for a "gate3" student\'s beliefs only')
         self.spec, self.traffic_q, self.traffic_p = spec, traffic_q, traffic_p
-        needs = spec.student != "u" or spec.base == "share"
+        needs = spec.student.kind != "u" or spec.base == "share"
         self.rules = Rules(net1, spec) if needs else None
 
     def forward(
@@ -140,7 +142,7 @@ class Head(nn.Module):
         if self.rules is None:
             return policy_u(self.spec, a)
         r = self.rules(z)
-        if self.spec.student == "u":  # base "share": a residual on the share rule
+        if self.spec.student.kind == "u":  # base "share": a residual on the share rule
             return policy_u(self.spec, a, base=r[:, 0])
         return policy_u(self.spec, a, r[:, 0], r[:, 1])
 
@@ -187,9 +189,9 @@ def new_actor(width: int, spec: PPOSpec) -> RecurrentActor:
     """The spec's actor as it starts: the fixed rule (or, on base "share",
     the share rule), or a gate student believing P0 everywhere."""
     actor = RecurrentActor(
-        width, spec.hidden, memory=spec.memory, outputs=2 if spec.student == "gate3" else 1
+        width, spec.hidden, memory=spec.memory, outputs=2 if spec.student.kind == "gate3" else 1
     )
-    if spec.student != "u":  # p = (tanh(head) + 1) / 2 = P0 everywhere
+    if spec.student.kind != "u":  # p = (tanh(head) + 1) / 2 = P0 everywhere
         actor.clone_rule(2 * P0 - 1, 1.0)
     else:
         actor.clone_rule(spec.u_rule if spec.base == "fixed" else 0.0, spec.action_max)

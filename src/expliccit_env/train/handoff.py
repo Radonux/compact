@@ -61,7 +61,13 @@ def earlier_run(run: Path, net1: fit.Net1) -> PPOSpec:
 
 
 def mismatch(a: PPOSpec, b: PPOSpec, fields: tuple[str, ...]) -> list[str]:
-    return [f for f in fields if getattr(a, f) != getattr(b, f)]
+    """The fields in which a and b differ; for "student", only its kind
+    counts (a gate's thresholds may change between runs)."""
+
+    def key(s: PPOSpec, f: str) -> object:
+        return s.student.kind if f == "student" else getattr(s, f)
+
+    return [f for f in fields if key(a, f) != key(b, f)]
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,7 +82,7 @@ class PolicyTeacher:
     @staticmethod
     def load(run: Path, net1: fit.Net1) -> PolicyTeacher:
         t = earlier_run(run, net1)
-        if t.inputs != "truth" or t.student != "u" or t.base != "fixed":
+        if t.inputs != "truth" or t.student.kind != "u" or t.base != "fixed":
             raise ValueError(f'{run}: a teacher reads the truth (inputs "truth"), student "u"')
         net = RecurrentActor(actors.width(net1, t), t.hidden, memory=t.memory)
         net.load_state_dict(torch.load(run / "actor.pt", weights_only=True))

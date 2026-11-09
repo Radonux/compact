@@ -53,7 +53,11 @@ def main() -> None:
     args = a.parse_args()
     spec = ppo.PPOSpec.parse((args.policy / "ppo_spec.json").read_text())
     qspecs = [ppo.PPOSpec.parse((r / "ppo_spec.json").read_text()) for r in args.q]
-    if spec.student != "u" or spec.base != "fixed" or any(s.student != "gate3" for s in qspecs):
+    if (
+        spec.student.kind != "u"
+        or spec.base != "fixed"
+        or any(s.student.kind != "gate3" for s in qspecs)
+    ):
         raise SystemExit("--policy must be a u student on the fixed base, --q gate3 students")
     keys = ("u_rule", "action_max", "view", "input_bins", "hidden", "memory")
     if any(getattr(s, k) != getattr(spec, k) for s in qspecs for k in keys):

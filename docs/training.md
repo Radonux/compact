@@ -131,11 +131,8 @@ LCFs.
 | Field | Default | Meaning |
 |---|---|---|
 | `algo` | `ppo` | `td3bc` (from a replay of recent iterations, weight `alpha`), `dagger` (imitation of a privileged teacher) |
-| `student` | `u` | with `dagger`: `u` learns the teacher's u; `gate` learns p, the probability that a stock TCP flow shares the link, and sets u = u_rule + p (share rule's u - u_rule); `gate3` also learns q for copies and cooperates with them. `ppo` continues any of them on the reward (base `fixed`) |
-| `base` | `fixed` | `share`: the actor learns a residual on the share rule (gain `share_k`) |
+| `student` | `{"kind": "u"}` | what the actor learns and how its output becomes u (`train/spec.py` U, Gate, Gate3). `u` learns u itself; its `base` `share` makes it a residual on the share rule (gain `share_k`). `gate` learns p, the probability that a stock TCP flow shares the link, and sets u = u_rule + p (share rule's u - u_rule), acting past `threshold`. `gate3` also learns q for copies (`threshold_q`) and cooperates with them, or with `copies` `rule` lets q veto the push. `dagger` teaches any of them, `ppo` continues any of them on the reward. Older specs' flat `base`, `gate_threshold`, `gate_threshold_q` and `gate3_copies` still read |
 | `u_rule`, `share_k` | 0.125, 0.5 | the fixed rule's u, and the share rule's gain (the teacher's gain for `dagger`) |
-| `gate_threshold`, `gate_threshold_q` | 0, none | act on a belief only past t: p' = clamp((p - t) / (1 - t), 0, 1); `gate3`'s q uses `gate_threshold_q` when set |
-| `gate3_copies` | `coop` | `gate3` where it believes copies: `coop` moves toward the cooperative window by q; `rule` lets q veto the push, u = u_rule + p (1 - q) (share - u_rule) |
 | `init_actor`, `init_critic` | none | start from a saved `actor.pt`, and PPO's value network from a `critic.pt` |
 | `init_from` | none | continue an earlier run's directory (in place of the two above): its actor, and for `ppo` its value network where it reads the same inputs; refuses another net1 or another actor shape ([staged-net2.md](staged-net2.md)) |
 | `anchor` | 0 | `ppo`: weight of the KL divergence to the policy it started from, added to the loss |

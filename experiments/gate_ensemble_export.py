@@ -72,13 +72,8 @@ def main() -> None:
     same = {s.model_copy(update=free).model_dump_json() for s in specs}
     if len(same) != 1:
         raise SystemExit("the runs must be of one setting, differing only in seed and start")
-    gate = specs[0].student in ("gate", "gate3")
-    update: dict[str, object] = (
-        {"gate_threshold": args.t, "gate_threshold_q": args.tq} if gate else {}
-    )
-    if args.copies is not None:
-        update["gate3_copies"] = args.copies
-    spec = specs[0].model_copy(update=update)
+    gate = specs[0].student.kind in ("gate", "gate3")
+    spec = specs[0].with_gate(args.t, args.tq, args.copies) if gate else specs[0]
     net1, _ = fit.load_net1(args.runs[0] / "net1.pt")
     if args.net1 is not None:
         other, _ = fit.load_net1(args.net1)
@@ -88,7 +83,7 @@ def main() -> None:
     width = actors.width(net1, spec)
     members: list[RecurrentActor] = []
     for r in args.runs:
-        outputs = 2 if spec.student == "gate3" else 1
+        outputs = 2 if spec.student.kind == "gate3" else 1
         actor = RecurrentActor(width, spec.hidden, memory=spec.memory, outputs=outputs)
         actor.load_state_dict(torch.load(r / "actor.pt", weights_only=True))
         members.append(actor)
@@ -98,7 +93,7 @@ def main() -> None:
         raise SystemExit(f"--truth {unknown}: not among net1's LCFs {list(net1.lcfs)}")
     if args.traffic_p and args.traffic is None:
         raise SystemExit("--traffic-p takes p from the head given by --traffic")
-    if args.traffic is not None and spec.student != "gate3":
+    if args.traffic is not None and spec.student.kind != "gate3":
         raise SystemExit("--traffic replaces a gate3 student's q")
     head = None if args.traffic is None else load_head(args.traffic)
     graph = ppo.policy_graph(

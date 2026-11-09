@@ -5,7 +5,7 @@ Copies lose more per unit of push than a flow against Cubic gains, so the
 best push under an uncertain belief is below p. Threshold 0 is the policy
 without sharpening. A "gate3" student's belief q in copies takes its own
 threshold from --tq, or t without it; --copies rule exports it with q
-vetoing the push (PPOSpec gate3_copies), named with -rule before the seed.
+vetoing the push (PPOSpec's Gate3 copies), named with -rule before the seed.
 
 Usage: python experiments/gate_threshold_export.py OUT RUN_DIR... --t 0.3 0.5 [--tq 0.5]
 Each RUN_DIR is an `expliccit train ppo` output (ppo_spec.json, net1.pt,
@@ -38,22 +38,20 @@ def main() -> None:
     args.out.mkdir(parents=True, exist_ok=True)
     for run in args.runs:
         spec = ppo.PPOSpec.parse((run / "ppo_spec.json").read_text())
-        if spec.student not in ("gate", "gate3"):
+        if spec.student.kind not in ("gate", "gate3"):
             raise SystemExit(f"{run}: not a gate student")
         m = SEED.match(run.name)
         if m is None:
             raise SystemExit(f"{run}: name does not end in -s<seed>")
         net1, _ = fit.load_net1(run / "net1.pt")
         width = actors.width(net1, spec)
-        outputs = 2 if spec.student == "gate3" else 1
+        outputs = 2 if spec.student.kind == "gate3" else 1
         actor = RecurrentActor(width, spec.hidden, memory=spec.memory, outputs=outputs)
         actor.load_state_dict(torch.load(run / "actor.pt", weights_only=True))
         for t in args.t:
             for tq in args.tq:
-                update = {"gate_threshold": t, "gate_threshold_q": tq}
-                if args.copies is not None:
-                    update["gate3_copies"] = args.copies
-                graph = ppo.policy_graph(net1, actor, spec.model_copy(update=update))
+                gated = spec.with_gate(t, tq, args.copies)
+                graph = ppo.policy_graph(net1, actor, gated)
                 q = "" if tq is None else f"q{tq:g}"
                 r = "-rule" if args.copies == "rule" else ""
                 name = f"{m['cand']}-t{t:g}{q}{r}-s{m['seed']}.onnx"

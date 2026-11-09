@@ -34,9 +34,9 @@ def mean_u(spec: PPOSpec, trs: list[Trajectory], a: torch.Tensor) -> torch.Tenso
     def padded(xs: list[F32]) -> torch.Tensor:
         return pad([x[:, None] for x in xs])[0].squeeze(-1)
 
-    if spec.student != "u":
+    if spec.student.kind != "u":
         share = padded([field_of(tr.share) for tr in trs])
-        coop = padded([field_of(tr.coop) for tr in trs]) if spec.student == "gate3" else None
+        coop = padded([field_of(tr.coop) for tr in trs]) if spec.student.kind == "gate3" else None
         return policy_u(spec, a, share, coop)
     if all(tr.base is None for tr in trs):
         return policy_u(spec, a)
@@ -370,9 +370,9 @@ class DAggerLearner:
         }
 
     def _loss(self, batch: list[Trajectory], pre: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        if self.spec.student != "u":
+        if self.spec.student.kind != "u":
             tcp, _ = pad([field_of(tr.tcp)[:, None] for tr in batch])
-            if self.spec.student == "gate3":
+            if self.spec.student.kind == "gate3":
                 cop, _ = pad([field_of(tr.copies)[:, None] for tr in batch])
                 y = torch.cat([tcp, cop], dim=-1)
                 m = mask.unsqueeze(-1)

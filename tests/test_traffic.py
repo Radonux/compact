@@ -11,6 +11,7 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from expliccit_env.train import actors, fit, ppo  # noqa: E402
+from expliccit_env.train.spec import U  # noqa: E402
 from expliccit_env.train.traffic import (  # noqa: E402
     CLASSES,
     TrafficHead,
@@ -49,7 +50,7 @@ def test_a_gate3_head_takes_its_beliefs_from_the_traffic_head() -> None:
     want = plain(torch.tensor([[-0.8, 0.4]]), z, None)
     assert torch.allclose(actors.Head(net1, spec, traffic_q=True, traffic_p=True)(a, z, head), want)
     with pytest.raises(ValueError, match="gate3"):
-        actors.Head(net1, spec.model_copy(update={"student": "u"}), traffic_q=True)
+        actors.Head(net1, spec.model_copy(update={"student": U()}), traffic_q=True)
 
 
 def test_the_front_end_states_the_traffic_beside_the_beliefs() -> None:

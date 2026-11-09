@@ -23,7 +23,7 @@ from expliccit_env.train import actors, data, fit, handoff, learners, mixture, p
 from expliccit_env.train.export import to_onnx  # noqa: E402
 from expliccit_env.train.graph import MAX_DELIVERED, MIN_RTT_MS, PolicyGraph  # noqa: E402
 from expliccit_env.train.recurrent import OBS_MIN_RTT, RecurrentActor, decision_steps  # noqa: E402
-from expliccit_env.train.spec import LCF_UNITS  # noqa: E402
+from expliccit_env.train.spec import LCF_UNITS, Gate, Gate3  # noqa: E402
 
 from .test_train import _bdp_net1  # noqa: E402
 
@@ -620,16 +620,41 @@ def test_a_gate3_student_learns_both_beliefs() -> None:
 
 
 def test_a_gate_student_is_taught_by_dagger_and_continued_by_ppo_only() -> None:
-    ppo.PPOSpec(paths_from=Path("x"), net1_from=Path("x"), student="gate")
-    for algo, base in (("td3bc", "fixed"), ("ppo", "share")):
-        with pytest.raises(ValueError, match="continued"):
-            ppo.PPOSpec(
-                paths_from=Path("x"),
-                net1_from=Path("x"),
-                student="gate",
-                algo=algo,  # pyright: ignore[reportArgumentType]
-                base=base,  # pyright: ignore[reportArgumentType]
-            )
+    gate = ppo.PPOSpec(paths_from=Path("x"), net1_from=Path("x"), student="gate")
+    assert gate.student == Gate() and gate.base == "fixed"
+    with pytest.raises(ValueError, match="continued"):
+        ppo.PPOSpec(paths_from=Path("x"), net1_from=Path("x"), student="gate", algo="td3bc")
+    # A gate mixes rules itself: it has no base to add to, old flat form or new.
+    with pytest.raises(ValueError, match="base must be"):
+        ppo.PPOSpec(paths_from=Path("x"), net1_from=Path("x"), student="gate", base="share")
+    with pytest.raises(ValueError, match="base"):
+        ppo.PPOSpec.model_validate(
+            {"paths_from": "x", "net1_from": "x", "student": {"kind": "gate", "base": "share"}}
+        )
+
+
+def test_old_flat_student_fields_read_as_the_student_they_meant() -> None:
+    old = {
+        "paths_from": "x",
+        "net1_from": "x",
+        "student": "gate3",
+        "gate_threshold": 0.5,
+        "gate_threshold_q": 0.3,
+        "gate3_copies": "rule",
+    }
+    spec = ppo.PPOSpec.model_validate(old)
+    assert spec.student == Gate3(threshold=0.5, threshold_q=0.3, copies="rule")
+    again = ppo.PPOSpec.parse(spec.model_dump_json())
+    assert again == spec and "gate_threshold" not in spec.model_dump()
+    assert (
+        ppo.PPOSpec.model_validate({"paths_from": "x", "net1_from": "x", "base": "share"}).base
+        == "share"
+    )
+    with pytest.raises(ValueError, match="give one or the other"):
+        ppo.PPOSpec.model_validate(old | {"student": {"kind": "gate3"}})
+    assert spec.with_gate(0.2).student == Gate3(threshold=0.2, copies="rule")
+    with pytest.raises(ValueError, match="no gate"):
+        ppo.PPOSpec(paths_from=Path("x"), net1_from=Path("x")).with_gate(0.2)
 
 
 def test_only_a_gate3_student_chooses_what_to_do_with_copies() -> None:
@@ -691,13 +716,13 @@ def test_ppo_loop_runs_an_iteration_with_copies(
     from expliccit_env.uml import UmlBuild  # noqa: PLC0415
 
     assert isinstance(build, UmlBuild)
-    spec = _tiny_loop(tmp_path).model_copy(
-        update={
+    spec = ppo.PPOSpec.model_validate(
+        _tiny_loop(tmp_path).model_dump()
+        | {
             "copies_reward": reward,
             "critic_flows": flows,
             "algo": algo,
-            "base": base,
-            "student": student,
+            "student": {"kind": student, "base": base} if student == "u" else {"kind": student},
         }
     )
     report = ppo.run_ppo(spec, tmp_path / "out", build, workers=2)
@@ -750,7 +775,9 @@ def test_a_taught_gate3_student_hands_over_to_ppo(build: object, tmp_path: Path)
     from expliccit_env.uml import UmlBuild  # noqa: PLC0415
 
     assert isinstance(build, UmlBuild)
-    taught = _tiny_loop(tmp_path).model_copy(update={"algo": "dagger", "student": "gate3"})
+    taught = ppo.PPOSpec.model_validate(
+        _tiny_loop(tmp_path).model_dump() | {"algo": "dagger", "student": {"kind": "gate3"}}
+    )
     first = ppo.run_ppo(taught, tmp_path / "taught", build, workers=2)
     assert np.isfinite(first["iterations"][-1]["learner"]["explained_variance"])
     rl = taught.model_copy(update={"algo": "ppo", "init_from": tmp_path / "taught", "anchor": 1.0})
