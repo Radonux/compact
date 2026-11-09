@@ -241,8 +241,8 @@ class PPOSpec(BaseModel):
     # LCF's bin, from the guest's live truth, so the actor and the window
     # read the true path state. "raw": the black box (arm A4): the
     # measurements net1 reads, through net1's input scaler, with the window
-    # aimed at a measured BDP (the windowed maximum delivery rate times the
-    # minimum RTT, as BBR estimates it) instead of net1's. net1 then serves
+    # aimed at a measured BDP (BBR's: the maximum delivery rate over the
+    # last 2 s times the minimum RTT) instead of net1's. net1 then serves
     # only as that scaler and the evaluation's rule.
     inputs: Literal["net1", "truth", "raw"] = "net1"
     share_k: Annotated[float, Field(ge=0)] = 0.5
@@ -595,15 +595,22 @@ def _with_base(mu: torch.Tensor, trs: list[Trajectory]) -> torch.Tensor:
     return mu + b.squeeze(-1)
 
 
-_MAX_DELIVERED: Final = OBS_COLUMNS.index("max_delivered_x100mbps")
+# BBR's bottleneck bandwidth: the kernel's per-ACK delivery rate
+# (tcpi_delivery_rate), its maximum over the last 200 steps (2 s). Not
+# max_delivered_x100mbps: that is a 1 s average, which trails a growing
+# window by about 0.5 s, so a window aimed just above it grows by 19% per
+# 0.5 s instead of per RTT (round 19's first black box started 2.2 below
+# the rule and collapsed).
+_MAX_DELIVERED: Final = OBS_COLUMNS.index("delivery_rate_x100mbps_mid_max")
 _MIN_RTT_MS: Final = OBS_COLUMNS.index("min_rtt_ms")
 
 
 class RawInputs(nn.Module):
     """The black box's stand-in for net1 (PPOSpec.inputs "raw"): obs ->
     [the measurements as net1's input scaler gives them, then log2 of the
-    measured BDP in packets]. The measured BDP is the guest's windowed
-    maximum delivery rate times its minimum RTT, at least one packet."""
+    measured BDP in packets]. The measured BDP is BBR's: the maximum
+    delivery rate over the last 2 s times the minimum RTT, at least one
+    packet."""
 
     def __init__(self, scaler: Scaler) -> None:
         super().__init__()

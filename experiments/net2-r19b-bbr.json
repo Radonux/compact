@@ -1,0 +1,24 @@
+{
+  "title": "Round 19b: the black box with BBR's bandwidth estimate (arm A4, H6)",
+  "description": "Round 19's black box aimed its window at 2^u times the guest's 1 s average delivery rate (its 2 s maximum) times the minimum RTT. That average trails a growing window by about 0.5 s, so the window grew 19% per 0.5 s instead of per RTT: it started 2.2 below net1 v6's rule on validation and fell to 3.0 below. Round 19b repeats the raw arm with the measured BDP BBR uses, the kernel's per-ACK delivery rate (tcpi_delivery_rate) at its maximum over the last 2 s times the minimum RTT; everything else is round 19's spec (round 15's copies mixture, tau 1 s, 120 iterations, seeds 1 to 3), so it compares with round 19's truth and net1 arms.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "v6": "release:exp-net1v6-149",
+    "models": "release:model-net1v3"
+  },
+  "matrix": {
+    "arm": [
+      "raw"
+    ],
+    "seed": [
+      1,
+      2,
+      3
+    ]
+  },
+  "prepare": "N=\"$IN/v6/net1-v6-s0/net1.pt\"; uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$N\" --models \"$IN/models\" --u 0.25 --paths net2-train-xl",
+  "run": "S=\"$OUT/spec-r19b-$ARM-s$SEED.json\"; jq --arg arm \"$ARM\" --argjson seed \"$SEED\" '.algo = \"ppo\" | .base = \"fixed\" | .inputs = $arm | .copies_reward = \"team\" | .critic_flows = true | .noise_sigma = 0.2 | .noise_hold_steps = 20 | .tau_s = 1 | .group = 4 | .links_per_iteration = 8 | .lr = 0.0003 | .copies = [2, 4] | .competition = \"diverse\" | .alone = 0.35 | .compete = 0.6 | .seed = $seed | .iterations = 120 | .eval_every = 20' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/ppo-r19b-$ARM-s$SEED\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ppo-*",
+  "timeout_minutes": 360
+}
