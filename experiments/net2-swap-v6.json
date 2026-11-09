@@ -1,0 +1,16 @@
+{
+  "title": "net2 on another net1: r18e05 unchanged on net1 v6 seeds 1 and 2 (H4, H5)",
+  "description": "r18e05 passed its gate and its test on net1 v6 seed 0 (exp-net2-gate-r18e05-s11-167, exp-net2-test-r18e05-168). If net2 acts on what net1's beliefs mean and on nothing else (H4), it should keep its gain on another net1 that means the same: net1 v6's seeds 1 and 2 (release exp-net1v6-149) share seed 0's LCFs, bin boundaries and input scaler. This runs r18e05 on seed 0 and, unchanged, on seeds 1 and 2 (release model-net2-v6-swap), next to the fixed rule on each seed (u = 0.25) and BBRv3, on the five validation families and as 2 and 4 copies for 30 s, campaign seed 11 as at the gate, and scores each against the rule on each seed (experiments/net2_ppo_gate_report.py). It also bears on H5: a net1 can be replaced without retraining net2.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "c": "release:model-net2-v6-veto",
+    "w": "release:model-net2-v6-swap",
+    "v6": "release:exp-net1v6-149"
+  },
+  "prepare": "(cd \"$IN/c\" && sha256sum -c SHA256SUMS); (cd \"$IN/w\" && sha256sum -c SHA256SUMS); for n in 0 1 2; do uv run python experiments/rule_export.py \"$OUT/rule6-$n\" \"$IN/v6/net1-v6-s$n/net1.pt\" --u 0.25; done; P=(--policy \"rule-v6=$OUT/rule6-0/rule-u0.25.onnx\" --policy \"rule-v6n1=$OUT/rule6-1/rule-u0.25.onnx\" --policy \"rule-v6n2=$OUT/rule6-2/rule-u0.25.onnx\" --policy \"ppo-r18e05-s0=$IN/c/ppo-r18e05-s0.onnx\"); for f in \"$IN\"/w/ppo-*.onnx; do P+=(--policy \"$(basename \"$f\" .onnx)=$f\"); done; experiments/rule_eval.sh \"$OUT\" val 11 11 bbr3 \"${P[@]}\"; uv run python experiments/copies.py \"$OUT/copies\" --split val --duration-ms 30000 --seed 11 --n 2 4 --stock bbr3 \"${P[@]}\"; mv \"$OUT/copies/c-copies-30s\" \"$OUT/\"; jq -s add \"$OUT/aliases.json\" \"$OUT/copies/aliases.json\" > \"$OUT/a.json\"; mv \"$OUT/a.json\" \"$OUT/aliases.json\"",
+  "shards": 40,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps; done; uv run python experiments/slim_steps.py \"$OUT\"",
+  "collect": "uv run python experiments/rule_report.py \"$OUT\" --apart copies-30s && mv \"$OUT/summary.md\" \"$OUT/against-bbr3.md\" && for r in rule-v6 rule-v6n1 rule-v6n2; do uv run python experiments/net2_ppo_gate_report.py \"$OUT\" \"$r\" && mv \"$OUT/summary.md\" \"$OUT/against-$r.md\" && mv \"$OUT/gate.json\" \"$OUT/gate-$r.json\"; done && cat \"$OUT/against-rule-v6.md\" \"$OUT/against-rule-v6n1.md\" \"$OUT/against-rule-v6n2.md\" > \"$OUT/summary.md\"",
+  "timeout_minutes": 300
+}
