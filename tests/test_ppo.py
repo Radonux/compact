@@ -3,6 +3,7 @@ train/ppo.py)."""
 
 from __future__ import annotations
 
+import copy
 import itertools
 import json
 from pathlib import Path
@@ -17,7 +18,7 @@ torch = pytest.importorskip("torch")
 
 from expliccit_env.policy import OBS_DIM  # noqa: E402
 from expliccit_env.spec import AgentCC, EpisodeSpec, OnnxPolicy, TcpCross  # noqa: E402
-from expliccit_env.train import fit, ppo  # noqa: E402
+from expliccit_env.train import data, fit, ppo  # noqa: E402
 from expliccit_env.train.export import to_onnx  # noqa: E402
 from expliccit_env.train.recurrent import OBS_MIN_RTT, RecurrentActor, decision_steps  # noqa: E402
 
@@ -339,10 +340,9 @@ def test_the_oracle_reads_the_live_truth_as_its_trajectories_do() -> None:
     assert not ppo.policy_graph(net1, actor, net1_spec).uses_truth
 
 
-def test_the_black_box_learns_the_teachers_window_on_its_own_bdp() -> None:
-    steps, net1 = _bdp_net1()
-    obs = steps.obs[steps.episode == 0][:80]
-    n = obs.shape[0]
+def _flow_table(steps: data.Steps, net1: fit.Net1, n: int = 80) -> tuple[pa.Table, np.ndarray]:
+    """Episode 0's first n steps as a rollout's step table, window 20."""
+    obs = steps.obs[steps.episode == 0][:n]
     cols = {
         "step": pa.array(np.arange(n, dtype=np.int32)),
         "t_ns": pa.array((np.arange(n) * 10_000_000).astype(np.uint64)),
@@ -353,7 +353,13 @@ def test_the_black_box_learns_the_teachers_window_on_its_own_bdp() -> None:
             for k in net1.lcfs
         },
     }
-    table = pa.table(cols)
+    return pa.table(cols), obs
+
+
+def test_the_black_box_learns_the_teachers_window_on_its_own_bdp() -> None:
+    steps, net1 = _bdp_net1()
+    table, obs = _flow_table(steps, net1)
+    n = obs.shape[0]
     rivals = np.zeros((0, 3))
 
     def teacher(inputs: Literal["net1", "raw"]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -485,7 +491,7 @@ def test_dagger_learns_to_push_where_the_teacher_does() -> None:
         batch_trajectories=8,
         lr=3e-3,
     )
-    learner = ppo._DAggerLearner(5, 0, spec)  # pyright: ignore[reportPrivateUsage]
+    learner = ppo._DAggerLearner(5, 6, spec)  # pyright: ignore[reportPrivateUsage]
     first = learner.update([_dagger_traj(k, rng) for k in range(16)], rng)
     logs = first
     for _ in range(3):
@@ -504,7 +510,7 @@ def _dagger_traj(k: int, rng: np.random.Generator) -> ppo.Trajectory:
     share = np.full(n, 0.75, np.float32)
     teacher = np.where(tcp > 0, share, 0.25).astype(np.float32)
     z = np.zeros(n, np.float32)
-    return ppo.Trajectory((k, 0), inp, inp[:, :0], z, z, z, None, teacher, tcp, share)
+    return ppo.Trajectory((k, 0), inp, inp, z, z, z, None, teacher, tcp, share)
 
 
 def test_a_gate_student_starts_near_the_rule_and_learns_which_flows_share() -> None:
@@ -521,7 +527,7 @@ def test_a_gate_student_starts_near_the_rule_and_learns_which_flows_share() -> N
         batch_trajectories=8,
         lr=3e-3,
     )
-    learner = ppo._DAggerLearner(5, 0, spec)  # pyright: ignore[reportPrivateUsage]
+    learner = ppo._DAggerLearner(5, 6, spec)  # pyright: ignore[reportPrivateUsage]
     first = learner.update([_dagger_traj(k, rng) for k in range(16)], rng)
     assert abs(first["p_where_tcp_before"] - ppo.P0) < 1e-4
     assert abs(first["u_where_rule_before"] - (0.25 + ppo.P0 * 0.5)) < 1e-4
@@ -574,7 +580,7 @@ def test_a_gate3_student_learns_both_beliefs() -> None:
         batch_trajectories=8,
         lr=3e-3,
     )
-    learner = ppo._DAggerLearner(5, 0, spec)  # pyright: ignore[reportPrivateUsage]
+    learner = ppo._DAggerLearner(5, 6, spec)  # pyright: ignore[reportPrivateUsage]
 
     def traj(k: int) -> ppo.Trajectory:
         n = 40
@@ -585,9 +591,7 @@ def test_a_gate3_student_learns_both_beliefs() -> None:
         counts = np.stack([copies, tcp, 0 * tcp], axis=1) / 4
         teacher = ppo.teacher3_u(share, coop, counts, 0.25)
         z = np.zeros(n, np.float32)
-        return ppo.Trajectory(
-            (k, 0), inp, inp[:, :0], z, z, z, None, teacher, tcp, share, copies, coop
-        )
+        return ppo.Trajectory((k, 0), inp, inp, z, z, z, None, teacher, tcp, share, copies, coop)
 
     first = learner.update([traj(k) for k in range(16)], rng)
     assert abs(first["q_where_copies_before"] - ppo.P0) < 1e-4
@@ -599,9 +603,17 @@ def test_a_gate3_student_learns_both_beliefs() -> None:
     assert logs["teacher_gap_before"] < 0.15
 
 
-def test_a_gate_student_is_learned_by_dagger_only() -> None:
-    with pytest.raises(ValueError, match="gate"):
-        ppo.PPOSpec(paths_from=Path("x"), net1_from=Path("x"), student="gate")
+def test_a_gate_student_is_taught_by_dagger_and_continued_by_ppo_only() -> None:
+    ppo.PPOSpec(paths_from=Path("x"), net1_from=Path("x"), student="gate")
+    for algo, base in (("td3bc", "fixed"), ("ppo", "share")):
+        with pytest.raises(ValueError, match="continued"):
+            ppo.PPOSpec(
+                paths_from=Path("x"),
+                net1_from=Path("x"),
+                student="gate",
+                algo=algo,  # pyright: ignore[reportArgumentType]
+                base=base,  # pyright: ignore[reportArgumentType]
+            )
 
 
 def test_only_a_gate3_student_chooses_what_to_do_with_copies() -> None:
@@ -663,8 +675,28 @@ def test_ppo_loop_runs_an_iteration_with_copies(
     from expliccit_env.uml import UmlBuild  # noqa: PLC0415
 
     assert isinstance(build, UmlBuild)
+    spec = _tiny_loop(tmp_path).model_copy(
+        update={
+            "copies_reward": reward,
+            "critic_flows": flows,
+            "algo": algo,
+            "base": base,
+            "student": student,
+        }
+    )
+    report = ppo.run_ppo(spec, tmp_path / "out", build, workers=2)
+    initial, entry = report["iterations"]
+    assert entry["rollouts"]["ok"] == 2
+    # Each rollout's flows (the observed one and, with copies, a cross agent).
+    assert entry["learner"]["trajectories"] >= 2 and entry["learner"]["decisions"] > 100
+    assert entry["learner"]["kl_to_rule"] >= 0 and initial["eval"]["pairs"] == 0
+    assert (tmp_path / "out" / "policy.onnx").exists()
+
+
+def _tiny_loop(tmp_path: Path) -> ppo.PPOSpec:
+    """One iteration on one 24 Mbit/s link against a copy, net1 _bdp_net1."""
     _, net1 = _bdp_net1()
-    fit.save_net1(net1, fit.Net1Spec(width=64, bins=16, lcfs=net1.lcfs), tmp_path / "net1.pt")
+    fit.save_net1(net1, fit.Net1Spec(width=64, bins=16, lcfs=net1.lcfs), tmp_path / "net1.pt")  # pyright: ignore[reportArgumentType]
     path = {
         "trace": {"kind": "periodic_levels", "levels_mbps": [24], "level_ms": 1000},
         "delay": {"mahak_compat_mrtt_ms": 10},
@@ -677,7 +709,7 @@ def test_ppo_loop_runs_an_iteration_with_copies(
         "conditions": [{}],
     }
     (tmp_path / "paths.json").write_text(json.dumps(camp))
-    spec = ppo.PPOSpec(
+    return ppo.PPOSpec(
         paths_from=tmp_path / "paths.json",
         eval_from=tmp_path / "paths.json",
         net1_from=tmp_path / "net1.pt",
@@ -692,20 +724,30 @@ def test_ppo_loop_runs_an_iteration_with_copies(
         copies=(2,),
         epochs=1,
         critic_warmup=0,
-        copies_reward=reward,  # pyright: ignore[reportArgumentType]
-        critic_flows=flows,
-        algo=algo,  # pyright: ignore[reportArgumentType]
-        base=base,  # pyright: ignore[reportArgumentType]
-        student=student,  # pyright: ignore[reportArgumentType]
+        copies_reward="team",
         updates_per_iteration=5,
     )
-    report = ppo.run_ppo(spec, tmp_path / "out", build, workers=2)
-    initial, entry = report["iterations"]
-    assert entry["rollouts"]["ok"] == 2
-    # Each rollout's flows (the observed one and, with copies, a cross agent).
-    assert entry["learner"]["trajectories"] >= 2 and entry["learner"]["decisions"] > 100
-    assert entry["learner"]["kl_to_rule"] >= 0 and initial["eval"]["pairs"] == 0
-    assert (tmp_path / "out" / "policy.onnx").exists()
+
+
+@pytest.mark.uml
+def test_a_taught_gate3_student_hands_over_to_ppo(build: object, tmp_path: Path) -> None:
+    from expliccit_env.uml import UmlBuild  # noqa: PLC0415
+
+    assert isinstance(build, UmlBuild)
+    taught = _tiny_loop(tmp_path).model_copy(update={"algo": "dagger", "student": "gate3"})
+    first = ppo.run_ppo(taught, tmp_path / "taught", build, workers=2)
+    assert np.isfinite(first["iterations"][-1]["learner"]["explained_variance"])
+    rl = taught.model_copy(update={"algo": "ppo", "init_from": tmp_path / "taught", "anchor": 1.0})
+    report = ppo.run_ppo(rl, tmp_path / "rl", build, workers=2)
+    assert report["started_from"] == {
+        "actor": str(tmp_path / "taught" / "actor.pt"),
+        "critic": str(tmp_path / "taught" / "critic.pt"),
+    }
+    _, entry = report["iterations"]
+    assert entry["rollouts"]["ok"] == 2 and entry["learner"]["kl_to_start"] >= 0
+    # Its first policy is the taught one, graph for graph.
+    start = (tmp_path / "rl" / "initial" / "policy.onnx").read_bytes()
+    assert start == (tmp_path / "taught" / "policy.onnx").read_bytes()
 
 
 def test_broad_competition_starts_stock_flows_late_and_adds_a_second() -> None:
@@ -851,3 +893,227 @@ def test_exploration_noise_is_held_and_a_critic_needs_ppo(tmp_path: Path) -> Non
         ppo.PPOSpec(
             paths_from=Path("x"), net1_from=Path("x"), algo="td3bc", init_critic=Path("c.pt")
         )
+
+
+# The handoff from a taught stage to an RL one (init_from, anchor,
+# teacher_from).
+
+
+def _save_run(
+    d: Path,
+    spec: ppo.PPOSpec,
+    net1: fit.Net1,
+    actor: torch.nn.Module,
+    critic: torch.nn.Module | None = None,
+) -> Path:
+    """What run_ppo leaves in its output directory, for init_from."""
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "ppo_spec.json").write_text(spec.model_dump_json())
+    fit.save_net1(net1, fit.Net1Spec(width=64, bins=16, lcfs=net1.lcfs), d / "net1.pt")  # pyright: ignore[reportArgumentType]
+    torch.save(actor.state_dict(), d / "actor.pt")
+    torch.save({} if critic is None else critic.state_dict(), d / "critic.pt")
+    return d
+
+
+def _gate3_traj(k: int, rng: np.random.Generator, width: int = 6) -> ppo.Trajectory:
+    """Rules' u fixed (share 0.75, cooperative window -0.25); reward the
+    realized u, so PPO pushes the mean up."""
+    n = 40
+    inp = rng.standard_normal((n, width)).astype(np.float32)
+    u = (0.4 + 0.2 * rng.standard_normal(n)).astype(np.float32)
+    share, coop = np.full(n, 0.75, np.float32), np.full(n, -0.25, np.float32)
+    return ppo.Trajectory(
+        (k, 0), inp, inp, u, u, np.full(n, 0.5, np.float32), share=share, coop=coop
+    )
+
+
+def test_a_taught_gate3_student_continues_under_ppo_as_it_was_taught(tmp_path: Path) -> None:
+    torch.manual_seed(0)
+    rng = np.random.default_rng(0)
+    _, net1 = _bdp_net1()
+    common = {
+        "paths_from": Path("x"),
+        "net1_from": Path("x"),
+        "u_rule": 0.25,
+        "input_bins": 4,
+        "hidden": 8,
+        "critic_hidden": 16,
+        "student": "gate3",
+        "gate_threshold": 0.3,
+        "noise_sigma": 0.2,
+    }
+    taught_spec = ppo.PPOSpec.model_validate(common | {"algo": "dagger"})
+    w = ppo._width(net1, taught_spec)  # pyright: ignore[reportPrivateUsage]
+    taught = ppo._DAggerLearner(w, w + 1, taught_spec)  # pyright: ignore[reportPrivateUsage]
+    with torch.no_grad():  # beliefs p = 0.7, q = 0.6
+        taught.actor.head.bias.copy_(torch.tensor([np.arctanh(0.4), np.arctanh(0.2)]))
+    run = _save_run(tmp_path / "taught", taught_spec, net1, taught.actor, taught.critic)
+    spec = ppo.PPOSpec.model_validate(common | {"algo": "ppo", "init_from": run, "lr": 3e-3})
+    learner = ppo._make_learner(spec, w, w + 1, ppo.earlier_run(run, net1))  # pyright: ignore[reportPrivateUsage]
+    assert isinstance(learner, ppo._Learner)  # pyright: ignore[reportPrivateUsage]
+    trs = [_gate3_traj(k, rng, w + 1) for k in range(16)]
+    x, _ = ppo._pad([tr.inp for tr in trs])  # pyright: ignore[reportPrivateUsage]
+    with torch.no_grad():
+        was = taught._u(trs, taught.actor.pre(x))  # pyright: ignore[reportPrivateUsage]
+    # The deployed mix, as the exported graph's: p and q past the 0.3 threshold.
+    p, q = (0.7 - 0.3) / 0.7, (0.6 - 0.3) / 0.7
+    want = 0.25 + p * 0.5 + (1 - p) * q * -0.5
+    mu = np.concatenate(learner.means(trs))
+    assert np.allclose(mu, want, atol=1e-5)
+    assert np.allclose(
+        mu,
+        np.concatenate([w[: tr.u.size] for w, tr in zip(was.numpy(), trs, strict=True)]),
+        atol=1e-6,
+    )
+    # The policy it exports is the taught one, graph for graph.
+    assert to_onnx(ppo.policy_graph(net1, learner.actor, spec)) == to_onnx(
+        ppo.policy_graph(net1, taught.actor, taught_spec)
+    )
+    logs = {}
+    for _ in range(3):
+        logs = learner.update(trs, rng)
+    assert logs["u_mean"] > want + 0.01 and logs["kl_to_start"] > 0
+
+
+def test_dagger_learns_the_students_value_for_ppo_to_continue_from(tmp_path: Path) -> None:
+    torch.manual_seed(0)
+    rng = np.random.default_rng(0)
+    _, net1 = _bdp_net1()
+    common = {
+        "paths_from": Path("x"),
+        "net1_from": Path("x"),
+        "u_rule": 0.25,
+        "hidden": 8,
+        "critic_hidden": 32,
+        "critic_lr": 3e-3,
+        "updates_per_iteration": 20,
+        "batch_trajectories": 8,
+        "epochs": 8,
+    }
+    spec = ppo.PPOSpec.model_validate(common | {"algo": "dagger"})
+    learner = ppo._DAggerLearner(5, 6, spec)  # pyright: ignore[reportPrivateUsage]
+
+    def traj(k: int) -> ppo.Trajectory:
+        # The reward follows critic input 0, so a value network can learn it.
+        tr = _dagger_traj(k, rng)
+        reward = (0.5 + 0.5 * np.tanh(tr.critic[:, 0])).astype(np.float32)
+        return ppo.Trajectory(
+            tr.group,
+            tr.inp,
+            tr.critic,
+            tr.u,
+            reward,
+            np.full(reward.size, 0.5, np.float32),
+            None,
+            tr.teacher,
+            tr.tcp,
+            tr.share,
+        )
+
+    first = learner.update([traj(k) for k in range(16)], rng)
+    logs = first
+    for _ in range(6):
+        logs = learner.update([traj(k) for k in range(16)], rng)
+    assert logs["explained_variance"] > 0.5 > first["explained_variance"]
+    run = _save_run(tmp_path / "taught", spec, net1, learner.actor, learner.critic)
+    rl = ppo.PPOSpec.model_validate(common | {"algo": "ppo", "init_from": run})
+    cont = ppo._make_learner(rl, 5, 6, ppo.earlier_run(run, net1))  # pyright: ignore[reportPrivateUsage]
+    c = torch.randn(3, 6)
+    assert torch.equal(cont.critic(c), learner.critic(c))
+    x = torch.randn(2, 7, 6)
+    assert torch.equal(cont.actor.sequence(x), learner.actor.sequence(x))
+    # A value network reading other inputs is left behind: PPO's starts blank.
+    other = rl.model_copy(update={"critic_flows": True})
+    blank = ppo._make_learner(other, 5, 6, ppo.earlier_run(run, net1))  # pyright: ignore[reportPrivateUsage]
+    assert not torch.equal(blank.critic(c), learner.critic(c))
+
+
+def test_init_from_refuses_another_net1_or_another_actor(tmp_path: Path) -> None:
+    _, net1 = _bdp_net1()
+    spec = ppo.PPOSpec(paths_from=Path("x"), net1_from=Path("x"), hidden=8, algo="dagger")
+    run = _save_run(tmp_path / "taught", spec, net1, RecurrentActor(5, 8))
+    other = fit.Net1(net1.scaler, copy.deepcopy(net1.net), net1.lcf_scaler, net1.lcfs)
+    with torch.no_grad():
+        next(other.net.parameters()).add_(1.0)
+    with pytest.raises(ValueError, match="another net1"):
+        ppo.earlier_run(run, other)
+    wider = spec.model_copy(update={"algo": "ppo", "hidden": 16, "init_from": run})
+    with pytest.raises(ValueError, match="differs in hidden"):
+        ppo._make_learner(wider, 5, 6, ppo.earlier_run(run, net1))  # pyright: ignore[reportPrivateUsage]
+    with pytest.raises(ValueError, match="init_from replaces"):
+        ppo.PPOSpec(paths_from=Path("x"), net1_from=Path("x"), init_from=run, init_actor=run)
+    with pytest.raises(ValueError, match="anchor"):
+        ppo.PPOSpec(paths_from=Path("x"), net1_from=Path("x"), algo="dagger", anchor=1.0)
+
+
+def test_the_anchor_keeps_ppo_nearer_the_policy_it_started_from() -> None:
+    def moved(anchor: float) -> float:
+        torch.manual_seed(0)
+        rng = np.random.default_rng(0)
+        spec = ppo.PPOSpec(
+            paths_from=Path("x"),
+            net1_from=Path("x"),
+            u_rule=0.25,
+            hidden=8,
+            critic_hidden=16,
+            noise_sigma=0.2,
+            lr=3e-3,
+            anchor=anchor,
+        )
+        learner = ppo._make_learner(spec, 5, 6)  # pyright: ignore[reportPrivateUsage]
+        trs = [_gate3_traj(k, rng) for k in range(16)]  # reward = realized u
+        logs = {}
+        for _ in range(4):
+            logs = learner.update(trs, rng)
+        return logs["kl_to_start"]
+
+    free, held = moved(0.0), moved(20.0)
+    assert free > 0 and held < 0.5 * free
+
+
+def test_a_policy_teacher_labels_the_window_it_would_set_on_the_students_bdp(
+    tmp_path: Path,
+) -> None:
+    steps, net1 = _bdp_net1()
+    common = {"paths_from": Path("x"), "net1_from": Path("x"), "input_bins": 4, "hidden": 8}
+    oracle = ppo.PPOSpec.model_validate(common | {"inputs": "truth"})
+    actor = RecurrentActor(ppo._width(net1, oracle), 8)  # pyright: ignore[reportPrivateUsage]
+    actor.clone_rule(0.5, oracle.action_max)
+    d = _save_run(tmp_path / "oracle", oracle, net1, actor)
+    teacher = ppo._PolicyTeacher.load(d, net1)  # pyright: ignore[reportPrivateUsage]
+    table, obs = _flow_table(steps, net1)
+    labels = {"net1": 0.0, "raw": 0.0}
+    for inputs in labels:
+        spec = ppo.PPOSpec.model_validate(
+            common | {"algo": "dagger", "inputs": inputs, "teacher_from": d}
+        )
+        encode, view, target = ppo._views(net1, spec)  # pyright: ignore[reportPrivateUsage]
+        tr = ppo._trajectory(  # pyright: ignore[reportPrivateUsage]
+            table,
+            np.zeros(obs.shape[0], np.float32),
+            net1,
+            encode=encode,
+            view=view,
+            target=target,
+            spec=spec,
+            group=(0, 0),
+            rivals=np.zeros((0, 3)),
+            teacher=teacher,
+        )
+        assert tr is not None and tr.teacher is not None
+        dec = decision_steps(obs[:, OBS_MIN_RTT])
+        dec = dec[dec + 1 < obs.shape[0]]
+        y = np.stack(
+            [steps.labels[k][steps.episode == 0][dec] * ppo.LCF_UNITS[k][0] for k in net1.lcfs],
+            axis=1,
+        ).astype(np.float32)
+        z = torch.from_numpy(net1.beliefs(obs[dec]))
+        true_bdp = fit.window_target(net1)(fit._oracle(net1, z, y)).numpy()  # pyright: ignore[reportPrivateUsage]
+        own = target(encode(obs[dec], y)).numpy()  # the student's believed or measured BDP
+        assert np.allclose(tr.teacher, 0.5 + true_bdp - own, atol=1e-4)
+        assert np.abs(true_bdp - own).max() > 0.05  # the frames differ
+    with pytest.raises(ValueError, match="teacher_from"):
+        ppo.PPOSpec.model_validate(common | {"algo": "ppo", "teacher_from": d})
+    plain = ppo.PPOSpec.model_validate(common)
+    with pytest.raises(ValueError, match="reads the truth"):
+        ppo._PolicyTeacher.load(_save_run(tmp_path / "plain", plain, net1, actor), net1)  # pyright: ignore[reportPrivateUsage]

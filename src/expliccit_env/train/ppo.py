@@ -244,6 +244,31 @@ class PPOSpec(BaseModel):
     # Start PPO's value network from an earlier run's critic.pt, to continue
     # training across runs.
     init_critic: Path | None = None
+    # Continue an earlier run (its output directory), the handoff from a
+    # taught stage to an RL one: the actor from its actor.pt and, for
+    # "ppo", the value network from its critic.pt where it has one (a
+    # "dagger" run trains one on its rollouts, so PPO does not start from a
+    # blank critic). The run must have used the same net1, and the same
+    # view, input_bins, hidden, memory, student, base, inputs and
+    # action_max, so the actor computes the same function here; the value
+    # network also needs the same critic_truth, critic_flows and
+    # critic_hidden. In place of init_actor and init_critic.
+    init_from: Path | None = None
+    # "ppo" only: the weight of a penalty on the policy's distance from the
+    # one it started from, the KL divergence between their Gaussians
+    # (mu - mu_start)^2 / (2 sigma^2) per decision. A taught start is worth
+    # keeping until the value network can say what improves on it: on the
+    # true LCFs, PPO lost its start's lead of 0.04 within 80 iterations
+    # (round 19). 0 leaves PPO's objective unchanged.
+    anchor: Annotated[float, Field(ge=0)] = 0.0
+    # "dagger" only: a run directory whose actor reads the true LCFs
+    # (inputs "truth", student "u", base "fixed", the same net1), the
+    # teacher in place of the rules. At each decision of a rollout it reads
+    # the truth's bins and the window the student actually set, and the
+    # student learns the window it would set, as u on the student's own
+    # believed (or, for "raw", measured) BDP: the student learns to act as
+    # if it knew the path, from what net1 says about it.
+    teacher_from: Path | None = None
     # What the actor's output is added to. "fixed": nothing; the actor starts
     # as the fixed rule, u_rule everywhere. "share": the share rule on net1's
     # mean beliefs, u = u_rule + share_k * busy * max(0, 1 - share)
@@ -276,8 +301,17 @@ class PPOSpec(BaseModel):
     def _dagger_from_the_rule(self) -> PPOSpec:
         if self.algo == "dagger" and self.base != "fixed":
             raise ValueError('algo "dagger" learns the whole u: base must be "fixed"')
-        if self.student != "u" and self.algo != "dagger":
-            raise ValueError(f'student "{self.student}" is learned by algo "dagger" only')
+        if self.student != "u" and (self.algo == "td3bc" or self.base != "fixed"):
+            raise ValueError(
+                f'student "{self.student}" is taught by algo "dagger" and continued by "ppo",'
+                ' on base "fixed"'
+            )
+        if self.init_from is not None and (self.init_actor or self.init_critic):
+            raise ValueError("init_from replaces init_actor and init_critic: set one or the other")
+        if self.anchor > 0 and self.algo != "ppo":
+            raise ValueError('anchor is a penalty in algo "ppo" only')
+        if self.teacher_from is not None and (self.algo != "dagger" or self.student != "u"):
+            raise ValueError('teacher_from teaches u to a student "u" of algo "dagger" only')
         if self.gate_threshold_q is not None and self.student != "gate3":
             raise ValueError('gate_threshold_q is the threshold of student "gate3" only')
         if self.gate3_copies != "coop" and self.student != "gate3":
@@ -314,9 +348,9 @@ class Trajectory:
     base: F32 | None = None  # [T] the rule's u the actor's output adds to (base "share")
     teacher: F32 | None = None  # [T] the privileged teacher's u (algo "dagger")
     tcp: F32 | None = None  # [T] 1 while a stock TCP flow is active (algo "dagger")
-    share: F32 | None = None  # [T] the share rule's u (algo "dagger")
+    share: F32 | None = None  # [T] the share rule's u (algo "dagger", gate students)
     copies: F32 | None = None  # [T] 1 while a copy of the policy is active (algo "dagger")
-    coop: F32 | None = None  # [T] the cooperative window's u (algo "dagger")
+    coop: F32 | None = None  # [T] the cooperative window's u (algo "dagger", gate students)
 
 
 def _agent(policy: Path, sigma: float, noise_seed: int | None, hold: int = 1) -> AgentCC:
@@ -561,6 +595,33 @@ class _CoopOffset(nn.Module):
 P0: Final = 0.02  # a gate student's beliefs at the start
 
 
+def policy_u(
+    spec: PPOSpec,
+    a: torch.Tensor,
+    share: torch.Tensor | None = None,
+    coop: torch.Tensor | None = None,
+    base: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """The policy's mean u from its actor's output a in [-1, 1]: the one
+    head every learner trains and the exported graph runs, so a policy
+    taught by one learner continues under another unchanged. Student "u":
+    a times action_max, plus the base rule's u where one is given. "gate"
+    and "gate3": beliefs (a + 1) / 2 past their thresholds (a [..., 2] for
+    "gate3"), mixing the share rule's u and the cooperative window's."""
+    if spec.student == "u":
+        u = a * spec.action_max
+        return u if base is None else u + base
+    if share is None or (spec.student == "gate3" and coop is None):
+        raise ValueError(f'student "{spec.student}" needs the rules\' u at each decision')
+    t = spec.gate_threshold
+    if spec.student == "gate":
+        return gated_u(_sharpen((a + 1) / 2, t), share, spec.u_rule)
+    assert coop is not None
+    tq = t if spec.gate_threshold_q is None else spec.gate_threshold_q
+    p, q = _sharpen((a[..., 0] + 1) / 2, t), _sharpen((a[..., 1] + 1) / 2, tq)
+    return gated3_u(p, q, share, coop, spec.u_rule, copies=spec.gate3_copies)
+
+
 def gated_u(p: torch.Tensor, share: torch.Tensor, u_rule: float) -> torch.Tensor:
     """A "gate" student's u: the fixed rule's, moved toward the share
     rule's by the believed probability p of a stock TCP flow."""
@@ -574,13 +635,10 @@ class _ShareGate(nn.Module):
     def __init__(self, net1: fit.Net1, spec: PPOSpec) -> None:
         super().__init__()
         self.share = _ShareOffset(net1, spec)
-        self.u_rule, self.t = spec.u_rule, spec.gate_threshold
+        self.spec = spec
 
     def forward(self, z: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
-        p = (a + 1) / 2
-        if self.t > 0:
-            p = torch.clamp((p - self.t) / (1 - self.t), 0.0, 1.0)
-        return gated_u(p, self.share(z), self.u_rule)
+        return policy_u(self.spec, a, self.share(z))
 
 
 def gated3_u(
@@ -611,13 +669,10 @@ class _ShareGate3(nn.Module):
     def __init__(self, net1: fit.Net1, spec: PPOSpec) -> None:
         super().__init__()
         self.share, self.coop = _ShareOffset(net1, spec), _CoopOffset(net1, spec)
-        self.u_rule, self.t = spec.u_rule, spec.gate_threshold
-        self.tq = spec.gate_threshold if spec.gate_threshold_q is None else spec.gate_threshold_q
-        self.copies: Literal["coop", "rule"] = spec.gate3_copies
+        self.spec = spec
 
     def forward(self, z: torch.Tensor, a: torch.Tensor) -> torch.Tensor:
-        p, q = _sharpen((a[:, 0] + 1) / 2, self.t), _sharpen((a[:, 1] + 1) / 2, self.tq)
-        return gated3_u(p, q, self.share(z), self.coop(z), self.u_rule, copies=self.copies)
+        return policy_u(self.spec, a, self.share(z), self.coop(z))
 
 
 def _gate(net1: fit.Net1, spec: PPOSpec) -> nn.Module | None:
@@ -641,17 +696,21 @@ def teacher_u(share_u: F32, counts: F32, u_rule: float) -> F32:
     return np.where(counts[:, 1] > 0, share_u, np.float32(u_rule)).astype(np.float32)
 
 
-def _with_base(mu: torch.Tensor, trs: list[Trajectory]) -> torch.Tensor:
-    """The actor's padded output plus each trajectory's base u (if any)."""
+def _mean_u(spec: PPOSpec, trs: list[Trajectory], a: torch.Tensor) -> torch.Tensor:
+    """policy_u at each padded decision of ``trs``, from the actor's padded
+    output a in [-1, 1] and each trajectory's rules' u."""
+
+    def padded(xs: list[F32]) -> torch.Tensor:
+        return _pad([x[:, None] for x in xs])[0].squeeze(-1)
+
+    if spec.student != "u":
+        share = padded([_field(tr.share) for tr in trs])
+        coop = padded([_field(tr.coop) for tr in trs]) if spec.student == "gate3" else None
+        return policy_u(spec, a, share, coop)
     if all(tr.base is None for tr in trs):
-        return mu
-    b, _ = _pad(
-        [
-            (tr.base if tr.base is not None else np.zeros(tr.u.size, np.float32))[:, None]
-            for tr in trs
-        ]
-    )
-    return mu + b.squeeze(-1)
+        return policy_u(spec, a)
+    base = [tr.base if tr.base is not None else np.zeros(tr.u.size, np.float32) for tr in trs]
+    return policy_u(spec, a, base=padded(base))
 
 
 # BBR's bottleneck bandwidth: the kernel's per-ACK delivery rate
@@ -726,6 +785,79 @@ def _width(net1: fit.Net1, spec: PPOSpec) -> int:
     )
 
 
+# What an actor's function depends on besides its weights, and what a value
+# network's inputs do: a run continued from another (init_from) must match.
+_ACTOR_FIELDS: Final = (
+    "view",
+    "input_bins",
+    "hidden",
+    "memory",
+    "student",
+    "base",
+    "inputs",
+    "action_max",
+)
+_CRITIC_FIELDS: Final = ("critic_truth", "critic_flows", "critic_hidden")
+
+
+def _same_net1(a: fit.Net1, b: fit.Net1) -> bool:
+    def parts(n: fit.Net1) -> list[dict[str, torch.Tensor]]:
+        return [n.scaler.state_dict(), n.lcf_scaler.state_dict(), n.net.state_dict()]
+
+    return a.lcfs == b.lcfs and all(
+        x.keys() == y.keys() and all(torch.equal(x[k], y[k]) for k in x)
+        for x, y in zip(parts(a), parts(b), strict=True)
+    )
+
+
+def earlier_run(run: Path, net1: fit.Net1) -> PPOSpec:
+    """The spec of an earlier run (its output directory), which must have
+    used this net1."""
+    spec = PPOSpec.parse((run / "ppo_spec.json").read_text())
+    if not _same_net1(fit.load_net1(run / "net1.pt")[0], net1):
+        raise ValueError(f"{run} used another net1 than {spec.net1_from}'s")
+    return spec
+
+
+def _mismatch(a: PPOSpec, b: PPOSpec, fields: tuple[str, ...]) -> list[str]:
+    return [f for f in fields if getattr(a, f) != getattr(b, f)]
+
+
+@dataclass(frozen=True, slots=True)
+class _PolicyTeacher:
+    """A recurrent actor on the true LCFs (PPOSpec.teacher_from) as
+    DAgger's teacher."""
+
+    actor: RecurrentActor
+    view: nn.Module | None
+    action_max: float
+
+    @staticmethod
+    def load(run: Path, net1: fit.Net1) -> _PolicyTeacher:
+        t = earlier_run(run, net1)
+        if t.inputs != "truth" or t.student != "u" or t.base != "fixed":
+            raise ValueError(f'{run}: a teacher reads the truth (inputs "truth"), student "u"')
+        actor = RecurrentActor(_width(net1, t), t.hidden, memory=t.memory)
+        actor.load_state_dict(torch.load(run / "actor.pt", weights_only=True))
+        view = fit._view(net1, t.view, t.input_bins if t.view == "bins" else None)  # pyright: ignore[reportPrivateUsage]
+        return _PolicyTeacher(actor.eval(), view, t.action_max)
+
+    @torch.no_grad()
+    def window(self, net1: fit.Net1, z: torch.Tensor, y: F32, set_window: F32) -> F32:
+        """[T] log2 of the window the teacher would set at each decision of
+        one flow, given net1's output z, the true LCFs y (report units) and
+        the window the flow set after each decision (log2 packets): it reads
+        the truth's bins and, as its previous u, the flow's last window on
+        the true BDP."""
+        zt = fit._oracle(net1, z, y)  # pyright: ignore[reportPrivateUsage]
+        x = zt if self.view is None else self.view(zt)
+        lb = fit.window_target(net1)(zt).numpy()
+        prev = np.concatenate([[0.0], (set_window - lb)[:-1]]).astype(np.float32)
+        inp = torch.cat([x, torch.from_numpy(prev / self.action_max).unsqueeze(1)], dim=1)
+        u = self.actor.sequence(inp.unsqueeze(0))[0].numpy() * self.action_max
+        return (lb + u).astype(np.float32)
+
+
 def _read(path: Path, eids: set[str], lcfs: tuple[str, ...]) -> pa.Table | None:
     if not path.exists():
         return None
@@ -772,10 +904,12 @@ def _trajectory(
     spec: PPOSpec,
     group: tuple[int, int],
     rivals: npt.NDArray[np.float64],
+    teacher: _PolicyTeacher | None = None,
 ) -> Trajectory | None:
     """One flow's decisions; ``t`` is its steps in step order, ``utility``
-    the reward of each of those steps and ``rivals`` its episode's cross
-    flows (_rivals)."""
+    the reward of each of those steps, ``rivals`` its episode's cross
+    flows (_rivals) and ``teacher`` DAgger's teacher where it is a policy
+    on the truth (PPOSpec.teacher_from)."""
     n = t.num_rows
     flat = cast("pa.FixedSizeListArray[Any, Any]", t["obs"].combine_chunks()).flatten()
     obs = np.asarray(flat, np.float32).reshape(n, OBS_DIM)
@@ -811,23 +945,29 @@ def _trajectory(
     if spec.critic_flows:
         parts.append(counts)
     critic = np.concatenate(parts, axis=1).astype(np.float32)
-    if spec.algo != "dagger":
+    if spec.algo != "dagger" and spec.student == "u":
         return Trajectory(group, inp, critic, u, reward, gamma, base)
-    # The teacher reads net1's beliefs, also for the black box ("raw"),
-    # whose u is then the teacher's window on its own measured BDP.
+    # The rules read net1's beliefs, also for the black box ("raw"), whose
+    # u is then the rule's window on its own measured BDP.
     z1 = z if spec.inputs == "net1" else torch.from_numpy(net1.beliefs(obs[d]))
     share_u = _ShareOffset(net1, spec).eval()(z1).numpy().astype(np.float32)
     coop_u = _CoopOffset(net1, spec).eval()(z1).numpy().astype(np.float32)
+    if spec.algo != "dagger":  # a gate student continued by PPO
+        return Trajectory(group, inp, critic, u, reward, gamma, share=share_u, coop=coop_u)
     tcp = (counts[:, 1] > 0).astype(np.float32)
     copies = (counts[:, 0] > 0).astype(np.float32)
-    if spec.student == "gate3" and spec.gate3_copies == "coop":
-        teacher = teacher3_u(share_u, coop_u, counts, spec.u_rule)
+    if teacher is not None:  # the window it would set, on the student's BDP
+        label = (teacher.window(net1, z1, y, u + lb) - lb).astype(np.float32)
     else:
-        teacher = teacher_u(share_u, counts, spec.u_rule)
-    if spec.inputs == "raw":
-        teacher = (teacher + fit.window_target(net1)(z1).numpy() - lb).astype(np.float32)
+        label = (
+            teacher3_u(share_u, coop_u, counts, spec.u_rule)
+            if spec.student == "gate3" and spec.gate3_copies == "coop"
+            else teacher_u(share_u, counts, spec.u_rule)
+        )
+        if spec.inputs == "raw":
+            label = (label + fit.window_target(net1)(z1).numpy() - lb).astype(np.float32)
     return Trajectory(
-        group, inp, critic, u, reward, gamma, base, teacher, tcp, share_u, copies, coop_u
+        group, inp, critic, u, reward, gamma, base, label, tcp, share_u, copies, coop_u
     )
 
 
@@ -846,6 +986,8 @@ def _trajectories(
     net1: fit.Net1,
     spec: PPOSpec,
     rivals: dict[str, npt.NDArray[np.float64]],
+    *,
+    teacher: _PolicyTeacher | None = None,
 ) -> list[Trajectory]:
     """Every agent flow of every ok rollout episode."""
     encode, view, target = _views(net1, spec)
@@ -886,6 +1028,7 @@ def _trajectories(
                 spec=spec,
                 group=(groups[e], f),
                 rivals=rivals[e],
+                teacher=teacher,
             )
             if tr is not None:
                 out.append(tr)
@@ -948,20 +1091,61 @@ def _pad(xs: list[F32]) -> tuple[torch.Tensor, torch.Tensor]:
     return torch.from_numpy(out), torch.from_numpy(mask)
 
 
+def _new_actor(width: int, spec: PPOSpec) -> RecurrentActor:
+    """The spec's actor as it starts: the fixed rule (or, on base "share",
+    the share rule), or a gate student believing P0 everywhere."""
+    actor = RecurrentActor(
+        width, spec.hidden, memory=spec.memory, outputs=2 if spec.student == "gate3" else 1
+    )
+    if spec.student != "u":  # p = (tanh(head) + 1) / 2 = P0 everywhere
+        actor.clone_rule(2 * P0 - 1, 1.0)
+    else:
+        actor.clone_rule(spec.u_rule if spec.base == "fixed" else 0.0, spec.action_max)
+    return actor
+
+
+def _value_step(
+    critic: _Critic,
+    opt: torch.optim.Optimizer,
+    batch: list[Trajectory],
+    returns: list[F32],
+    max_grad_norm: float,
+) -> float:
+    """One gradient step of the value network toward the returns."""
+    c, cmask = _pad([tr.critic for tr in batch])
+    g, _ = _pad([r[:, None] for r in returns])
+    vl = (((critic(c) - g.squeeze(-1)) ** 2) * cmask).sum() / cmask.sum()
+    opt.zero_grad()
+    vl.backward()
+    nn.utils.clip_grad_norm_(critic.parameters(), max_grad_norm)
+    opt.step()
+    return vl.item()
+
+
+def _explained(returns: list[F32], values: list[F32]) -> float:
+    allret, allv = np.concatenate(returns), np.concatenate(values)
+    return 1.0 - float(np.var(allret - allv)) / max(float(np.var(allret)), 1e-12)
+
+
 class _Learner:
     def __init__(self, width: int, critic_width: int, spec: PPOSpec) -> None:
         self.spec = spec
-        self.actor = RecurrentActor(width, spec.hidden, memory=spec.memory)
-        self.actor.clone_rule(spec.u_rule if spec.base == "fixed" else 0.0, spec.action_max)
+        self.actor = _new_actor(width, spec)
         self.critic = _Critic(critic_width, spec.critic_hidden)
         self.opt_a = torch.optim.Adam(self.actor.parameters(), lr=spec.lr)
         self.opt_c = torch.optim.Adam(self.critic.parameters(), lr=spec.critic_lr)
+        # The policy it started from, frozen (_make_learner sets it after
+        # loading any saved actor): the anchor's reference and kl_to_start's.
+        self.start = copy.deepcopy(self.actor).requires_grad_(False)
 
-    def means(self, trs: list[Trajectory]) -> list[F32]:
+    def _means(self, actor: RecurrentActor, trs: list[Trajectory]) -> list[F32]:
         with torch.no_grad():
             x, mask = _pad([tr.inp for tr in trs])
-            mu = _with_base(self.actor.sequence(x) * self.spec.action_max, trs).numpy()
+            mu = _mean_u(self.spec, trs, actor.sequence(x)).numpy()
         return [mu[i, : int(mask[i].sum())] for i in range(len(trs))]
+
+    def means(self, trs: list[Trajectory]) -> list[F32]:
+        return self._means(self.actor, trs)
 
     def values(self, trs: list[Trajectory]) -> list[F32]:
         with torch.no_grad():
@@ -977,8 +1161,7 @@ class _Learner:
         flat = np.concatenate(adv)
         scale = float(flat.std()) + 1e-8
         adv = [((a - flat.mean()) / scale).astype(np.float32) for a in adv]
-        allret, allv = np.concatenate(ret), np.concatenate(v_old)
-        explained = 1.0 - float(np.var(allret - allv)) / max(float(np.var(allret)), 1e-12)
+        explained = _explained(ret, v_old)
         logs: dict[str, list[float]] = {}
         var = 2 * s.noise_sigma**2
         for _ in range(s.epochs):
@@ -990,33 +1173,37 @@ class _Learner:
                 a, _ = _pad([adv[i][:, None] for i in idx])
                 m0, _ = _pad([mu_old[i][:, None] for i in idx])
                 u, a, m0 = u.squeeze(-1), a.squeeze(-1), m0.squeeze(-1)
-                mu = _with_base(self.actor.sequence(x) * s.action_max, [trs[i] for i in idx])
+                batch = [trs[i] for i in idx]
+                mu = _mean_u(s, batch, self.actor.sequence(x))
                 ratio = torch.exp(((u - m0) ** 2 - (u - mu) ** 2) / var)
                 surr = torch.min(ratio * a, torch.clamp(ratio, 1 - s.clip, 1 + s.clip) * a)
                 loss = -(surr * mask).sum() / mask.sum()
+                if s.anchor > 0:
+                    with torch.no_grad():
+                        m_start = _mean_u(s, batch, self.start.sequence(x))
+                    kl = (((mu - m_start) ** 2 / var) * mask).sum() / mask.sum()
+                    loss = loss + s.anchor * kl
                 if actor:
                     self.opt_a.zero_grad()
                     loss.backward()
                     nn.utils.clip_grad_norm_(self.actor.parameters(), s.max_grad_norm)
                     self.opt_a.step()
-                c, cmask = _pad([trs[i].critic for i in idx])
-                g, _ = _pad([ret[i][:, None] for i in idx])
-                vl = (((self.critic(c) - g.squeeze(-1)) ** 2) * cmask).sum() / cmask.sum()
-                self.opt_c.zero_grad()
-                vl.backward()
-                nn.utils.clip_grad_norm_(self.critic.parameters(), s.max_grad_norm)
-                self.opt_c.step()
+                vl = _value_step(
+                    self.critic, self.opt_c, batch, [ret[i] for i in idx], s.max_grad_norm
+                )
                 with torch.no_grad():
                     w = mask.bool()
                     logs.setdefault("policy_loss", []).append(float(loss))
-                    logs.setdefault("value_loss", []).append(float(vl))
+                    logs.setdefault("value_loss", []).append(vl)
                     logs.setdefault("clip_fraction", []).append(
                         float(((ratio - 1).abs() > s.clip)[w].float().mean())
                     )
                     logs.setdefault("approx_kl", []).append(float(((mu - m0) ** 2 / var)[w].mean()))
         mu_all = np.concatenate(self.means(trs))
+        mu_start = np.concatenate(self._means(self.start, trs))
         return {k: float(np.mean(v)) for k, v in logs.items()} | {
             "explained_variance": explained,
+            "kl_to_start": float(np.mean((mu_all - mu_start) ** 2) / var),
             "u_mean": float(mu_all.mean()),
             "u_std": float(mu_all.std()),
             "u_saturated": float((np.abs(mu_all) >= 0.99 * s.action_max).mean()),
@@ -1035,8 +1222,7 @@ class _TD3Learner:
 
     def __init__(self, width: int, critic_width: int, spec: PPOSpec) -> None:
         self.spec = spec
-        self.actor = RecurrentActor(width, spec.hidden, memory=spec.memory)
-        self.actor.clone_rule(spec.u_rule if spec.base == "fixed" else 0.0, spec.action_max)
+        self.actor = _new_actor(width, spec)
         self.actor_target = copy.deepcopy(self.actor)
         self.q = nn.ModuleList(_Critic(critic_width + 1, spec.critic_hidden) for _ in range(2))
         self.q_target = copy.deepcopy(self.q)
@@ -1068,7 +1254,7 @@ class _TD3Learner:
             u, r, g = u.squeeze(-1), r.squeeze(-1), g.squeeze(-1)
             m = mask[:, 1:]  # the decisions with a successor
             with torch.no_grad():
-                mu_next = _with_base(self.actor_target.sequence(x) * s.action_max, batch)[:, 1:]
+                mu_next = _mean_u(s, batch, self.actor_target.sequence(x))[:, 1:]
                 noise = (torch.randn_like(mu_next) * s.policy_noise).clamp(
                     -s.noise_clip, s.noise_clip
                 )
@@ -1085,7 +1271,7 @@ class _TD3Learner:
             self.steps += 1
             if not actor or self.steps % s.policy_delay:
                 continue
-            mu = _with_base(self.actor.sequence(x) * s.action_max, batch)
+            mu = _mean_u(s, batch, self.actor.sequence(x))
             q = self._qs(self.q, c, mu)[0]
             bc = (((mu - u) ** 2) * mask).sum() / mask.sum() / (2 * s.noise_sigma**2)
             actor_loss = -s.alpha * (q * mask).sum() / mask.sum() + bc
@@ -1101,7 +1287,7 @@ class _TD3Learner:
             logs.setdefault("bc", []).append(bc.item())
         with torch.no_grad():
             x, mask = _pad([tr.inp for tr in trs])
-            mu_all = _with_base(self.actor.sequence(x) * s.action_max, trs)[mask.bool()].numpy()
+            mu_all = _mean_u(s, trs, self.actor.sequence(x))[mask.bool()].numpy()
         return {k: float(np.mean(v)) for k, v in logs.items()} | {
             "u_mean": float(mu_all.mean()),
             "u_std": float(mu_all.std()),
@@ -1116,39 +1302,41 @@ class _TD3Learner:
 
 
 class _DAggerLearner:
-    """algo "dagger" with the same interface as _Learner. No value network:
-    ``critic`` is empty, for run_ppo to save."""
+    """algo "dagger" with the same interface as _Learner. Its value network
+    learns, as PPO's does, the return of the policy whose rollouts it sees
+    (the student's), so that PPO can continue from both (init_from)."""
 
     def __init__(self, width: int, critic_width: int, spec: PPOSpec) -> None:
-        del critic_width
         self.spec = spec
-        outputs = 2 if spec.student == "gate3" else 1
-        self.actor = RecurrentActor(width, spec.hidden, memory=spec.memory, outputs=outputs)
-        if spec.student != "u":  # p = (tanh(head) + 1) / 2 = P0 everywhere
-            self.actor.clone_rule(2 * P0 - 1, 1.0)
-        else:
-            self.actor.clone_rule(spec.u_rule, spec.action_max)
-        self.critic = nn.Module()
+        self.actor = _new_actor(width, spec)
+        self.critic = _Critic(critic_width, spec.critic_hidden)
         self.opt_a = torch.optim.Adam(self.actor.parameters(), lr=spec.lr)
+        self.opt_c = torch.optim.Adam(self.critic.parameters(), lr=spec.critic_lr)
+        # Its own draws, so the imitation's batches are those it drew before
+        # it had a value network.
+        self.value_rng = np.random.default_rng(spec.seed + 1)
         self.replay: list[list[Trajectory]] = []
 
     def _u(self, trs: list[Trajectory], pre: torch.Tensor) -> torch.Tensor:
-        """The student's u, padded like ``pre`` (the actor's head outputs)."""
-        if self.spec.student == "u":
-            return torch.tanh(pre) * self.spec.action_max
-        share, _ = _pad([_field(tr.share)[:, None] for tr in trs])
-        if self.spec.student == "gate":
-            return gated_u(torch.sigmoid(2 * pre), share.squeeze(-1), self.spec.u_rule)
-        coop, _ = _pad([_field(tr.coop)[:, None] for tr in trs])
-        pq = torch.sigmoid(2 * pre)
-        return gated3_u(
-            pq[..., 0],
-            pq[..., 1],
-            share.squeeze(-1),
-            coop.squeeze(-1),
-            self.spec.u_rule,
-            copies=self.spec.gate3_copies,
-        )
+        """The student's u as deployed, padded like ``pre`` (the actor's head
+        outputs)."""
+        return _mean_u(self.spec, trs, torch.tanh(pre))
+
+    def _values(self, trs: list[Trajectory]) -> dict[str, float]:
+        """PPO's value regression (epochs of minibatches) on this
+        iteration's rollouts, before and after."""
+        s = self.spec
+        with torch.no_grad():
+            v_old = [self.critic(torch.from_numpy(tr.critic)).numpy() for tr in trs]
+        _, ret = _advantages(trs, v_old, s.gae_lambda)
+        losses: list[float] = []
+        for _ in range(s.epochs):
+            order = self.value_rng.permutation(len(trs))
+            for b in range(0, len(trs), s.batch_trajectories):
+                idx = order[b : b + s.batch_trajectories]
+                batch, rs = [trs[i] for i in idx], [ret[i] for i in idx]
+                losses.append(_value_step(self.critic, self.opt_c, batch, rs, s.max_grad_norm))
+        return {"value_loss": float(np.mean(losses)), "explained_variance": _explained(ret, v_old)}
 
     def _gaps(self, trs: list[Trajectory]) -> dict[str, float]:
         """The actor against the teacher on ``trs``: mean |u - teacher|,
@@ -1223,6 +1411,7 @@ class _DAggerLearner:
         return (
             {f"{k}_before": v for k, v in before.items()}
             | after
+            | self._values(trs)
             | {
                 "imitation_loss": float(np.mean(losses)) if losses else math.nan,
                 "u_mean": float(mu_all.mean()),
@@ -1240,26 +1429,51 @@ class _DAggerLearner:
 
 def _field(x: F32 | None) -> F32:
     if x is None:
-        raise ValueError("algo dagger needs the teacher's labels on every trajectory")
+        raise ValueError(
+            "a trajectory lacks what its learner reads: the teacher's labels (algo"
+            ' "dagger") or the rules\' u (a gate student)'
+        )
     return x
 
 
 _LEARNERS: Final = {"ppo": _Learner, "td3bc": _TD3Learner, "dagger": _DAggerLearner}
 
 
+def _init_paths(spec: PPOSpec, source: PPOSpec | None) -> tuple[Path | None, Path | None]:
+    """The saved actor and value network the run starts from: init_actor and
+    init_critic, or init_from's (``source`` is that run's spec), its value
+    network only for "ppo" and where it has one that reads the same inputs."""
+    if spec.init_from is None:
+        return spec.init_actor, spec.init_critic
+    if source is None:
+        raise ValueError("init_from needs the earlier run's spec (earlier_run)")
+    if bad := _mismatch(spec, source, _ACTOR_FIELDS):
+        raise ValueError(f"init_from {spec.init_from} differs in {', '.join(bad)}")
+    critic = spec.init_from / "critic.pt"
+    keep = (
+        spec.algo == "ppo"
+        and source.algo != "td3bc"
+        and not _mismatch(spec, source, _CRITIC_FIELDS)
+        and bool(torch.load(critic, weights_only=True))  # an older "dagger" run saved none
+    )
+    return spec.init_from / "actor.pt", critic if keep else None
+
+
 def _make_learner(
-    spec: PPOSpec, width: int, critic_width: int
+    spec: PPOSpec, width: int, critic_width: int, source: PPOSpec | None = None
 ) -> _Learner | _TD3Learner | _DAggerLearner:
-    """The spec's learner, its actor loaded from spec.init_actor and PPO's
-    critic from spec.init_critic if set."""
+    """The spec's learner, started from what _init_paths names."""
     learner = _LEARNERS[spec.algo](width, critic_width, spec)
-    if spec.init_actor is not None:
-        state = torch.load(spec.init_actor, weights_only=True)
+    actor_pt, critic_pt = _init_paths(spec, source)
+    if actor_pt is not None:
+        state = torch.load(actor_pt, weights_only=True)
         learner.actor.load_state_dict(state)
         if isinstance(learner, _TD3Learner):
             learner.actor_target.load_state_dict(state)
-    if spec.init_critic is not None and isinstance(learner, _Learner):
-        learner.critic.load_state_dict(torch.load(spec.init_critic, weights_only=True))
+    if critic_pt is not None and isinstance(learner, _Learner):
+        learner.critic.load_state_dict(torch.load(critic_pt, weights_only=True))
+    if isinstance(learner, _Learner):
+        learner.start = copy.deepcopy(learner.actor).requires_grad_(False)
     return learner
 
 
@@ -1368,7 +1582,9 @@ def run_ppo(
         + (len(net1.lcfs) if spec.critic_truth else 0)
         + (len(_RIVALS) if spec.critic_flows else 0)
     )
-    learner = _make_learner(spec, width, critic_width)
+    source = None if spec.init_from is None else earlier_run(spec.init_from, net1)
+    learner = _make_learner(spec, width, critic_width, source)
+    teacher = None if spec.teacher_from is None else _PolicyTeacher.load(spec.teacher_from, net1)
     train_arms = _arms(spec.paths_from, rng)
     eval_arms = _arms(spec.eval_from, rng) if spec.eval_from else []
 
@@ -1393,7 +1609,7 @@ def run_ppo(
         policy = _export(it_dir / "policy.onnx", net1, learner.actor, spec)
         eps, groups, rivals = _batch(train_arms, policy, spec, rng)
         summary = next(iter(run(it_dir / "rollouts", eps).values()))
-        trs = _trajectories(it_dir / "rollouts", groups, net1, spec, rivals)
+        trs = _trajectories(it_dir / "rollouts", groups, net1, spec, rivals, teacher=teacher)
         entry: dict[str, Any] = {"iteration": it, "rollouts": summary}
         if trs:
             entry["learner"] = learner.update(trs, rng, actor=it >= spec.critic_warmup)
@@ -1411,4 +1627,11 @@ def run_ppo(
     torch.save(learner.actor.state_dict(), out / "actor.pt")
     torch.save(learner.critic.state_dict(), out / "critic.pt")
     _export(out / "policy.onnx", net1, learner.actor, spec)
-    return {"iterations": history}
+    started = _init_paths(spec, source)
+    return {
+        "iterations": history,
+        "started_from": {
+            k: None if v is None else str(v)
+            for k, v in zip(("actor", "critic"), started, strict=True)
+        },
+    }
