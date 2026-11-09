@@ -279,6 +279,14 @@ one. D1 to D5 came from the project brief, the rest from the build.
   step record and that guest and host agree.
 - A trace shape: a variant next to `MahakStep` and `PeriodicLevels` in
   `spec.py` with `timestamps()`; `TraceFile` takes any Mahimahi trace.
+- A kind of belief for net1 (beside a value, an interval and a
+  distribution): a subclass of `beliefs.Beliefs` (its width, means,
+  patch with the truth, faults) and the net1 module that states it.
+  Nothing else asks which kind a net1 has; `tests/test_e2e.py` then
+  trains, exports and runs it with every net2.
+- A net2 input or window target: a `Front` option or a target module in
+  `train/graph.py`. Training reads net2's inputs through the same front
+  end the exported graph runs, so the two cannot drift apart.
 - A learned controller: an ONNX graph under `sage-v1`, used as
   `{"kind": "agent", "mode": "hold", "policy": {"path": ..., "sha256": ...}}`
   for the observed flow or a TCP cross flow.

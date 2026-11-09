@@ -69,28 +69,26 @@ CRPS skill and log-score bits against a forecast that ignores the
 measurements, coverage at 50% to 95%, and the 90% width, also on busy and
 idle steps. `fit.quantiles` reads a median and intervals off a belief.
 
-## net2 from step data: `train run` and `train online`
+## net2 from step data: `train run`
 
-`train run` also trains an offline net2 on net1's beliefs, and `train
-online` one in closed loop from a replay buffer. Neither beat the fixed
-rule ([results](results.md#a-learned-net2-beats-the-rule-against-competitors)), and the
-defaults are untuned (TD3+BC on Sage's reward collapsed the window).
+`train run` also trains an offline net2 on net1's beliefs, expliCCit's
+memoryless actor asked at every step, on any kind of net1 (single
+values, intervals or distributions). It did not beat the fixed rule
+([results](results.md#a-learned-net2-beats-the-rule-against-competitors)),
+and the defaults are untuned (TD3+BC on Sage's reward collapsed the
+window). A closed-loop TD3 for this actor (`train online`) was removed
+once the recurrent learners below superseded it; release
+`exp-net2v4-val-16` holds its last runs.
 
 | `net2` field | Default | Meaning |
 |---|---|---|
 | `algo` | `td3bc` | `iql` (implicit Q-learning), `bc` (cloning), `expliccit-v1` (expliCCit's objective, kept for comparison) |
-| `inputs` | `net1` | `true_lcfs`: train on the labels; the exported policy reads the live truth (an oracle) |
-| `view`, `input_bins` | `bins`, none | `means` gives net2 only each belief's mean (arm A2); `input_bins` pools bins |
-| `action` | `multiplier` | `bdp`: net2 outputs u, the window as a log2 multiple of the believed BDP |
+| `inputs` | `net1` | `true_lcfs`: train on the labels; the exported policy reads the live truth (an oracle). `raw`: the measurements net1 reads, without net1 (the black box); `net1+raw`: both |
+| `view`, `input_bins` | `bins`, none | `bins` gives net2 all of net1's output; `means` only each belief's mean (arm A2); `input_bins` pools a distribution's bins |
+| `action` | `multiplier` | `bdp`: net2 outputs u, the window as a log2 multiple of the believed BDP (for `raw`, of BBR's estimate) |
 | `reward` | `sage` | `utility` or `log_utility` (with `delay_weight` 0.5, `loss_weight` 4) |
 | `discount`, `n_step` | 0.95, 1 | multi-step returns let a target's effect over an RTT reach the critic |
 | `action_max`, `action_decimals` | 1.0, none | a = action_max tanh(...), rounded in the exported graph |
-
-`train online online.json out/online --build build/uml` takes an
-`OnlineSpec` (`train/online.py`): campaigns whose sweeps give the training
-and evaluation paths, a frozen `net1_from`, a starting `init_from`, and
-per iteration `episodes_per_iteration` rollouts with noise `noise_sigma`
-held for `noise_hold_steps` steps, then `updates_per_iteration` updates.
 
 Every learner update reports diagnostics (`report.json`, `history.json`).
 Read them before any closed-loop result:

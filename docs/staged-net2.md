@@ -12,7 +12,11 @@ are tested. No experiment has run the staged pipeline yet (UNRUN).
 
 A distribution net1 exists: `BinNet1` (`train/models.py`), 64 bins per
 LCF, trained with the log score, optionally an ensemble
-(`Net1Spec.bins`, `members`). net1 v6 is the current one. A binary LCF,
+(`Net1Spec.bins`, `members`). The rest of the system reads net1's output
+through `train/beliefs.py`, which states for each kind (value, interval,
+distribution) its means, its patch with the truth and its faults, so
+every net2, rule and window target works on every kind, and
+`tests/test_e2e.py` checks each pairing end to end. net1 v6 is the current one. A binary LCF,
 such as the two flags in expliCCit's 9-LCF list, already fits it. A label
 within [0, 1] gets equal bins, so a 0/1 flag puts all its mass in the
 first or the last bin, and the distribution is a Bernoulli. Only the
