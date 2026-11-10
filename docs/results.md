@@ -224,9 +224,8 @@ a second. Nearly all of it is net1's three-member ensemble: the learned
 net2 adds 0.09 ms to it. Sage's policy takes 0.37 ms, expliCCit's 0.12 ms,
 Orca's 0.06 ms (50 a second) and Aurora's 0.04 ms. Explaining one of
 expliCCit's decisions exactly (Shapley values over its 7 LCFs, 128 actor
-evaluations, in torch) takes 0.79 ms, so explaining every decision would
-cost as much again as running ours; explaining the decisions an alarm
-flags costs little. In the guest, inference costs no virtual time.
+evaluations, in torch) takes 0.79 ms: 8% of a core to explain every
+decision at 100 a second, little to explain only those an alarm flags. In the guest, inference costs no virtual time.
 
 ## What limits a rule is the other flows
 
