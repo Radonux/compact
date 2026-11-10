@@ -1,0 +1,16 @@
+{
+  "title": "net1 v6 on real cellular traces: accuracy per LCF, alarms, and LCFs over time (R4.1, R4.2, R2.4)",
+  "description": "net1 v6 (seed 0, model-v6-inputs) never saw a cellular trace: its links hold constant or stepping capacity. Here Cubic, BBRv1, Reno and Vegas (observed controllers in its training) run alone and against a Cubic flow from 0 s for 30 s on the 27 cellular links of experiments/heldout.py (Mahimahi's AT&T, T-Mobile and Verizon traces, each link with its test link's one-way delay and buffer in BDPs, campaign seed 31), steps kept. Then: experiments/net1_train.py --eval reports each LCF's 90% coverage, R^2, mean absolute error and log loss on all of them (accuracy/report.json, view ood_cellular); experiments/r2_alarms.py scores the alarms on them as a positive family, with thresholds from net1 v4's validation links of the 30 s broad data and false alarms on its test links (exp-data-net1-broad-30s-73), links net1 v6 did not train on (alarms/summary.md); and experiments/lcf_timeseries.py plots, for the Cubic and the BBRv1 episode whose capacity varies most, every LCF's truth, belief mean and 90% interval against time (lcf-*.png, with each LCF's error in lcf-*.txt).",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "m": "release:model-v6-inputs",
+    "d30": "release:exp-data-net1-broad-30s-73"
+  },
+  "collect_inputs": true,
+  "prepare": "uv run python experiments/heldout.py \"$OUT/spec-cellular-30\" --split test --family cellular --duration-ms 30000 --seed 31 --stock cubic,bbr,reno,vegas; uv run expliccit campaign plan \"$OUT/spec-cellular-30/campaign.json\" \"$OUT/c-cellular-30\"",
+  "shards": 8,
+  "run": "uv run expliccit campaign run \"$OUT/c-cellular-30\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "N1=\"$IN/m/net1-v6-s0.pt\"; C=\"$OUT/c-cellular-30\"; uv run python experiments/net1_train.py \"$OUT/accuracy\" --spec experiments/specs/net1v4.json --set dropout=0.05 --set width=512 --data \"$C\" --eval \"$N1\" --ood cellular=\"$C\"; uv run python experiments/r2_alarms.py \"$OUT/alarms\" --net1 v6=\"$N1\" --calib \"$IN/d30/campaign-train30\" --negatives \"$IN/d30/campaign-train30\" --positives cellular=\"$C\"; for c in cubic bbr; do uv run --with matplotlib==3.10.0 python experiments/lcf_timeseries.py \"$OUT/lcf-$c.png\" \"$N1\" \"$C\" --controller \"$c\" > \"$OUT/lcf-$c.txt\"; done",
+  "timeout_minutes": 180
+}

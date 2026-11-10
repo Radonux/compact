@@ -53,6 +53,7 @@ def summary(rep: dict[str, Any]) -> dict[str, dict[str, float]]:
         k: {
             "c90": v["distribution"]["coverage"]["0.9"],
             "r2": v["net1"].get("r2", float("nan")),
+            "mae": v["net1"].get("mae", float("nan")),
             "skill": v["distribution"]["crps_skill"],
             "log_loss": v["distribution"]["log_loss"],
         }
