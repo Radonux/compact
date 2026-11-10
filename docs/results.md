@@ -215,9 +215,18 @@ and on deep buffers; they queue more than BBR on traces whose capacity
 jumps, and take less than half the link against a Cubic flow that started
 first, the same gap as cubic-first-60.
 
-Compute: one decision of the fixed rule on net1 v5 takes 1.07 ms on one
-core (Sage's policy 0.84 ms; `tools/policy-bench`, local); in the guest
-inference costs no virtual time.
+Compute (R6,
+[`exp-overhead-206`](https://github.com/Radonux/palaestra/releases/tag/exp-overhead-206):
+the guest's tract on one core of a GitHub runner's AMD EPYC 7763, medians
+per decision). The fixed rule on net1 v5 takes 0.61 ms and the learned
+net2 on net1 v6 0.70 ms, 6% and 7% of a core at the guest's 100 decisions
+a second. Nearly all of it is net1's three-member ensemble: the learned
+net2 adds 0.09 ms to it. Sage's policy takes 0.37 ms, expliCCit's 0.12 ms,
+Orca's 0.06 ms (50 a second) and Aurora's 0.04 ms. Explaining one of
+expliCCit's decisions exactly (Shapley values over its 7 LCFs, 128 actor
+evaluations, in torch) takes 0.79 ms, so explaining every decision would
+cost as much again as running ours; explaining the decisions an alarm
+flags costs little. In the guest, inference costs no virtual time.
 
 ## What limits a rule is the other flows
 
