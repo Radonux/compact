@@ -33,10 +33,18 @@ ratio 1. The guest gives no first and last sample, so they are taken as
 the mean less and plus half the halves' difference; that is exact while
 every RTT is under 1 s and approximate above it.
 
+--unbiased exports the same policy with the receive rate counting every
+acknowledged packet: sender_obs.py's counts one fewer (8 (acked - 1 packet)
+/ d), so an interval of k packets, all delivered, reads a send ratio of
+k / (k - 1), as if 1 / k of them were lost. Intervals in PCC-RL's
+simulator hold tens of packets; on a short RTT at the deployment's 6
+Mbit/s start they hold about 5, which reads as 20% loss. Its check runs
+PCC-RL's code with one more packet acknowledged per interval.
+
 Usage:
     python experiments/aurora_export.py stream STREAM.npz
         (a synthetic stream of monitor intervals, for the check)
-    python experiments/aurora_export.py export REF OUT.onnx [--blind]
+    python experiments/aurora_export.py export REF OUT.onnx [--blind | --unbiased]
         (REF: experiments/aurora_weights.py's output on STREAM.npz, which
         must sit in REF; checks the graph against PCC-RL's own code on that
         stream, then writes OUT.onnx)
@@ -51,6 +59,7 @@ import tempfile
 import warnings
 from collections.abc import Callable
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import onnx
@@ -60,21 +69,23 @@ from torch import nn
 
 from expliccit_env.policy import OBS_DIM
 
+type Variant = Literal["", "blind", "unbiased"]  # "": as PCC-RL trained it
+
 HISTORY, FEATURES = 10, 3
 STATE = HISTORY * FEATURES + 1  # history, smallest mean RTT (s)
 DELTA_SCALE = 0.025  # src/common/config.py
 PACKET = 1500.0
 EMPTY = (0.0, 1.0, 1.0)  # an empty interval's features
 SRTT_COL = 2  # step.rs: us / 1e5, always finite
-POLICY = ("pi/model/pi_fc0", "pi/model/pi_fc1", "pi/model/pi")  # stable-baselines' names
+POLICY = ("model/pi_fc0", "model/pi_fc1", "model/pi")  # PPO1 policy; oldpi/ is its copy
 
 
 class Aurora(nn.Module):
     """(obs, cc_info, state) -> (a, next state)."""
 
-    def __init__(self, w: dict[str, np.ndarray], blind: bool = False) -> None:
+    def __init__(self, w: dict[str, np.ndarray], variant: Variant = "") -> None:
         super().__init__()
-        self.blind = blind
+        self.variant = variant
         missing = [f"{p}/{x}" for p in POLICY for x in "wb" if f"{p}/{x}" not in w]
         if missing:
             raise SystemExit(f"weights lack {missing}; they hold {sorted(w)}")
@@ -120,7 +131,7 @@ class Aurora(nn.Module):
         dur = dur_us / 1e6
         some = (dur > 0).float()
         safe_dur = torch.where(dur > 0, dur, torch.ones_like(dur))
-        if self.blind:  # [first, last], whole seconds; [0, 0] with no sample
+        if self.variant == "blind":  # [first, last], whole seconds; [0, 0] with no sample
             first = torch.floor((mean_us - 0.5 * rise_us) / 1e6) * (n > 0).float()
             last = torch.floor((mean_us + 0.5 * rise_us) / 1e6) * (n > 0).float()
             avg, rise = 0.5 * (first + last), last - first
@@ -132,7 +143,8 @@ class Aurora(nn.Module):
         safe_low = torch.where(low > 0, low, torch.ones_like(low))
         latency_ratio = torch.where(low > 0, avg / safe_low, torch.ones_like(avg))
         send_rate = some * 8.0 * PACKET * sent / safe_dur
-        recv_rate = some * 8.0 * PACKET * (acked - 1.0) / safe_dur
+        counted = acked if self.variant == "unbiased" else acked - 1.0
+        recv_rate = some * 8.0 * PACKET * counted / safe_dur
         ok = (recv_rate > 0) & (send_rate < 1000.0 * recv_rate)
         safe_recv = torch.where(recv_rate > 0, recv_rate, torch.ones_like(recv_rate))
         send_ratio = torch.where(ok, send_rate / safe_recv, torch.ones_like(send_rate))
@@ -215,11 +227,11 @@ def to_onnx(model: Aurora) -> bytes:
     return raw
 
 
-def check(raw_onnx: bytes, ref: Path, blind: bool) -> None:
+def check(raw_onnx: bytes, ref: Path, variant: Variant) -> None:
     """The graph against PCC-RL's own code (aurora_weights.py) on the same
     intervals, step by step: the policy's inputs and the rate factor."""
     s = dict(np.load(ref / "stream.npz"))
-    tag = "_blind" if blind else ""
+    tag = f"_{variant}" if variant else ""
     want_obs, want_act = np.load(ref / f"obs{tag}.npy"), np.load(ref / f"act{tag}.npy")
     want = np.where(want_act >= 0, 1 + DELTA_SCALE * want_act, 1 / (1 - DELTA_SCALE * want_act))
     cc = guest_inputs(s)
@@ -239,7 +251,7 @@ def check(raw_onnx: bytes, ref: Path, blind: bool) -> None:
     obs_err = np.abs(hist_a - want_obs) / np.maximum(1.0, np.abs(want_obs))
     rel = np.abs(got_f - want) / want
     print(
-        f"{'blind: ' if blind else ''}policy inputs: max relative difference"
+        f"{variant + ': ' if variant else ''}policy inputs: max relative difference"
         f" from PCC-RL's {obs_err.max():.3g}"
     )
     print(
@@ -295,7 +307,10 @@ def main() -> None:
     e = sub.add_parser("export")
     e.add_argument("ref", type=Path)
     e.add_argument("out", type=Path)
-    e.add_argument("--blind", action="store_true", help="PCC-Uspace's RTT samples")
+    v = e.add_mutually_exclusive_group()
+    v.add_argument("--blind", action="store_const", const="blind", dest="variant")
+    v.add_argument("--unbiased", action="store_const", const="unbiased", dest="variant")
+    e.set_defaults(variant="")
     sub.add_parser("probe").add_argument("ref", type=Path)
     a = p.parse_args()
     if a.cmd == "stream":
@@ -304,8 +319,8 @@ def main() -> None:
     if a.cmd == "probe":
         probe(a.ref)
         return
-    raw = to_onnx(Aurora(dict(np.load(a.ref / "weights.npz")), a.blind))
-    check(raw, a.ref, a.blind)
+    raw = to_onnx(Aurora(dict(np.load(a.ref / "weights.npz")), a.variant))
+    check(raw, a.ref, a.variant)
     a.out.write_bytes(raw)
 
 

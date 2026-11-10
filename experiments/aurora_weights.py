@@ -26,7 +26,10 @@ works): ENV/bin/python experiments/aurora_weights.py PCC_RL MODEL STREAM.npz OUT
                 as PCC-Uspace hands them to this code: only the first and
                 the last RTT sample, each in whole seconds
                 (src/pcc/rate_control/pcc_python_rc.cpp, deep-learning
-                branch at 2c4853a, passes them through PyLong_FromLong)
+                branch at 2c4853a, passes them through PyLong_FromLong);
+                and obs_unbiased.npy and act_unbiased.npy for the same
+                intervals with one more packet acknowledged, which cancels
+                the packet sender_obs.py's receive rate leaves out
 """
 
 from __future__ import annotations  # Python 3.8 runs this
@@ -57,7 +60,9 @@ bounds = np.concatenate([[0], np.cumsum(s["rtt_count"])])
 agent = LoadedModel(str(model))
 
 
-def run(sender: int, samples: list[list[float]]) -> tuple[np.ndarray, np.ndarray]:
+def run(
+    sender: int, samples: list[list[float]], extra_acked: int = 0
+) -> tuple[np.ndarray, np.ndarray]:
     """The policy's inputs and actions over the stream, for one sender (its
     own smallest mean RTT) given each interval's RTT samples."""
     history = sender_obs.SenderHistory(10, FEATURES, sender)
@@ -66,7 +71,7 @@ def run(sender: int, samples: list[list[float]]) -> tuple[np.ndarray, np.ndarray
         mi = sender_obs.SenderMonitorInterval(
             sender,
             bytes_sent=float(s["sent"][k]) * PACKET,
-            bytes_acked=float(s["acked"][k]) * PACKET,
+            bytes_acked=float(s["acked"][k] + extra_acked) * PACKET,
             bytes_lost=float(s["lost"][k]) * PACKET,
             send_start=0.0,
             send_end=float(s["dur_s"][k]),
@@ -88,10 +93,14 @@ obs, act = run(0, rtts)
 obs_blind, act_blind = run(
     1, [[float(int(r[0])), float(int(r[-1]))] if r else [0.0, 0.0] for r in rtts]
 )
+# The receive rate counts every acknowledged packet, not one fewer.
+obs_unbiased, act_unbiased = run(2, rtts, extra_acked=1)
 weights = {v.name.split(":")[0]: agent.sess.run(v) for v in tf1.global_variables()}
 np.savez(out / "weights.npz", **weights)
 np.save(out / "obs.npy", obs)
 np.save(out / "act.npy", act)
 np.save(out / "obs_blind.npy", obs_blind)
 np.save(out / "act_blind.npy", act_blind)
+np.save(out / "obs_unbiased.npy", obs_unbiased)
+np.save(out / "act_unbiased.npy", act_unbiased)
 print(f"{len(weights)} arrays: {sorted(weights)}; {len(act)} intervals")
