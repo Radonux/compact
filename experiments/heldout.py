@@ -33,7 +33,11 @@ ACKs; alone and against a Cubic flow from 0 s. The slices are written
 under OUT_DIR/traces. "case-studies" is not a split's links but the two
 links of expliCCit's case studies, alone: 24 and 48 Mbit/s alternating
 every 7 s with a 40 ms one-way delay and a 1000-packet buffer, and 24
-Mbit/s halving to 12 at 40 s with 20 ms and 300 packets.
+Mbit/s halving to 12 at 40 s with 20 ms and 300 packets. "aurora-range"
+is not a split's links either: 27 links drawn as PCC-RL's simulator draws
+Aurora's training links (1.2 to 6 Mbit/s, 50 to 500 ms one way, buffers of
+2 to 2981 packets), clean and with 1% and 3% random loss, so a controller
+trained there can be seen on its own ground.
 
 Usage: python experiments/heldout.py OUT_DIR --split test --duration-ms 60000
            --seed 13 [--family training] --stock all --policy NAME=PATH[@MODE] ...
@@ -277,6 +281,37 @@ CASE_STUDIES: list[dict[str, Any]] = [
 ]
 
 
+def aurora_range(n: int = 27) -> list[dict[str, Any]]:
+    """n links drawn as PCC-RL's simulator (64bea6e, network_sim.py) draws
+    Aurora's training links: a constant 100 to 500 packets of 1500 bytes a
+    second (1.2 to 6 Mbit/s), 50 to 500 ms one way, and a buffer of
+    1 + int(e^U(0, 8)) packets, all uniform (seed 31). Its random loss, up
+    to 5%, comes from the conditions (AURORA_CONDITIONS)."""
+    rng = np.random.default_rng(31)
+    out = []
+    for _ in range(n):
+        pps = rng.uniform(100, 500)
+        out.append(
+            {
+                "trace": {
+                    "kind": "periodic_levels",
+                    "levels_mbps": [round(pps * 0.012, 3)],
+                    "level_ms": 1000,
+                },
+                "delay": {"mahak_compat_mrtt_ms": int(rng.uniform(50, 500))},
+                "buffer": {"packets": 1 + int(np.exp(rng.uniform(0, 8)))},
+            }
+        )
+    return out
+
+
+AURORA_CONDITIONS: list[dict[str, Any]] = [
+    {},
+    {"loss": {"downlink": 0.01}},
+    {"loss": {"downlink": 0.03}},
+]
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("out", type=Path)
@@ -297,6 +332,7 @@ def main() -> None:
             "rise",
             "cellular",
             "case-studies",
+            "aurora-range",
         ],
     )
     p.add_argument("--stock", default="all", help="comma-separated stock controllers, or all")
@@ -327,6 +363,8 @@ def main() -> None:
         links, conditions = cellular(links, a.duration_ms, a.out), CELLULAR
     elif family == "case-studies":
         links, conditions = CASE_STUDIES, [{}]
+    elif family == "aurora-range":
+        links, conditions = aurora_range(), AURORA_CONDITIONS
     elif family != "training":
         conditions = NEW if family == "new" else NEW[:1]
     campaign = {
