@@ -11,8 +11,10 @@ from pydantic import ValidationError
 
 from expliccit_env.guest_plan import TcpCrossPlan, UdpCrossPlan
 from expliccit_env.spec import BaseRtt, CampaignSpec, EpisodeSpec, MahakMrtt
+from expliccit_env.train.spec import Net1Spec
 
 EXAMPLES = Path(__file__).parents[1] / "examples"
+SPECS = Path(__file__).parents[1] / "experiments" / "specs"
 
 
 def episode(delay: object, **extra: object) -> str:
@@ -288,3 +290,10 @@ def test_send_buffer_follows_the_path() -> None:
     # A cross flow's longer RTT counts.
     longer = {"cross": [{"kind": "tcp", "cc": "cubic", "extra_rtt_ms": 90}]}
     assert wmem(49, 5, 26, **longer) > 5 * wmem(49, 5, 26)
+
+
+@pytest.mark.parametrize("path", sorted(SPECS.glob("*.json")), ids=lambda p: p.name)
+def test_checked_in_net1_specs_parse(path: Path) -> None:
+    """Experiments read these as net1 specs; a field renamed in Net1Spec
+    must be renamed here too, or every experiment using them fails."""
+    Net1Spec.model_validate(json.loads(path.read_text()))

@@ -74,9 +74,9 @@ stage's input. Five invariants make that hold, in `train/actors.py`, `learners.p
 Stage 1 teaches, and stage 2 continues it by PPO. Both run in one
 experiment step, so the handoff needs no release in between:
 
-    jq '.algo = "dagger" | .student = "gate3" | .iterations = 40' ppo-base.json > teach.json
+    jq '.algo = "dagger" | .student = {"kind": "gate3"} | .iterations = 40' ppo-base.json > teach.json
     uv run expliccit train ppo teach.json out/teach --build build/uml --workers 4
-    jq --arg from out/teach '.algo = "ppo" | .student = "gate3" | .init_from = $from
+    jq --arg from out/teach '.algo = "ppo" | .student = {"kind": "gate3"} | .init_from = $from
         | .anchor = 1 | .critic_warmup = 0' ppo-base.json > rl.json
     uv run expliccit train ppo rl.json out/rl --build build/uml --workers 4
 

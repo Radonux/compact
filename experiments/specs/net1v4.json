@@ -82,10 +82,11 @@
   "one_way_delay_ns",
   "receive_rate_bps"
  ],
- "intervals": false,
- "coverage": 0.9,
- "bins": 64,
- "members": 3,
+ "output": {
+  "kind": "bins",
+  "bins": 64,
+  "members": 3
+ },
  "width": 512,
  "dropout": 0.05,
  "epochs": 12,

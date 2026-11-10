@@ -57,14 +57,13 @@ runner, and `--eval NET1.pt` scores a trained net1 without training, as
 | `controllers` | all | train only on these controllers' episodes |
 | `step_stride` | 1 | keep every n-th step and the step after it |
 | `net1_from` | none | reuse a trained `net1.pt` |
-| `net1.bins` | none | a distribution over this many bins per LCF, trained with the log score |
-| `net1.members` | 1 | an ensemble of this many net1s, their distributions averaged |
-| `net1.intervals` | false | instead, a centre and a conformal interval per LCF |
+| `net1.output` | `{"kind": "point"}` | what net1 states per LCF: one value (`point`), a centre and an interval holding `coverage` (`interval`), or a distribution over `bins` fixed bins, trained with the log score and averaged over `members` net1s (`bins`; net1 v5 and v6: 64 bins, 3 members) |
 | `net1.lcfs`, `net1.obs_cols` | expliCCit's 7 and 70 | what net1 predicts and reads |
 | `net1.width`, `dropout`, `lr`, `epochs`, `patience` | 512, 0.3, 1e-3, 50, 5 | the network and its training |
 
 Output: `net1.pt`, `net2.pt`, `policy.onnx`, `report.json` and the spec.
-Per LCF on the test split, `report.json` gives R^2 of the belief's mean,
+Per LCF on the test split, `report.json` gives R^2 and the mean absolute
+error of the belief's mean,
 CRPS skill and log-score bits against a forecast that ignores the
 measurements, coverage at 50% to 95%, and the 90% width, also on busy and
 idle steps. `fit.quantiles` reads a median and intervals off a belief.
