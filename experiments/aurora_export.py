@@ -40,11 +40,16 @@ Usage:
         (REF: experiments/aurora_weights.py's output on STREAM.npz, which
         must sit in REF; checks the graph against PCC-RL's own code on that
         stream, then writes OUT.onnx)
+    python experiments/aurora_export.py probe REF
+        (the policy's action when all 10 intervals in its history are the
+        same: the latency ratio it settles at, and the random loss it
+        stops growing at)
 """
 
 import argparse
 import tempfile
 import warnings
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -245,6 +250,43 @@ def check(raw_onnx: bytes, ref: Path, blind: bool) -> None:
         raise SystemExit("the graph does not follow PCC-RL's code")
 
 
+def steady(model: Aurora, inflation: float, latency_ratio: float, send_ratio: float) -> float:
+    """The rate factor when every interval in the history is the same."""
+    hist = torch.tensor([[inflation, latency_ratio, send_ratio] * HISTORY], dtype=torch.float32)
+    a = float(model.actor(hist)[0, 0]) * DELTA_SCALE
+    return 1 + a if a >= 0 else 1 / (1 - a)
+
+
+def crossing(f: Callable[[float], float], xs: np.ndarray) -> str:
+    """The first x in xs where the rate factor f(x) falls to 1 or below."""
+    below = [x for x in xs if f(x) <= 1.0]
+    return f"{below[0]:.3g}" if below else f"none up to {xs[-1]:.3g}"
+
+
+def probe(ref: Path) -> None:
+    model = Aurora(dict(np.load(ref / "weights.npz")))
+    with torch.no_grad():
+        ratios = [1.0, 1.05, 1.1, 1.25, 1.5, 2.0, 3.0]
+        print("rate factor, no inflation, by latency ratio (rows) and loss (columns)")
+        losses = [0.0, 0.001, 0.01, 0.03, 0.1, 0.3]
+        print("ratio | " + " | ".join(f"{p:g}" for p in losses))
+        for r in ratios:
+            row = [steady(model, 0.0, r, 1 / (1 - p)) for p in losses]
+            print(f"{r:g} | " + " | ".join(f"{x:.4f}" for x in row))
+        lr = np.linspace(1.0, 10.0, 9001)
+        lp = np.linspace(0.0, 0.5, 5001)
+        print(
+            "settles (factor 1) at latency ratio",
+            crossing(lambda r: steady(model, 0.0, r, 1.0), lr),
+        )
+        print(
+            "stops growing at random loss",
+            crossing(lambda q: steady(model, 0.0, 1.0, 1 / (1 - q)), lp),
+        )
+        for g in (-0.5, -0.1, 0.1, 0.5):
+            print(f"inflation {g:+g} at ratio 1, no loss: factor {steady(model, g, 1.0, 1.0):.4f}")
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -254,9 +296,13 @@ def main() -> None:
     e.add_argument("ref", type=Path)
     e.add_argument("out", type=Path)
     e.add_argument("--blind", action="store_true", help="PCC-Uspace's RTT samples")
+    sub.add_parser("probe").add_argument("ref", type=Path)
     a = p.parse_args()
     if a.cmd == "stream":
         stream(a.stream)
+        return
+    if a.cmd == "probe":
+        probe(a.ref)
         return
     raw = to_onnx(Aurora(dict(np.load(a.ref / "weights.npz")), a.blind))
     check(raw, a.ref, a.blind)
