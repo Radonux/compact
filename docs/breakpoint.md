@@ -266,8 +266,10 @@ The policy is `ppo-r18e05-s0.onnx` in release `model-net2-v6-veto`.
 | A learned net2 on the true LCFs (A1) | lost its start's lead and ended level with the one on net1 | `exp-net2-r19-blackbox-164` |
 | PPO where probing can pay (round 23) | no cell beat the rule; see below | `exp-net2-r23-probe-185` |
 
-Learned net2 is costly at inference: about 1 ms per decision on one core,
-against the black box's 0.07 ms (`tools/policy-bench`).
+Learned net2 is costly at inference: 0.70 ms per decision on one core,
+nearly all of it net1's ensemble
+([`exp-overhead-206`](https://github.com/Radonux/palaestra/releases/tag/exp-overhead-206)),
+against the black box's 0.07 ms (`tools/policy-bench`, local).
 
 ## Stated uncertainty and probing
 
