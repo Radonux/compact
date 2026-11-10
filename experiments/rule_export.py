@@ -18,6 +18,8 @@ proportion to 1 - P(copies) (train/graph.py SpreadTarget), written as
 OUT/rule-u{u}-spread{K}-head.onnx. --idle K writes OUT/rule-u{u}-idle{K}.onnx:
 the rule with its target raised by K times how idle net1 believes the link
 is past I0 (train/models.py IdleTarget), the probing arm on means alone.
+--fault LCF*F (or LCF=V) makes every graph's belief in that LCF wrong as a
+faulty encoder head would (fit.parse_faults; R2's injected faults).
 """
 
 import argparse
@@ -48,8 +50,10 @@ def main() -> None:
     p.add_argument("--traffic", type=Path, help="net1's traffic head: gate the spread on copies")
     p.add_argument("--idle", type=float, nargs="*", default=[])
     p.add_argument("--i0", type=float, default=0.05)
+    p.add_argument("--fault", action="append", default=[], help="LCF*FACTOR or LCF=VALUE")
     a = p.parse_args()
     net1, _ = fit.load_net1(a.net1)
+    faults = fit.parse_faults(a.fault, net1.lcfs) if a.fault else None
     truth = frozenset(net1.lcfs) if a.oracle else frozenset[str]()
     a.out.mkdir(parents=True, exist_ok=True)
     for u in a.u:
@@ -61,7 +65,13 @@ def main() -> None:
             last.weight.zero_()
             last.bias.fill_(math.atanh(u / ACTION_MAX))
         graph = fit.policy_graph(
-            net1, actor.eval(), ACTION_MAX, action="bdp", truth=truth, input_bins=BINS
+            net1,
+            actor.eval(),
+            ACTION_MAX,
+            action="bdp",
+            truth=truth,
+            input_bins=BINS,
+            faults=faults,
         )
         name = f"rule-u{u:g}" + ("-oracle" if a.oracle else "")
         (a.out / f"{name}.onnx").write_bytes(to_onnx(graph))

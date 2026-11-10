@@ -1,0 +1,16 @@
+{
+  "title": "Injected faults: do the alarms catch one wrong LCF, and blame it? (R2.3)",
+  "description": "The fixed rule on net1 v6 (seed 0, model-v6-inputs; window 1.19 times the believed BDP) with one LCF's belief made wrong as a faulty encoder head would make it: each of the seven halved and doubled (rule_export.py --fault LCF*F, beliefs.Beliefs.fault), fourteen policies, and the rule unfaulted. Each runs on the 21 validation links of the training family under its three conditions for 30 s (experiments/heldout.py, campaign seed 31), steps kept. experiments/r2_alarms.py recomputes net1 v6's beliefs with each family's fault and scores the alarms, thresholds and false alarms from the 30 s broad data as in exp-net1v6-cellular-207 (alarms/summary.md: per fault, the detection rate of each LCF's alarms among the episodes wrong about it, so the faulted LCF's row says whether the fault is caught and the others whether it is blamed on the wrong LCF). experiments/baselines_report.py gives what each fault does to the closed loop: share of capacity and queueing delay (impact/baselines.md).",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "m": "release:model-v6-inputs",
+    "d30": "release:exp-data-net1-broad-30s-73"
+  },
+  "collect_inputs": true,
+  "prepare": "N1=\"$IN/m/net1-v6-s0.pt\"; camp() { uv run python experiments/heldout.py \"$OUT/spec-$1\" --split val --family training --duration-ms 30000 --seed 31 --stock \"\" --policy \"rule-$1=$OUT/policies/$1/rule-u0.25.onnx\"; uv run expliccit campaign plan \"$OUT/spec-$1/campaign.json\" \"$OUT/c-$1\"; }; uv run python experiments/rule_export.py \"$OUT/policies/none\" \"$N1\" --u 0.25; camp none; for f in queue_delay_mean_ns:qdelay queue_pkts:queue capacity_bps:capacity free_buffer_pkts:freebuf busy_fraction:busy one_way_delay_ns:owd receive_rate_bps:receive; do l=${f%:*}; n=${f#*:}; for k in 0.5 2; do uv run python experiments/rule_export.py \"$OUT/policies/$n-x$k\" \"$N1\" --u 0.25 --fault \"$l*$k\"; camp \"$n-x$k\"; done; done; jq -s add \"$OUT\"/spec-*/aliases.json > \"$OUT/aliases.json\"",
+  "shards": 16,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\"; done",
+  "collect": "N1=\"$IN/m/net1-v6-s0.pt\"; A=(--positives \"none=$OUT/c-none\"); for f in queue_delay_mean_ns:qdelay queue_pkts:queue capacity_bps:capacity free_buffer_pkts:freebuf busy_fraction:busy one_way_delay_ns:owd receive_rate_bps:receive; do l=${f%:*}; n=${f#*:}; for k in 0.5 2; do A+=(--positives \"$n-x$k=$OUT/c-$n-x$k\" --fault \"$n-x$k=$l*$k\"); done; done; uv run python experiments/r2_alarms.py \"$OUT/alarms\" --net1 v6=\"$N1\" --calib \"$IN/d30/campaign-train30\" --negatives \"$IN/d30/campaign-train30\" \"${A[@]}\"; uv run python experiments/baselines_report.py \"$OUT/impact\" \"$OUT\"; rm -rf \"$OUT/policies\"/*/rule-u0.25-actor.pt",
+  "timeout_minutes": 180
+}

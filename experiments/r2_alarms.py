@@ -45,6 +45,11 @@ Those test-link episodes are the positive families "cubic from 0 s" and
 "held-out controller". Each --positives campaign is a family of its own,
 whole. --max-episodes caps each set (the first episodes in shard order).
 
+--fault NAME=LCF*F (or LCF=V; several joined by commas) says family NAME
+ran a policy whose net1 had that injected fault (rule_export.py --fault):
+its beliefs are recomputed with the same fault, so the alarms see what the
+policy believed.
+
 Detection rate of an alarm for an LCF it implicates: the share of a family's
 episodes wrong about the LCF where it fires. False-alarm rate: the share of
 negatives right about the LCF where it fires. AUC: the episode statistic, a
@@ -65,6 +70,7 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 import pyarrow.parquet as pq
+import torch
 from sklearn.metrics import roc_auc_score
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -101,17 +107,24 @@ ALARMS: dict[str, tuple[int, ...]] = {
 CALIB, NEG, CUBIC0, HELD = "calibration", "negatives", "cubic from 0 s", "held-out controller"
 
 
-def beliefs(net1: fit.Net1, obs: npt.NDArray[np.float32], y: F) -> tuple[F, F, F]:
+def beliefs(
+    net1: fit.Net1, obs: npt.NDArray[np.float32], y: F, fault: torch.nn.Module | None = None
+) -> tuple[F, F, F]:
     """Per row and LCF: net1's mean, its normalized entropy, and the
     probability that the truth is inside its central 90% set (NaN where the
     truth is undefined): the share of the truth's bin, in CDF terms, that
-    lies between the 5% and 95% levels."""
+    lies between the 5% and 95% levels. ``fault`` moves the distributions'
+    mass first, as in the faulted policy."""
     assert isinstance(net1.net, BinNet1)
     b = net1.net.bounds.numpy().astype(np.float64)
     mid = (b[:, :-1] + b[:, 1:]) / 2
     parts: list[tuple[F, F, F]] = []
     for i in range(0, len(obs), BATCH):
-        p = net1.distributions(obs[i : i + BATCH]).astype(np.float64)
+        p = net1.distributions(obs[i : i + BATCH])
+        if fault is not None:
+            with torch.no_grad():
+                p = fault(torch.from_numpy(p.reshape(len(p), -1))).numpy().reshape(p.shape)
+        p = p.astype(np.float64)
         yy = y[i : i + BATCH]
         mean = (p * mid).sum(axis=2)
         ent = -(p * np.log(np.clip(p, 1e-12, None))).sum(axis=2) / np.log(p.shape[2])
@@ -195,7 +208,10 @@ def member(feeds: set[str], split: str, cubic0: bool, held_cc: bool) -> set[str]
 
 
 def collect(
-    a: argparse.Namespace, nets: dict[str, fit.Net1], feeds: dict[Path, set[str]]
+    a: argparse.Namespace,
+    nets: dict[str, fit.Net1],
+    feeds: dict[Path, set[str]],
+    faults: dict[str, dict[str, torch.nn.Module]],
 ) -> tuple[list[frozenset[str]], dict[str, F], dict[str, F]]:
     """Per episode: its sets, then per net1 its episode statistics [E, alarms]
     and whether it is wrong about each LCF [E, 7] (1, 0 or NaN)."""
@@ -228,8 +244,12 @@ def collect(
         rows = np.isin(steps.episode, eps)
         seg = np.searchsorted(eps, steps.episode[rows])
         obs, y = steps.obs[rows], fit.targets(steps, EXPLICCIT_LCFS)[rows].astype(np.float64)
+        faulted = [f for f in feed if f in faults]
+        if len(faulted) > 1:
+            raise SystemExit(f"{shard} feeds two faulted families {faulted}")
         for name, net1 in nets.items():
-            mean, ent, inside = beliefs(net1, obs, y)
+            fault = faults[faulted[0]][name] if faulted else None
+            mean, ent, inside = beliefs(net1, obs, y, fault)
             stats[name].append(episode_means(step_stats(mean, ent, obs, seg), seg, len(eps)))
             w = episode_means(1 - inside, seg, len(eps))
             wrong[name].append(np.where(np.isnan(w), np.nan, w > 0.5))
@@ -359,6 +379,7 @@ def main() -> None:
     p.add_argument("--positives", action="append", default=[], help="NAME=DIR, a family whole")
     p.add_argument("--stride", type=int, default=1, help="keep steps whose number it divides")
     p.add_argument("--max-episodes", type=int, help="at most this many episodes per set")
+    p.add_argument("--fault", action="append", default=[], help="NAME=LCF*F[,LCF*F]")
     a = p.parse_args()
     t0 = time.time()
     nets = {k: fit.load_net1(Path(v))[0] for k, v in (x.split("=", 1) for x in a.net1)}
@@ -380,7 +401,20 @@ def main() -> None:
                 raise SystemExit(f"no steps.parquet under {d}")
             for shard in found:
                 feeds.setdefault(shard, set()).update(names)
-    sets, stats, wrong = collect(a, nets, feeds)
+    faults: dict[str, dict[str, torch.nn.Module]] = {}
+    for x in a.fault:
+        fam, texts = x.split("=", 1)
+        if fam not in {name for name, _ in positives}:
+            raise SystemExit(f"--fault {x}: {fam} is not a --positives family")
+        faults[fam] = {}
+        for m, net1 in nets.items():
+            spec = fit.parse_faults(texts.split(","), net1.lcfs)
+            faults[fam][m] = net1.kind.fault(
+                [spec[n][1] if spec.get(n, ("", 0.0))[0] == "scale" else 1.0 for n in net1.lcfs],
+                [spec[n][1] if spec.get(n, ("", 0.0))[0] == "pin" else 0.0 for n in net1.lcfs],
+                [spec.get(n, ("", 0.0))[0] == "pin" for n in net1.lcfs],
+            )
+    sets, stats, wrong = collect(a, nets, feeds, faults)
     rows = {m: score(sets, stats[m], wrong[m], families) for m in nets}
     a.out.mkdir(parents=True, exist_ok=True)
     with (a.out / "r2.csv").open("w", newline="") as f:
