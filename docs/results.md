@@ -818,6 +818,35 @@ wrong in Case Study 1
 ([above](#reproduction-of-expliccit)); an alarm for it needs a
 measurement that bounds it from above.
 
+Injected faults (R2.3,
+[`exp-r2-faults-210`](https://github.com/Radonux/palaestra/releases/tag/exp-r2-faults-210)):
+each LCF's belief halved and doubled inside the fixed rule on net1 v6, as
+a faulty encoder head would report it, on the 21 validation links under
+three conditions (63 episodes per fault), the alarms scored on the beliefs
+the policy acted on.
+
+- **Detection.** Wherever a fault made the belief wrong, the alarms
+  caught it: 97% to 100% of the wrong episodes for queueing delay, queue,
+  capacity, one-way delay and receive rate, and for busy fraction halved.
+  The false-alarm rate is 8% to 17% per LCF on clean test links. Free
+  buffer's beliefs are so wide that halving or doubling them left the
+  truth inside the 90% interval in 61 of 63 episodes. Busy fraction
+  doubled stays near 1, its usual value on these links, and was never
+  wrong.
+- **Localization.** Only one-way delay has an alarm of its own (the min
+  RTT measured later), and it caught both of that LCF's faults. The other
+  alarms name groups: a wrong queueing delay or queue sets off the
+  invariant that queueing delay equals queue over capacity, which names
+  all three; a wrong receive rate sets off the delivery-rate check, which
+  names receive rate and capacity. The alarms say which group of heads to
+  retrain, not which head.
+- **Effect on the policy.** The fixed rule's window is net1's capacity
+  times its one-way delay, so only those faults moved it. Halved, it used
+  0.64 to 0.65 of the link at 2 ms of queue; doubled, 0.99 at 52 ms;
+  unfaulted, 0.98 at 11 ms. The other ten faults left its summary the
+  same to the last digit, and the alarms flagged them anyway: detection
+  does not depend on whether the policy uses the belief.
+
 ## Stated uncertainty has not helped net2 yet
 
 A net2 on the means of net1's beliefs (arm A2) did at least as well as
