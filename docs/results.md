@@ -847,6 +847,21 @@ the policy acted on.
   same to the last digit, and the alarms flagged them anyway: detection
   does not depend on whether the policy uses the belief.
 
+On expliCCit's own encoder (R2,
+[`exp-r2-expliccit-211`](https://github.com/Radonux/palaestra/releases/tag/exp-r2-expliccit-211)),
+the alarms catch little. Its released net1 states one value per LCF, so
+it has no entropy alarm; we call a value wrong when it is off by more
+than a factor of 2 (busy fraction: by more than 0.25). On the clean test
+links it is wrong in 41% of the (episode, LCF) pairs, where net1 v6, by
+its own 90% sets, is wrong in 1.1%. Thresholds at the 95th percentile of
+its normal behaviour therefore sit above most of its errors: the alarms
+catch 14% of them on the test links, 13% on its own flow on the
+validation links and 29% on the cellular traces. On the case-study
+links its busy fraction is wrong in one of the two episodes, and no
+alarm fires (AUC 0.07). Alarms calibrated without ground truth can only
+separate errors that are rare in normal running; an encoder that is
+often wrong gives them nothing to separate.
+
 ## Stated uncertainty has not helped net2 yet
 
 A net2 on the means of net1's beliefs (arm A2) did at least as well as
