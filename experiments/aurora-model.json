@@ -1,0 +1,11 @@
+{
+  "title": "Aurora, trained with PCC-RL's code, exported for agent_rate and checked against PCC-RL's code",
+  "description": "The Aurora trained by experiments/aurora-train.json (release exp-aurora-train-199), exported by experiments/aurora_export.py for an agent_rate agent: PCC-RL's three features from agent_rate's monitor-interval statistics, its 10-interval history, the policy's mean and its rate factor 1 + 0.025 a (or 1 / (1 - 0.025 a)). experiments/aurora_weights.py runs PCC-RL's own sender_obs.py and loaded_agent.py (64bea6e) on the SavedModel over 600 synthetic monitor intervals, and each export is checked against it step by step (aurora/check.txt). aurora/aurora.onnx is the policy as trained; aurora/aurora-blind.onnx is the same policy fed the RTT samples PCC-Uspace's deployment gives it (the first and last only, truncated to whole seconds, so 0 below 1 s). Run either as NAME=PATH@rate. Later experiments take this release as an input.",
+  "train": true,
+  "inputs": {
+    "train": "release:exp-aurora-train-199"
+  },
+  "shards": 1,
+  "run": "R=\"$IN/train/aurora\"; (cd \"$R\" && sha256sum -c --quiet SHA256SUMS); T=$(mktemp -d); git clone --quiet https://github.com/PCCproject/PCC-RL.git \"$T/pcc\"; git -C \"$T/pcc\" checkout --quiet 64bea6eeee3a3e558449c35b6496cf596f5ded52; uv venv --quiet --python 3.8 \"$T/tf\"; uv pip install --quiet --python \"$T/tf/bin/python\" tensorflow-cpu==2.4.1 numpy==1.19.5 protobuf==3.20.3; mkdir -p \"$OUT/aurora/ref\"; uv run python experiments/aurora_export.py stream \"$OUT/aurora/ref/stream.npz\"; \"$T/tf/bin/python\" -I experiments/aurora_weights.py \"$T/pcc\" \"$R/model\" \"$OUT/aurora/ref/stream.npz\" \"$OUT/aurora/ref\"; uv run python experiments/aurora_export.py export \"$OUT/aurora/ref\" \"$OUT/aurora/aurora.onnx\" | tee \"$OUT/aurora/check.txt\"; uv run python experiments/aurora_export.py export \"$OUT/aurora/ref\" \"$OUT/aurora/aurora-blind.onnx\" --blind | tee -a \"$OUT/aurora/check.txt\"; cp \"$R/LICENSE-pcc-rl.txt\" \"$OUT/aurora/\"; (cd \"$OUT/aurora\" && sha256sum -- aurora.onnx aurora-blind.onnx check.txt LICENSE-pcc-rl.txt ref/*.npz ref/*.npy > SHA256SUMS)",
+  "timeout_minutes": 60
+}

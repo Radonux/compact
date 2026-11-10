@@ -24,10 +24,19 @@ history (30) and the smallest mean RTT. The rate's start (6 Mbit/s) and
 bounds (0.5 to 300 Mbit/s) are the guest's, PCC-RL's deployment's. Run it
 as NAME=aurora.onnx@rate.
 
+--blind exports the same policy with the RTT samples PCC-Uspace's
+deployment hands it (deep-learning branch, 2c4853a,
+src/pcc/rate_control/pcc_python_rc.cpp): the interval's first and last
+sample only, each truncated to whole seconds by PyLong_FromLong. Under 1 s
+both are 0, so the policy sees no latency at all: inflation 0 and latency
+ratio 1. The guest gives no first and last sample, so they are taken as
+the mean less and plus half the halves' difference; that is exact while
+every RTT is under 1 s and approximate above it.
+
 Usage:
     python experiments/aurora_export.py stream STREAM.npz
         (a synthetic stream of monitor intervals, for the check)
-    python experiments/aurora_export.py export REF OUT.onnx
+    python experiments/aurora_export.py export REF OUT.onnx [--blind]
         (REF: experiments/aurora_weights.py's output on STREAM.npz, which
         must sit in REF; checks the graph against PCC-RL's own code on that
         stream, then writes OUT.onnx)
@@ -58,8 +67,9 @@ POLICY = ("pi/model/pi_fc0", "pi/model/pi_fc1", "pi/model/pi")  # stable-baselin
 class Aurora(nn.Module):
     """(obs, cc_info, state) -> (a, next state)."""
 
-    def __init__(self, w: dict[str, np.ndarray]) -> None:
+    def __init__(self, w: dict[str, np.ndarray], blind: bool = False) -> None:
         super().__init__()
+        self.blind = blind
         missing = [f"{p}/{x}" for p in POLICY for x in "wb" if f"{p}/{x}" not in w]
         if missing:
             raise SystemExit(f"weights lack {missing}; they hold {sorted(w)}")
@@ -105,8 +115,14 @@ class Aurora(nn.Module):
         dur = dur_us / 1e6
         some = (dur > 0).float()
         safe_dur = torch.where(dur > 0, dur, torch.ones_like(dur))
-        avg = torch.where(n > 0, mean_us / 1e6, torch.zeros_like(mean_us))
-        inflation = some * (rise_us / 1e6) / safe_dur
+        if self.blind:  # [first, last], whole seconds; [0, 0] with no sample
+            first = torch.floor((mean_us - 0.5 * rise_us) / 1e6) * (n > 0).float()
+            last = torch.floor((mean_us + 0.5 * rise_us) / 1e6) * (n > 0).float()
+            avg, rise = 0.5 * (first + last), last - first
+        else:
+            avg = torch.where(n > 0, mean_us / 1e6, torch.zeros_like(mean_us))
+            rise = rise_us / 1e6
+        inflation = some * rise / safe_dur
         low = torch.where(avg > 0, torch.where(low > 0, torch.minimum(low, avg), avg), low)
         safe_low = torch.where(low > 0, low, torch.ones_like(low))
         latency_ratio = torch.where(low > 0, avg / safe_low, torch.ones_like(avg))
@@ -194,11 +210,12 @@ def to_onnx(model: Aurora) -> bytes:
     return raw
 
 
-def check(raw_onnx: bytes, ref: Path) -> None:
+def check(raw_onnx: bytes, ref: Path, blind: bool) -> None:
     """The graph against PCC-RL's own code (aurora_weights.py) on the same
     intervals, step by step: the policy's inputs and the rate factor."""
     s = dict(np.load(ref / "stream.npz"))
-    want_obs, want_act = np.load(ref / "obs.npy"), np.load(ref / "act.npy")
+    tag = "_blind" if blind else ""
+    want_obs, want_act = np.load(ref / f"obs{tag}.npy"), np.load(ref / f"act{tag}.npy")
     want = np.where(want_act >= 0, 1 + DELTA_SCALE * want_act, 1 / (1 - DELTA_SCALE * want_act))
     cc = guest_inputs(s)
     sess = ReferenceEvaluator(onnx.load_from_string(raw_onnx))
@@ -216,7 +233,10 @@ def check(raw_onnx: bytes, ref: Path) -> None:
     got_f, hist_a = np.array(got), np.array(hist)
     obs_err = np.abs(hist_a - want_obs) / np.maximum(1.0, np.abs(want_obs))
     rel = np.abs(got_f - want) / want
-    print(f"policy inputs: max relative difference from PCC-RL's {obs_err.max():.3g}")
+    print(
+        f"{'blind: ' if blind else ''}policy inputs: max relative difference"
+        f" from PCC-RL's {obs_err.max():.3g}"
+    )
     print(
         f"rate factor: max relative difference from PCC-RL's {rel.max():.3g},",
         f"over {len(rel)} intervals",
@@ -233,12 +253,13 @@ def main() -> None:
     e = sub.add_parser("export")
     e.add_argument("ref", type=Path)
     e.add_argument("out", type=Path)
+    e.add_argument("--blind", action="store_true", help="PCC-Uspace's RTT samples")
     a = p.parse_args()
     if a.cmd == "stream":
         stream(a.stream)
         return
-    raw = to_onnx(Aurora(dict(np.load(a.ref / "weights.npz"))))
-    check(raw, a.ref)
+    raw = to_onnx(Aurora(dict(np.load(a.ref / "weights.npz")), a.blind))
+    check(raw, a.ref, a.blind)
     a.out.write_bytes(raw)
 
 

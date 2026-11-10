@@ -14,7 +14,16 @@ bootstrap intervals):
 - where other TCP flows share the link: the observed flow's share of the
   TCP flows' bytes, and Jain's index over them (UDP is left out of both);
 - for copies: Jain's index over the copies, the link's utilization by all
-  of them, and their mean queueing delay.
+  of them, and their mean queueing delay;
+- on Aurora's training links (family aurora-range, the flow alone): its
+  loss, and Aurora's own reward, PCC-RL's per-interval reward without its
+  0.001 scale (src/gym/network_sim.py at 64bea6e: 10 * packets a second
+  - 1000 * RTT in s - 2000 * loss ratio) from the episode's means, the RTT
+  as the base RTT plus the mean queueing delay and the loss as the queue's
+  drops and the link's random loss together.
+
+The summary leaves aurora-range out, so it stays comparable with earlier
+reports, and gives it its own table.
 
 Writes OUT/baselines.md and OUT/baselines.csv (one row per episode), from
 the campaigns of every DIR (each with its aliases.json), so a later run of
@@ -33,6 +42,7 @@ from typing import Any
 import numpy as np
 import pyarrow.parquet as pq
 
+from expliccit_env.spec import EpisodeSpec
 from expliccit_env.train.data import link_key
 from expliccit_env.train.score import condition
 
@@ -60,6 +70,12 @@ def episode(e: dict[str, Any], name: str, family: str) -> dict[str, Any]:
     cap = e.get("average_capacity_mbps") or float("nan")
     thr = nbytes[0] * 8 / seconds / 1e6
     copies = family.startswith("copies")
+    loss = reward = float("nan")
+    if family.startswith("aurora-range"):
+        path = EpisodeSpec.model_validate_json(e["spec_json"]).path
+        loss = 1 - (1 - e["drop_fraction"]) * (1 - path.loss.downlink)
+        rtt_s = (2 * path.delay.one_way_ns / 1e6 + e["flow_delay_mean_ms"][0]) / 1e3
+        reward = 10 * thr * 1e6 / (8 * 1500) - 1e3 * rtt_s - 2e3 * loss
     return {
         "family": family,
         "scenario": f"{nbytes.size} flows"
@@ -75,6 +91,8 @@ def episode(e: dict[str, Any], name: str, family: str) -> dict[str, Any]:
         "jain": jain(nbytes[tcp]) if tcp.sum() > 1 else float("nan"),
         "link_utilization": e.get("utilization", float("nan")),
         "all_delay_mean_ms": e.get("mean_delay_ms", float("nan")),
+        "loss": loss,
+        "aurora_reward": reward,
     }
 
 
@@ -138,7 +156,7 @@ def main(out: Path, dirs: list[Path]) -> None:
         per = [
             by[name]
             for (family, _), by in groups.items()
-            if not family.startswith("copies") and by.get(name)
+            if not family.startswith(("copies", "aurora-range")) and by.get(name)
         ]
         if not per:
             continue
@@ -147,6 +165,30 @@ def main(out: Path, dirs: list[Path]) -> None:
             for m, d in (("capacity_share", 3), ("delay_mean_ms", 1), ("delay_p95_ms", 1))
         ]
         lines.append(f"| {name} | " + " | ".join(cells) + f" | {len(per)} |")
+    aurora = {k: by for k, by in groups.items() if k[0].startswith("aurora-range")}
+    if aurora:
+        lines += [
+            "",
+            "## Summary on Aurora's training links",
+            "",
+            "The mean over aurora-range's conditions of each controller's mean over links.",
+            "",
+            "| controller | share of capacity | mean delay (ms) | loss | Aurora's reward |",
+            "|---|---|---|---|---|",
+        ]
+        for name in names:
+            per = [by[name] for by in aurora.values() if by.get(name)]
+            if per:
+                cells = [
+                    f"{np.mean([per_link(rs, m).mean() for rs in per]):.{d}f}"
+                    for m, d in (
+                        ("capacity_share", 3),
+                        ("delay_mean_ms", 1),
+                        ("loss", 4),
+                        ("aurora_reward", 0),
+                    )
+                ]
+                lines.append(f"| {name} | " + " | ".join(cells) + " |")
     for (family, scenario), by in sorted(groups.items()):
         n = len({r["link"] for rs in by.values() for r in rs})
         lines += ["", f"## {family}: {scenario} ({n} links)", ""]
@@ -165,13 +207,18 @@ def main(out: Path, dirs: list[Path]) -> None:
                 )
             continue
         shared = any(np.isfinite(r["tcp_share"]) for rs in by.values() for r in rs)
+        scored = family.startswith("aurora-range")
         head = (
             "| controller | throughput (Mbit/s) | share of capacity | mean delay (ms) |"
             " p95 delay (ms) |"
         )
         lines += [
-            head + (" share of TCP bytes | Jain's index |" if shared else ""),
-            "|---|---|---|---|---|" + ("---|---|" if shared else ""),
+            head
+            + (" share of TCP bytes | Jain's index |" if shared else "")
+            + (" loss | Aurora's reward |" if scored else ""),
+            "|---|---|---|---|---|"
+            + ("---|---|" if shared else "")
+            + ("---|---|" if scored else ""),
         ]
         for name, rs in sorted(by.items()):
             cells = [
@@ -184,6 +231,11 @@ def main(out: Path, dirs: list[Path]) -> None:
                 cells += [
                     interval(per_link(rs, "tcp_share"), 3),
                     interval(per_link(rs, "jain"), 3),
+                ]
+            if scored:
+                cells += [
+                    interval(per_link(rs, "loss"), 4),
+                    interval(per_link(rs, "aurora_reward"), 0),
                 ]
             lines.append(f"| {name} | " + " | ".join(cells) + " |")
     (out / "baselines.md").write_text("\n".join(lines) + "\n")
