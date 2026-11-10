@@ -1,0 +1,17 @@
+{
+  "title": "Alarms on expliCCit's own encoder: would they have flagged Case Study 1's fault? (R2)",
+  "description": "experiments/r2_alarms.py for expliCCit's released net1 (third_party/expliccit-models), which states one value per LCF and so has no entropy alarm, beside net1 v6 (model-v6-inputs, seed 0). Thresholds at the 95th percentile on the 30 s broad data's validation links, false alarms on its test links (exp-data-net1-broad-30s-73). Positive families: expliCCit's released policy as deployed (agent_pure) on its two case-study links for 80 s and on the training family's validation links for 30 s (experiments/heldout.py, campaign seed 31), steps kept, so each net1 reads the measurements of expliCCit's own flow; and the cellular episodes of exp-net1v6-cellular-207. A single value is wrong when off by more than a factor of 2, or busy fraction by more than 0.25 (r2_alarms.py, ours).",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "m": "release:model-v6-inputs",
+    "d30": "release:exp-data-net1-broad-30s-73",
+    "cell": "release:exp-net1v6-cellular-207"
+  },
+  "collect_inputs": true,
+  "prepare": "uv run expliccit train import-expliccit third_party/expliccit-models \"$OUT/expliccit\" --as-deployed; P=(--policy \"expliccit=$OUT/expliccit/policy.onnx@pure\"); for fd in case-studies:80:test training:30:val; do f=${fd%%:*}; r=${fd#*:}; d=${r%:*}; s=${r#*:}; uv run python experiments/heldout.py \"$OUT/spec-$f\" --split \"$s\" --family \"$f\" --duration-ms \"${d}000\" --seed 31 --stock \"\" \"${P[@]}\"; uv run expliccit campaign plan \"$OUT/spec-$f/campaign.json\" \"$OUT/c-$f\"; done",
+  "shards": 4,
+  "run": "for c in \"$OUT\"/c-*; do uv run expliccit campaign run \"$c\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\"; done",
+  "collect": "uv run python experiments/r2_alarms.py \"$OUT/alarms\" --net1 expliccit=expliccit:third_party/expliccit-models --net1 v6=\"$IN/m/net1-v6-s0.pt\" --calib \"$IN/d30/campaign-train30\" --negatives \"$IN/d30/campaign-train30\" --positives case-studies=\"$OUT/c-case-studies\" --positives expliccit-val=\"$OUT/c-training\" --positives cellular=\"$IN/cell/c-cellular-30\"",
+  "timeout_minutes": 120
+}

@@ -45,6 +45,14 @@ Those test-link episodes are the positive families "cubic from 0 s" and
 "held-out controller". Each --positives campaign is a family of its own,
 whole. --max-episodes caps each set (the first episodes in shard order).
 
+A net1 that states single values (expliCCit's released one, --net1
+NAME=expliccit:DIR, fit.load_expliccit) has no distribution: its entropy
+alarms are undefined and never fire, and it is wrong about an LCF in a step
+when its value is off by more than a factor of POINT_FACTOR (rates, delays,
+packets, with the alarms' floors) or by more than POINT_BUSY (busy
+fraction); in an episode, as above, when that holds in more than half of
+the steps. These two tolerances are ours.
+
 --fault NAME=LCF*F (or LCF=V; several joined by commas) says family NAME
 ran a policy whose net1 had that injected fault (rule_export.py --fault):
 its beliefs are recomputed with the same fault, so the alarms see what the
@@ -93,6 +101,9 @@ RATE_FLOOR = 0.1  # Mbit/s
 DELAY_FLOOR = 1.0  # ms
 RTTS_LATER = 3
 TAIL = 0.05  # each side of the central 90% set
+POINT_FACTOR = 2.0  # a single value further off than this is wrong
+POINT_BUSY = 0.25  # the same for busy fraction, in absolute terms
+PACKET_FLOOR = 1.0  # packets, for queue and free buffer
 NOMINAL = 95  # percentile of the calibration episodes
 BATCH = 32_768
 ALARMS: dict[str, tuple[int, ...]] = {
@@ -114,8 +125,20 @@ def beliefs(
     probability that the truth is inside its central 90% set (NaN where the
     truth is undefined): the share of the truth's bin, in CDF terms, that
     lies between the 5% and 95% levels. ``fault`` moves the distributions'
-    mass first, as in the faulted policy."""
-    assert isinstance(net1.net, BinNet1)
+    mass first, as in the faulted policy. A net1 of single values gets no
+    entropy, and inside is 1 or 0 by POINT_FACTOR and POINT_BUSY."""
+    if not isinstance(net1.net, BinNet1):
+        if fault is not None:
+            raise SystemExit("--fault needs a net1 that states distributions")
+        mean = net1.predict(obs).astype(np.float64)
+        floors = np.array(
+            [DELAY_FLOOR, PACKET_FLOOR, RATE_FLOOR, PACKET_FLOOR, 1e-3, DELAY_FLOOR, RATE_FLOOR]
+        )
+        off = np.abs(np.log(np.maximum(mean, floors) / np.maximum(y, floors)))
+        ok = off <= np.log(POINT_FACTOR)
+        ok[:, BUSY] = np.abs(mean[:, BUSY] - y[:, BUSY]) <= POINT_BUSY
+        inside = np.where(np.isfinite(y), ok.astype(np.float64), np.nan)
+        return mean, np.full_like(mean, np.nan), inside
     b = net1.net.bounds.numpy().astype(np.float64)
     mid = (b[:, :-1] + b[:, 1:]) / 2
     parts: list[tuple[F, F, F]] = []
@@ -373,7 +396,9 @@ def summary(
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("out", type=Path)
-    p.add_argument("--net1", action="append", required=True, help="NAME=NET1.pt")
+    p.add_argument(
+        "--net1", action="append", required=True, help="NAME=NET1.pt or NAME=expliccit:DIR"
+    )
     p.add_argument("--calib", type=Path, nargs="+", required=True)
     p.add_argument("--negatives", type=Path, nargs="+", required=True)
     p.add_argument("--positives", action="append", default=[], help="NAME=DIR, a family whole")
@@ -382,7 +407,12 @@ def main() -> None:
     p.add_argument("--fault", action="append", default=[], help="NAME=LCF*F[,LCF*F]")
     a = p.parse_args()
     t0 = time.time()
-    nets = {k: fit.load_net1(Path(v))[0] for k, v in (x.split("=", 1) for x in a.net1)}
+    nets = {
+        k: fit.load_expliccit(Path(v.removeprefix("expliccit:")))[0]
+        if v.startswith("expliccit:")
+        else fit.load_net1(Path(v))[0]
+        for k, v in (x.split("=", 1) for x in a.net1)
+    }
     if bad := [k for k, n in nets.items() if n.lcfs != EXPLICCIT_LCFS]:
         raise SystemExit(f"net1 {bad} does not report expliCCit's seven LCFs")
     positives = [x.split("=", 1) for x in a.positives]
