@@ -74,6 +74,35 @@ of 151 to 250 ms its one-way-delay statements hold 27% of the time (R^2
 -3.84, against v5's -24.1). net1 v6 replaces v5 for new work, and the
 fixed rule on it keeps u = 0.25 ([`exp-rule-net1v6-val-153`](https://github.com/Radonux/palaestra/releases/tag/exp-rule-net1v6-val-153)).
 
+### On real cellular traces
+
+No training link resembles a cellular trace, whose capacity changes every
+few milliseconds and drops to zero. On the cellular family's 27 links
+(Cubic, BBRv1, Reno and Vegas, alone and against Cubic, 216 episodes;
+[`exp-net1v6-cellular-207`](https://github.com/Radonux/palaestra/releases/tag/exp-net1v6-cellular-207)),
+net1 v6 keeps the LCFs the flow measures and loses those of the path:
+
+| LCF | 90% coverage | R^2 | Mean absolute error |
+|---|---|---|---|
+| one-way delay | 0.95 | 0.86 | 1.3 ms |
+| receive rate | 0.88 | 0.89 | 1.1 Mbit/s |
+| mean queueing delay | 0.80 | 0.77 | 17 ms |
+| capacity | 0.77 | -0.95 | 7.4 Mbit/s |
+| free buffer | 0.80 | -106 | 227 packets |
+| queue | 0.69 | -29 | 55 packets |
+| busy fraction | 0.65 | -0.06 | 0.15 |
+
+R^2 is far below 0 for queue and free buffer because the truth hardly
+varies: these links' queues and buffers hold a few packets. Over a
+typical episode (Cubic alone on AT&T's LTE driving trace, 7.7 Mbit/s on
+average, a 41-packet buffer; every LCF over time in
+[`exp-net1v6-cellular-plots-208`](https://github.com/Radonux/palaestra/releases/tag/exp-net1v6-cellular-plots-208)),
+net1 follows queueing delay, one-way delay and receive rate. Its capacity
+is off by 8.6 Mbit/s on average, mostly too high. It believes the link busy (about 0.95,
+against 0.66 on average): the trace offers capacity in bursts the flow
+cannot use. And it believes about 1,500 packets of buffer are free where
+33 are, since a buffer's size shows only when the queue fills.
+
 ### Split by link, not by row
 
 expliCCit's trainer splits rows at random, which puts a training row of
@@ -773,6 +802,21 @@ as with all seven true (-1.205): each copy then aims at the whole link,
 where net1's lower belief on a shared link (above) kept the copies safe.
 That belief carries something about the other flows that the LCF leaves
 out, and net2 relies on it.
+
+On the cellular traces (R2.4, `exp-net1v6-cellular-207`), net1 v6's
+alarms (thresholds on the training data's validation links; 3% to 6%
+false alarms for each alarm, 8% to 17% for any alarm on an LCF) catch
+most of the wrong beliefs that the flow's own measurements contradict:
+wrong capacity in 36 of 37 episodes (AUC 0.95, mostly through the
+delivery rate measured three RTTs later), wrong queue in 47 of 52, wrong
+queueing delay in 9 of 11 and wrong one-way delay in all 9. They catch
+none of the 58 episodes where busy fraction is wrong (AUC 0.50). net1
+believes the link busier than it is, and the one invariant on busy
+fraction (receive rate at most capacity times busy) fires only when busy
+fraction is too low. This is the belief expliCCit's released policy got
+wrong in Case Study 1
+([above](#reproduction-of-expliccit)); an alarm for it needs a
+measurement that bounds it from above.
 
 ## Stated uncertainty has not helped net2 yet
 
