@@ -238,6 +238,7 @@ def main(out: Path, dirs: list[Path]) -> None:
                     interval(per_link(rs, "aurora_reward"), 0),
                 ]
             lines.append(f"| {name} | " + " | ".join(cells) + " |")
+    out.mkdir(parents=True, exist_ok=True)
     (out / "baselines.md").write_text("\n".join(lines) + "\n")
     with (out / "baselines.csv").open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(rows[0]) if rows else ["family"])
