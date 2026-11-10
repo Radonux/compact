@@ -466,53 +466,58 @@ held-out family, and as 2 and 4 copies of itself:
   as an `agent_cubic` agent stepping every 20 ms: Linux 7.0's Cubic
   underneath, rescaled by each action, with Orca's per-period statistics
   from `TCP_CC_INFO`;
+- Aurora, trained three times with PCC-RL's own code, as an `agent_rate`
+  agent ([below](#aurora));
 - BBRv1, BBRv3, Cubic and Vegas, each with Linux's defaults.
 
 The two learned policies run as `agent_pure`, the controller of Sage's
 kernel, on which both were deployed (its pacing, read from the kernel's
-binary, is in [validation.md](validation.md)). That is 4,392 episodes,
+binary, is in [validation.md](validation.md)). That is 10,080 episodes,
 and none failed:
 [`exp-baselines-192`](https://github.com/Radonux/palaestra/releases/tag/exp-baselines-192)
 (the stock controllers, and both policies as `agent`),
 [`exp-baselines-pure-194`](https://github.com/Radonux/palaestra/releases/tag/exp-baselines-pure-194)
 (both policies as `agent_pure`),
 [`exp-baselines-orca-197`](https://github.com/Radonux/palaestra/releases/tag/exp-baselines-orca-197)
-(Orca), and the report of all three,
-[`exp-baselines-report-198`](https://github.com/Radonux/palaestra/releases/tag/exp-baselines-report-198).
+(Orca),
+[`exp-baselines-aurora-204`](https://github.com/Radonux/palaestra/releases/tag/exp-baselines-aurora-204)
+(Aurora, and every controller on Aurora's training links), and the report
+of all four,
+[`exp-baselines-report-205`](https://github.com/Radonux/palaestra/releases/tag/exp-baselines-report-205).
 Families run for 30 s, except Cubic first (60 s) and expliCCit's
 case-study links (80 s). Share is the observed flow's throughput over the
 link's mean capacity. Delay is the mean queueing delay of its packets at
 the bottleneck, in ms. The report adds 95% intervals, the 95th percentile
 of delay and, under competition, Jain's index among the TCP flows.
 
-| Family: condition | expliCCit | Sage | Orca | BBRv1 | BBRv3 | Cubic | Vegas |
-|---|---|---|---|---|---|---|---|
-| training: clean | 0.57, 14 | 0.91, 10 | 0.92, 12 | 0.95, 14 | 0.94, 15 | 0.97, 34 | 0.95, 10 |
-| training: loss 1% | 0.58, 12 | 0.49, 3 | 0.67, 9 | 0.92, 10 | 0.72, 4 | 0.15, 2 | 0.16, 2 |
-| training: UDP from 5 s, Cubic from 8 s | 0.45, 27 | 0.48, 21 | 0.58, 24 | 0.74, 30 | 0.67, 28 | 0.65, 35 | 0.38, 20 |
-| new: ACK loss 1% | 0.55, 14 | 0.92, 10 | 0.92, 12 | 0.95, 14 | 0.93, 15 | 0.97, 34 | 0.95, 11 |
-| new: loss 0.1% | 0.59, 15 | 0.83, 5 | 0.81, 11 | 0.95, 13 | 0.91, 13 | 0.45, 7 | 0.43, 4 |
-| new: loss 3% | 0.61, 11 | 0.45, 5 | 0.45, 5 | 0.91, 8 | 0.34, 2 | 0.07, 1 | 0.08, 2 |
-| new: Cubic from 0 s | 0.45, 33 | 0.31, 35 | 0.41, 32 | 0.65, 37 | 0.50, 35 | 0.53, 36 | 0.23, 29 |
-| new: Cubic from 2 s and 10 s | 0.46, 32 | 0.33, 31 | 0.46, 31 | 0.67, 38 | 0.55, 34 | 0.53, 37 | 0.25, 30 |
-| new: BBRv1 from 4 s | 0.41, 33 | 0.26, 21 | 0.40, 27 | 0.57, 32 | 0.35, 27 | 0.35, 34 | 0.20, 20 |
-| cubic-first (60 s) | 0.43, 32 | 0.32, 35 | 0.42, 32 | 0.66, 37 | 0.53, 35 | 0.52, 36 | 0.17, 29 |
-| deep-long: clean | 0.25, 7 | 0.86, 94 | 0.88, 37 | 0.95, 70 | 0.94, 83 | 0.98, 489 | 0.98, 200 |
-| deep-long: loss 1% | 0.27, 8 | 0.60, 10 | 0.60, 18 | 0.92, 64 | 0.77, 38 | 0.08, 2 | 0.08, 3 |
-| deep-long: UDP from 5 s, Cubic from 8 s | 0.13, 141 | 0.38, 210 | 0.46, 171 | 0.57, 226 | 0.62, 247 | 0.84, 503 | 0.61, 327 |
-| rise: clean | 0.45, 14 | 0.77, 15 | 0.78, 19 | 0.80, 26 | 0.76, 30 | 0.81, 29 | 0.70, 18 |
-| cellular: clean | 0.33, 134 | 0.73, 135 | 0.52, 120 | 0.80, 144 | 0.72, 126 | 0.66, 138 | 0.57, 85 |
-| cellular: Cubic from 0 s | 0.30, 137 | 0.48, 136 | 0.34, 134 | 0.69, 149 | 0.44, 131 | 0.37, 127 | 0.23, 108 |
-| case studies (2 links, 80 s) | 0.73, 12 | 0.94, 13 | 0.99, 25 | 0.96, 26 | 0.97, 51 | 1.00, 218 | 0.99, 28 |
+| Family: condition | expliCCit | Sage | Orca | Aurora | BBRv1 | BBRv3 | Cubic | Vegas |
+|---|---|---|---|---|---|---|---|---|
+| training: clean | 0.57, 14 | 0.91, 10 | 0.92, 12 | 0.57, 9 | 0.95, 14 | 0.94, 15 | 0.97, 34 | 0.95, 10 |
+| training: loss 1% | 0.58, 12 | 0.49, 3 | 0.67, 9 | 0.54, 9 | 0.92, 10 | 0.72, 4 | 0.15, 2 | 0.16, 2 |
+| training: UDP from 5 s, Cubic from 8 s | 0.45, 27 | 0.48, 21 | 0.58, 24 | 0.24, 18 | 0.74, 30 | 0.67, 28 | 0.65, 35 | 0.38, 20 |
+| new: ACK loss 1% | 0.55, 14 | 0.92, 10 | 0.92, 12 | 0.57, 9 | 0.95, 14 | 0.93, 15 | 0.97, 34 | 0.95, 11 |
+| new: loss 0.1% | 0.59, 15 | 0.83, 5 | 0.81, 11 | 0.56, 10 | 0.95, 13 | 0.91, 13 | 0.45, 7 | 0.43, 4 |
+| new: loss 3% | 0.61, 11 | 0.45, 5 | 0.45, 5 | 0.41, 7 | 0.91, 8 | 0.34, 2 | 0.07, 1 | 0.08, 2 |
+| new: Cubic from 0 s | 0.45, 33 | 0.31, 35 | 0.41, 32 | 0.06, 36 | 0.65, 37 | 0.50, 35 | 0.53, 36 | 0.23, 29 |
+| new: Cubic from 2 s and 10 s | 0.46, 32 | 0.33, 31 | 0.46, 31 | 0.10, 27 | 0.67, 38 | 0.55, 34 | 0.53, 37 | 0.25, 30 |
+| new: BBRv1 from 4 s | 0.41, 33 | 0.26, 21 | 0.40, 27 | 0.09, 15 | 0.57, 32 | 0.35, 27 | 0.35, 34 | 0.20, 20 |
+| cubic-first (60 s) | 0.43, 32 | 0.32, 35 | 0.42, 32 | 0.06, 37 | 0.66, 37 | 0.53, 35 | 0.52, 36 | 0.17, 29 |
+| deep-long: clean | 0.25, 7 | 0.86, 94 | 0.88, 37 | 0.67, 33 | 0.95, 70 | 0.94, 83 | 0.98, 489 | 0.98, 200 |
+| deep-long: loss 1% | 0.27, 8 | 0.60, 10 | 0.60, 18 | 0.63, 28 | 0.92, 64 | 0.77, 38 | 0.08, 2 | 0.08, 3 |
+| deep-long: UDP from 5 s, Cubic from 8 s | 0.13, 141 | 0.38, 210 | 0.46, 171 | 0.21, 133 | 0.57, 226 | 0.62, 247 | 0.84, 503 | 0.61, 327 |
+| rise: clean | 0.45, 14 | 0.77, 15 | 0.78, 19 | 0.32, 19 | 0.80, 26 | 0.76, 30 | 0.81, 29 | 0.70, 18 |
+| cellular: clean | 0.33, 134 | 0.73, 135 | 0.52, 120 | 0.89, 160 | 0.80, 144 | 0.72, 126 | 0.66, 138 | 0.57, 85 |
+| cellular: Cubic from 0 s | 0.30, 137 | 0.48, 136 | 0.34, 134 | 0.80, 160 | 0.69, 149 | 0.44, 131 | 0.37, 127 | 0.23, 108 |
+| case studies (2 links, 80 s) | 0.73, 12 | 0.94, 13 | 0.99, 25 | 0.76, 35 | 0.96, 26 | 0.97, 51 | 1.00, 218 | 0.99, 28 |
 
-| Copies | expliCCit | Sage | Orca | BBRv1 | BBRv3 | Cubic | Vegas |
-|---|---|---|---|---|---|---|---|
-| 2: Jain's index | 0.90 | 0.94 | 0.98 | 0.99 | 0.98 | 0.98 | 0.87 |
-| 2: link utilization | 0.72 | 0.97 | 0.94 | 0.95 | 0.95 | 0.98 | 0.96 |
-| 2: mean queueing delay (ms) | 17 | 17 | 24 | 33 | 28 | 36 | 14 |
-| 4: Jain's index | 0.89 | 0.91 | 0.94 | 0.94 | 0.98 | 0.97 | 0.84 |
-| 4: link utilization | 0.80 | 0.98 | 0.98 | 0.97 | 0.96 | 0.98 | 0.98 |
-| 4: mean queueing delay (ms) | 23 | 22 | 35 | 40 | 33 | 39 | 17 |
+| Copies | expliCCit | Sage | Orca | Aurora | BBRv1 | BBRv3 | Cubic | Vegas |
+|---|---|---|---|---|---|---|---|---|
+| 2: Jain's index | 0.90 | 0.94 | 0.98 | 0.94 | 0.99 | 0.98 | 0.98 | 0.87 |
+| 2: link utilization | 0.72 | 0.97 | 0.94 | 0.64 | 0.95 | 0.95 | 0.98 | 0.96 |
+| 2: mean queueing delay (ms) | 17 | 17 | 24 | 10 | 33 | 28 | 36 | 14 |
+| 4: Jain's index | 0.89 | 0.91 | 0.94 | 0.82 | 0.94 | 0.98 | 0.97 | 0.84 |
+| 4: link utilization | 0.80 | 0.98 | 0.98 | 0.69 | 0.97 | 0.96 | 0.98 | 0.98 |
+| 4: mean queueing delay (ms) | 23 | 22 | 35 | 12 | 40 | 33 | 39 | 17 |
 
 What the tables say:
 
@@ -541,9 +546,11 @@ What the tables say:
   BBRv3 takes 0.50 to 0.55, but keeps only 0.34 under 3% loss, where
   BBRv1 keeps 0.91.
 - Among copies, BBRv1, BBRv3, Cubic and Orca are the fairest (Jain's
-  index 0.94 to 0.99) and Vegas the least fair (0.84 to 0.87). Sage and
-  expliCCit sit between them on fairness, and between Vegas and the
-  others on delay.
+  index 0.94 to 0.99) and Vegas the least fair (0.84 to 0.87), with
+  Aurora at four copies (0.82). Sage and expliCCit sit between them on
+  fairness, and between Vegas and the others on delay. Aurora's copies
+  keep the shortest queues (10 and 12 ms) and leave a third of the link
+  unused.
 - Sage's kernel pacing changes little. Against the same policies run as
   `agent` (pacing once a step at cwnd * MSS / srtt, run #192), paired by
   link, each scenario's share moves by at most 0.07 (Sage under 1% loss
@@ -551,11 +558,167 @@ What the tables say:
   change includes 0 in 31 of the 38 scenario and policy pairs. No
   conclusion above depends on it.
 
-Aurora is not in these tables: it has no released model (PCC-RL at
-`64bea6e` holds only training code), so it must be trained first, and as
-a rate-based controller it needs its own controller and per-interval
-statistics in `tcp_agent`. It can run later on the same links and seeds
-and join the report.
+- Aurora (the mean of three trained models) keeps short queues on our
+  links but leaves capacity unused: 0.57 of clean links at 9 ms. It
+  gives way to every competitor (0.06 against Cubic from the start, 0.09
+  against BBRv1) and follows rising capacity slowly (0.32, where all but
+  expliCCit get 0.70 to 0.81). On the cellular traces it gets the most of
+  any controller, 0.89 of the link at 160 ms (BBRv1 0.80 at 144 ms).
+  The next section says why.
+
+### Aurora
+
+Aurora has no released model, so we trained it three times with
+PCC-RL's own code, unchanged (`64bea6e`: `stable_solve.py`'s PPO, 3.9
+million steps in PCC-RL's simulator):
+[`exp-aurora-train-199`](https://github.com/Radonux/palaestra/releases/tag/exp-aurora-train-199),
+[`-201`](https://github.com/Radonux/palaestra/releases/tag/exp-aurora-train-201)
+and
+[`-202`](https://github.com/Radonux/palaestra/releases/tag/exp-aurora-train-202).
+A fourth run, 200, failed 33 s into training, and its log did not keep
+why. Each run took 66 minutes on one GitHub runner. Each one's moving
+average of the episode reward reached 457 to 576 within 400 of its 9,954
+episodes and stayed between 690 and 862 after that. The exports follow
+PCC-RL's own code to 7.7e-6 in the rate factor
+([`exp-aurora-model-203`](https://github.com/Radonux/palaestra/releases/tag/exp-aurora-model-203),
+[validation.md](validation.md)).
+
+Aurora acts once per monitor interval, a stretch of half the last
+interval's mean RTT. It reads three features of each interval: the RTT's
+trend (sent latency inflation), the mean RTT over the smallest so far
+(latency ratio), and the sending rate over the receive rate (send
+ratio). It multiplies its rate by about 1 + 0.025 a (PCC-RL's training
+step; its deployment's is 0.05). It runs as an
+`agent_rate` agent ([architecture.md](architecture.md)), from the
+settings of PCC-Uspace's deployment: 6 Mbit/s at the start, kept in 0.5
+to 300 Mbit/s. Each model also ran in two variants, each changing one
+input:
+
+- **blind**: the RTT samples PCC-Uspace's deployment gives the policy.
+  `pcc_python_rc.cpp` (deep-learning branch, `2c4853a`) passes each
+  interval's first and last sample, in seconds, through
+  `PyLong_FromLong`. Any RTT under 1 s reaches the policy as 0, so its
+  two latency features never move.
+- **unbiased**: the receive rate counting every acknowledged packet.
+  PCC-RL's `sender_obs.py` counts one fewer, so an interval of k
+  delivered packets reads a send ratio of k / (k - 1), as if 1 / k of
+  them were lost.
+
+Each cell is the mean of the three models: share, with the models' range
+in brackets, then mean delay in ms. The copies rows give link
+utilization and Jain's index.
+
+| Family: condition | Aurora | blind | unbiased |
+|---|---|---|---|
+| training: clean | 0.57 (0.41 to 0.66), 9 | 0.58, 31 | 0.88 (0.85 to 0.91), 11 |
+| training: loss 1% | 0.54, 9 | 0.54, 28 | 0.87, 11 |
+| new: loss 3% | 0.41, 7 | 0.43, 22 | 0.84, 10 |
+| new: Cubic from 0 s | 0.06, 36 | 0.54, 44 | 0.11, 35 |
+| deep-long: clean | 0.67, 33 | 0.69, 337 | 0.77, 36 |
+| rise: clean | 0.32, 19 | 0.35, 34 | 0.57, 28 |
+| cellular: clean | 0.89, 160 | 0.65, 151 | 0.89, 160 |
+| case studies | 0.76, 35 | 0.78, 180 | 0.93, 38 |
+| 2 copies | 0.64, 0.94 | 0.67, 0.97 | 0.92, 0.97 |
+| 4 copies | 0.69, 0.82 | 0.65, 0.90 | 0.94, 0.88 |
+
+Over the scenarios of the first table (the report's median), the models
+as trained use 0.37, 0.64 and 0.62 of the link; unbiased, 0.73, 0.81 and
+0.77, about BBRv1's 0.80 and more than any other learned controller.
+
+Every controller also ran alone for 60 s on 27 links drawn as PCC-RL
+draws Aurora's training links (1.2 to 6 Mbit/s, 50 to 500 ms one way,
+buffers of 2 to 2,981 packets), clean and under 1% and 3% random loss
+(family `aurora-range`). The report scores each episode by Aurora's own
+reward: PCC-RL's per-interval reward without its 0.001 scale, 10 *
+packets a second - 1000 * RTT in s - 2000 * loss ratio, from the
+episode's means. Means over the three conditions:
+
+| Controller | Share | Mean delay (ms) | Loss | Aurora's reward |
+|---|---|---|---|---|
+| Aurora (three models) | 0.94 | 989 | 0.088 | 929 (853 to 1038) |
+| Aurora, unbiased | 0.94 | 1007 | 0.088 | 912 |
+| Aurora, blind | 0.94 | 1457 | 0.145 | 352 |
+| BBRv1 | 0.86 | 77 | 0.037 | 1727 |
+| BBRv3 | 0.69 | 56 | 0.020 | 1256 |
+| Vegas | 0.34 | 114 | 0.018 | 207 |
+| Orca | 0.52 | 434 | 0.156 | 79 |
+| Sage | 0.66 | 653 | 0.322 | -73 |
+| Cubic | 0.39 | 512 | 0.027 | -81 |
+| expliCCit | 0.04 | 4 | 0.015 | -488 |
+
+On its own links Aurora uses more of the link than any other controller,
+but by its own reward BBRv1 and BBRv3 beat it. Its mean delay comes from
+the deep buffers: in the last 40 s of each episode, model 0 keeps 62 ms
+of queue on the median link and 1.35 s averaged over links. On the deepest link
+(1.45 Mbit/s, 2,514 packets, 21 s when full) its queue grows from 0.07 s
+to 20 s over the episode; BBRv1's stays near 60 ms. Replayed locally
+(not in a release) with the same graph, model 0 cuts its rate by about
+8% per interval from 2 s on, the most it ever does. Each interval lasts half
+the RTT, queue included, so it decides 27 times in 60 s, and its rate
+falls below capacity only after about 40 s. It started at 6 Mbit/s,
+four times the link's capacity; PCC-RL starts each training episode at
+0.3 to 1.5 times the link rate.
+
+### What Aurora's RL design teaches net2
+
+1. **Inputs that are ratios carry a policy across scales, but only if
+   their estimator is right where the policy runs.** Aurora never sent
+   faster than 12 Mbit/s in training, nor saw an RTT under 100 ms.
+   Unbiased, it uses 0.88 of our clean links (6 to 88 Mbit/s, 10 to 96
+   ms of RTT), about as much as Sage (0.91). One packet in the receive-rate formula
+   costs it 0.31 of the link. At the 6 Mbit/s start on a 20 ms RTT, an
+   interval holds about 5 packets, which read as 20% loss, and each cut
+   shrinks the next interval. Locally, model 0 fell from 6 to 0.5 Mbit/s
+   in 2 s on an 87 Mbit/s link. Unbiased, it reached 86 Mbit/s in 5 s
+   at 4 ms of queue, and the unchanged policy started at 60 Mbit/s held
+   86 Mbit/s from its second second (both local runs). PCC-RL's intervals hold tens of packets, so training never
+   showed the bias. An estimator supervised by ground truth over the
+   conditions it will meet, few samples included, learns such a
+   correction; a hand-written formula keeps its bias for good.
+2. **Train from the states the deployment starts in.** Both of
+   Aurora's large failures come from its start. Training starts at 0.3
+   to 1.5 times the link rate; deployment starts at 6 Mbit/s. That is
+   too slow on short RTTs (the bias above) and too fast on slow links
+   with deep buffers (20 s of queue). net2's rollouts start where its
+   deployment does, from the kernel's own start.
+3. **Small steps per RTT make the loop slowest when it most needs to be
+   fast.** Aurora's steps are multiplicative and small (the models grow
+   0.86% to 1.30% per interval on an idle link, so doubling takes 27 to
+   40 RTTs). Its intervals stretch with the queue it builds. It follows
+   rising capacity with 0.32 of the link (unbiased 0.57, BBRv1 0.80).
+   net2 sets the window as a multiple of the believed BDP, so one
+   decision can land anywhere; what limits it is net1's estimate, not a
+   step size.
+4. **A latency signal with no model of who built the queue gives way to
+   buffer fillers.** PCC-RL trains one sender alone. Against Cubic
+   Aurora keeps 0.06 of the link (unbiased 0.11); blind, it keeps 0.54
+   because it ignores latency. This is the limit
+   [above](#what-limits-a-rule-is-the-other-flows): net2 trains with
+   competitors and copies, and its net1 reports how busy the link is
+   beyond this flow.
+5. **A reward in absolute units does not fix one trade-off for a policy
+   that sees only ratios.** Divided by 10 times the capacity C (packets
+   a second), Aurora's reward is utilization - (100 / C) RTT - (200 / C)
+   loss. Over its training links a queue of one base RTT costs 0.02 to
+   1.0 of the link, a fiftyfold spread the policy cannot see. The models
+   settle at an RTT 1.15 to 1.26 times the smallest, and keep growing
+   until random loss reaches 8% to 15% (their probes in
+   `exp-aurora-model-203`). This point is arithmetic, not a test. net2's
+   log utility charges 0.5 per base RTT of queue on every link, from
+   ground truth that only the reward sees.
+6. **A gap between the training code and the deployed code does not
+   show in the training curve.** PCC-Uspace's latency path (blind)
+   more than triples Aurora's delay on clean links (9 to 31 ms) and multiplies it
+   by ten in deep buffers (33 to 337 ms). On Aurora's own links it cuts
+   Aurora's reward from 929 to 352. The deployment also steps twice as
+   far (0.05 against 0.025) and reads two RTT samples instead of all.
+   net2 runs one featurizer in training and in evaluation, and every
+   export is checked against the code that trained it.
+7. **One unseeded training run is not a result.** The three runs have
+   alike training curves but use 0.41, 0.66 and 0.64 of clean links;
+   most of the spread goes through the bias above (unbiased, 0.85 to
+   0.91). One run in four failed. net2 is trained over seeds, chosen on
+   validation and tested once.
 
 ## Alarms and repair
 
