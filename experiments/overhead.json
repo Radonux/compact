@@ -1,0 +1,15 @@
+{
+  "title": "Cost of one decision of every controller, and of explaining one of expliCCit's (R6)",
+  "description": "experiments/overhead.py on one GitHub runner: each policy graph timed with the guest's tract on one core (tools/policy-bench, 20,000 calls after 1,000 to warm up, inputs fixed), and its CPU share at the rate the guest runs it (100 a second for the step contract's policies, 50 for Orca's 20 ms period, 100 for Aurora at a 20 ms RTT, as it runs once per half RTT). The graphs: expliCCit's released policy as deployed (third_party/expliccit-models), Sage's (exp-sage-model-24), the fixed and share rules on net1 v5 (model-net1v5), the learned net2 on net1 v6 that passed its gate (r18e05, model-net2-v6-veto), Orca's (exp-orca-model-196) and Aurora's (exp-aurora-model-203, model 0). Also, in torch on one thread, expliCCit's net1 on one state message, its actor, and the exact Shapley values of one decision over its 7 LCFs (128 actor evaluations). overhead/lscpu.txt names the CPU.",
+  "train": true,
+  "inputs": {
+    "sage": "release:exp-sage-model-24",
+    "orca": "release:exp-orca-model-196",
+    "aurora": "release:exp-aurora-model-203",
+    "v5": "release:model-net1v5",
+    "net2": "release:model-net2-v6-veto"
+  },
+  "shards": 1,
+  "run": "(cd tools/policy-bench && cargo build --quiet --release --locked); B=tools/policy-bench/target/release/policy-bench; SAGE=\"$IN/sage/sage/sage.onnx\"; echo \"fc0d6f1da45e4948ee3d96784642793954ed5e52adc1eddd0c9883d5d8fe2f9e  $SAGE\" | sha256sum -c; (cd \"$IN/orca/orca\" && sha256sum -c --quiet SHA256SUMS); (cd \"$IN/aurora/aurora\" && sha256sum -c --quiet SHA256SUMS); (cd \"$IN/v5\" && sha256sum -c --quiet --ignore-missing SHA256SUMS); uv run expliccit train import-expliccit third_party/expliccit-models \"$OUT/expliccit\" --as-deployed; uv run python experiments/overhead.py \"$OUT/overhead\" \"$B\" \"expliCCit, as deployed=$OUT/expliccit/policy.onnx@100\" \"Sage=$SAGE@100\" \"fixed rule on net1 v5=$IN/v5/rule-u0.25.onnx@100\" \"share rule on net1 v5=$IN/v5/share-u0.25-k0.5.onnx@100\" \"learned net2 on net1 v6 (r18e05)=$IN/net2/ppo-r18e05-s0.onnx@100\" \"Orca=$IN/orca/orca/orca.onnx@50\" \"Aurora=$IN/aurora/aurora/aurora-0.onnx@100\" --expliccit third_party/expliccit-models; lscpu > \"$OUT/overhead/lscpu.txt\"",
+  "timeout_minutes": 60
+}
