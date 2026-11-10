@@ -1,0 +1,12 @@
+{
+  "title": "net1 v6 over a typical cellular episode: every LCF's truth, belief and 90% interval (R4.2)",
+  "description": "experiments/lcf_timeseries.py on exp-net1v6-cellular-207's episodes, which it plotted at the episode whose capacity varies most, on cellular traces often a link that is mostly out. This plots the typical one instead: for Cubic and for BBRv1, alone, the episode with the median variation of capacity (lcf-*.png), with each LCF's mean, mean absolute error and 90% coverage over it (lcf-*.txt). net1 v6 is model-v6-inputs' seed 0.",
+  "train": true,
+  "inputs": {
+    "c": "release:exp-net1v6-cellular-207",
+    "m": "release:model-v6-inputs"
+  },
+  "shards": 1,
+  "run": "for c in cubic bbr; do uv run --with matplotlib==3.10.0 python experiments/lcf_timeseries.py \"$OUT/lcf-$c.png\" \"$IN/m/net1-v6-s0.pt\" \"$IN/c/c-cellular-30\" --controller \"$c\" > \"$OUT/lcf-$c.txt\"; done",
+  "timeout_minutes": 30
+}

@@ -3,15 +3,17 @@ R4.2): for each LCF, the true value at each step, the belief's mean and its
 central 90% interval, against time.
 
 Picks, among CAMPAIGN's ok episodes of --controller under --condition
-(score.condition's label), the one whose capacity varies most (episode row
-capacity_cv), so the plot shows net1 tracking a changing path. Prints the
+(score.condition's label), a typical one: the episode with the median
+variation of capacity (episode row capacity_cv; --pick max takes the most
+variable, which on cellular traces is often a link that is mostly out).
+Prints the
 episode, its link and, per LCF over the episode, the truth's mean, the
 mean absolute error of the belief's mean and the coverage of the 90%
 interval. Lines break where no step was recorded for over 0.2 s.
 
 Needs matplotlib (not a project dependency):
     uv run --with matplotlib python experiments/lcf_timeseries.py OUT.png NET1.pt CAMPAIGN
-        [--controller cubic] [--condition clean]
+        [--controller cubic] [--condition clean] [--pick median|max]
 """
 
 import argparse
@@ -43,8 +45,8 @@ NAMES = {
 }
 
 
-def pick(campaign: Path, controller: str, cond: str) -> tuple[Path, str, str]:
-    best: tuple[float, Path, str, str] | None = None
+def pick(campaign: Path, controller: str, cond: str, how: str) -> tuple[Path, str, str]:
+    found: list[tuple[float, str, Path, str]] = []
     for f in sorted(campaign.glob("shards/*/episodes.parquet")):
         rows = pq.read_table(  # pyright: ignore[reportUnknownMemberType]
             f, columns=["episode_id", "status", "controller", "spec_json", "capacity_cv"]
@@ -55,11 +57,12 @@ def pick(campaign: Path, controller: str, cond: str) -> tuple[Path, str, str]:
             if condition(e["spec_json"]) != cond:
                 continue
             cv = float(e["capacity_cv"] or 0.0)
-            if best is None or cv > best[0]:
-                best = (cv, f.parent, str(e["episode_id"]), str(e["spec_json"]))
-    if best is None:
+            found.append((cv, str(e["episode_id"]), f.parent, str(e["spec_json"])))
+    if not found:
         raise SystemExit(f"no ok {controller} episode under {cond!r} in {campaign}")
-    return best[1], best[2], best[3]
+    found.sort()
+    _, eid, shard, spec_json = found[-1] if how == "max" else found[(len(found) - 1) // 2]
+    return shard, eid, spec_json
 
 
 def main() -> None:
@@ -69,8 +72,9 @@ def main() -> None:
     p.add_argument("campaign", type=Path)
     p.add_argument("--controller", default="cubic")
     p.add_argument("--condition", default="clean")
+    p.add_argument("--pick", choices=["median", "max"], default="median")
     a = p.parse_args()
-    shard, eid, spec_json = pick(a.campaign, a.controller, a.condition)
+    shard, eid, spec_json = pick(a.campaign, a.controller, a.condition, a.pick)
     t = pq.read_table(shard / "steps.parquet")  # pyright: ignore[reportUnknownMemberType]
     t = t.filter(pc.equal(t["episode_id"], eid))  # pyright: ignore[reportUnknownMemberType]
     secs = np.asarray(t["t_ns"].to_numpy(), np.float64) / 1e9
