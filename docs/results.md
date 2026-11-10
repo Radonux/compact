@@ -759,28 +759,80 @@ four times the link's capacity; PCC-RL starts each training episode at
 
 ## Alarms and repair
 
-Alarms computed without ground truth catch beliefs that the flow's own
-measurements contradict, and miss beliefs they are consistent with. A
+Alarms computed without ground truth catch the wrong beliefs that the
+flow's own measurements contradict, as long as errors are rare in normal
+running, and miss the ones the measurements are consistent with. A
 capacity fault was repaired by retraining net1 alone, with net2
 unchanged.
 
-Alarms (R2,
-[`exp-r2-alarms-81`](https://github.com/Radonux/palaestra/releases/tag/exp-r2-alarms-81)):
-physical invariants among the beliefs, each belief's entropy, and checks
-against the delivery rate and min RTT measured three smoothed RTTs later,
-thresholds at the 95th percentile on net1 v4's validation links (false
-alarms near 5%). On net1 v3 they catch one-way delay on deep buffers
-(0.83 of 168 wrong episodes, AUC 0.91), queueing delay at 61 to 90 ms
-(0.89 of 90) and capacity under 3% to 6% loss (0.63 of 287), and miss its
-capacity under competition (0.12 of 43, AUC 0.52): a capacity believed at
-0.59 of the truth is still above the flow's own share, so nothing the flow
-measures contradicts it (inferred).
+### Alarms (R2)
 
-Repair (R3). net1 v3's rule lost to BBRv3 with Cubic from the start
-because its capacity belief was low there; the same rule on the true BDP
-did not. Retraining net1 on the broad data repaired it with net2
-unchanged: on the test links with Cubic from the start, the fixed rule on
-net1 v4 beat the same rule on net1 v3 by 0.428 (0.277 to 0.580)
+Each alarm is a statistic of one step, from net1's beliefs and the
+sender's own measurements: physical invariants among the beliefs (the
+receive rate at most capacity times busy fraction; queueing delay equal
+to queue over capacity; queue plus free buffer constant), each belief's
+entropy, and checks against the delivery rate and min RTT measured three
+smoothed RTTs later. Its threshold is the 95th percentile of its episode
+mean on validation links of the training data, so about 5% of right
+episodes set off each alarm (3% to 6%), and 8% to 17% set off one of the
+alarms that name a given LCF (`experiments/r2_alarms.py`). An episode is
+wrong about an LCF when the truth lies outside net1's central 90% set in
+more than half of its steps.
+
+| Test | Release | net1 | Wrong beliefs caught | Missed |
+|---|---|---|---|---|
+| Families outside the training ranges | [`exp-r2-alarms-81`](https://github.com/Radonux/palaestra/releases/tag/exp-r2-alarms-81) | v3 | one-way delay on deep buffers 0.83 of 168 (AUC 0.91), queueing delay at 61 to 90 ms 0.89 of 90, capacity under 3% to 6% loss 0.63 of 287 | capacity under competition, 0.12 of 43 (AUC 0.52) |
+| Real cellular traces | [`exp-net1v6-cellular-207`](https://github.com/Radonux/palaestra/releases/tag/exp-net1v6-cellular-207) | v6 | capacity 36 of 37 (AUC 0.95), queue 47 of 52, queueing delay 9 of 11, one-way delay 9 of 9 | busy fraction, 0 of 58 (AUC 0.50) |
+| One LCF's belief halved or doubled in the fixed rule (21 validation links, 3 conditions, 63 episodes per fault) | [`exp-r2-faults-210`](https://github.com/Radonux/palaestra/releases/tag/exp-r2-faults-210) | v6 | 97% to 100% for queueing delay, queue, capacity, one-way delay, receive rate and busy fraction halved | none; free buffer's faults and busy fraction doubled were seldom wrong at all |
+| expliCCit's released encoder on its own flow and on the cellular traces | [`exp-r2-expliccit-211`](https://github.com/Radonux/palaestra/releases/tag/exp-r2-expliccit-211) | expliCCit's | 13% to 29% of its errors | most, and its busy fraction on the case-study links (AUC 0.07) |
+
+What the misses have in common:
+
+- **A wrong belief the measurements agree with.** A capacity believed at
+  0.59 of the truth under competition is still above the flow's own
+  share, so nothing the flow measures contradicts it (inferred). On the
+  cellular traces net1 believes the link busier than it is, and the one
+  invariant on busy fraction (receive rate at most capacity times busy)
+  fires only when busy fraction is too low. That is the belief
+  expliCCit's released policy got wrong in Case Study 1
+  ([above](#reproduction-of-expliccit)). An alarm for it needs a
+  measurement that bounds busy fraction from above, and Sage's state
+  message has none that does so reliably: the smoothed RTT's excess over
+  the min RTT ranks with the true busy fraction at only 0.61 (Spearman)
+  on the cellular traces (computed locally from the steps of
+  `exp-net1v6-cellular-207`).
+- **An encoder that is often wrong.** expliCCit's released net1 states
+  one value per LCF, so it has no entropy alarm; we call a value wrong
+  when it is off by more than a factor of 2 (busy fraction: by more than
+  0.25). On the clean test links it is wrong in 41% of the (episode, LCF)
+  pairs, where net1 v6, by its own 90% sets, is wrong in 1.1%. Thresholds
+  at the 95th percentile of its normal running then sit above most of its
+  errors: the alarms catch 14% of them on the test links, 13% on its own
+  flow on the validation links and 29% on the cellular traces.
+
+Two more properties, from the injected faults:
+
+- **The alarms name a group of LCFs, not one.** Only one-way delay has an
+  alarm of its own (the min RTT measured later), and it caught both of
+  that LCF's faults. A wrong queueing delay or queue sets off the
+  invariant that queueing delay equals queue over capacity, which names
+  all three; a wrong receive rate sets off the delivery-rate check, which
+  names receive rate and capacity. They say which group of heads to
+  retrain.
+- **Detection does not depend on whether the policy uses the belief.**
+  The fixed rule's window is net1's capacity times its one-way delay, so
+  only those faults moved it: halved, it used 0.64 to 0.65 of the link at
+  2 ms of queue; doubled, 0.99 at 52 ms; unfaulted, 0.98 at 11 ms. The
+  other ten faults left its summary the same to the last digit, and the
+  alarms flagged them anyway.
+
+### Repair (R3)
+
+net1 v3's rule lost to BBRv3 with Cubic from the start because its
+capacity belief was low there; the same rule on the true BDP did not.
+Retraining net1 on the broad data repaired it with net2 unchanged: on the
+test links with Cubic from the start, the fixed rule on net1 v4 beat the
+same rule on net1 v3 by 0.428 (0.277 to 0.580)
 ([`exp-rule-net1v4-test-14`](https://github.com/Radonux/palaestra/releases/tag/exp-rule-net1v4-test-14);
 under the frozen settings on validation, -0.555 on net1 v3, -0.037 on v4,
 +0.058 on the truth, [`exp-r3-capacity-head-val-86`](https://github.com/Radonux/palaestra/releases/tag/exp-r3-capacity-head-val-86)).
@@ -802,65 +854,6 @@ as with all seven true (-1.205): each copy then aims at the whole link,
 where net1's lower belief on a shared link (above) kept the copies safe.
 That belief carries something about the other flows that the LCF leaves
 out, and net2 relies on it.
-
-On the cellular traces (R2.4, `exp-net1v6-cellular-207`), net1 v6's
-alarms (thresholds on the training data's validation links; 3% to 6%
-false alarms for each alarm, 8% to 17% for any alarm on an LCF) catch
-most of the wrong beliefs that the flow's own measurements contradict:
-wrong capacity in 36 of 37 episodes (AUC 0.95, mostly through the
-delivery rate measured three RTTs later), wrong queue in 47 of 52, wrong
-queueing delay in 9 of 11 and wrong one-way delay in all 9. They catch
-none of the 58 episodes where busy fraction is wrong (AUC 0.50). net1
-believes the link busier than it is, and the one invariant on busy
-fraction (receive rate at most capacity times busy) fires only when busy
-fraction is too low. This is the belief expliCCit's released policy got
-wrong in Case Study 1
-([above](#reproduction-of-expliccit)); an alarm for it needs a
-measurement that bounds it from above.
-
-Injected faults (R2.3,
-[`exp-r2-faults-210`](https://github.com/Radonux/palaestra/releases/tag/exp-r2-faults-210)):
-each LCF's belief halved and doubled inside the fixed rule on net1 v6, as
-a faulty encoder head would report it, on the 21 validation links under
-three conditions (63 episodes per fault), the alarms scored on the beliefs
-the policy acted on.
-
-- **Detection.** Wherever a fault made the belief wrong, the alarms
-  caught it: 97% to 100% of the wrong episodes for queueing delay, queue,
-  capacity, one-way delay and receive rate, and for busy fraction halved.
-  The false-alarm rate is 8% to 17% per LCF on clean test links. Free
-  buffer's beliefs are so wide that halving or doubling them left the
-  truth inside the 90% interval in 61 of 63 episodes. Busy fraction
-  doubled stays near 1, its usual value on these links, and was never
-  wrong.
-- **Localization.** Only one-way delay has an alarm of its own (the min
-  RTT measured later), and it caught both of that LCF's faults. The other
-  alarms name groups: a wrong queueing delay or queue sets off the
-  invariant that queueing delay equals queue over capacity, which names
-  all three; a wrong receive rate sets off the delivery-rate check, which
-  names receive rate and capacity. The alarms say which group of heads to
-  retrain, not which head.
-- **Effect on the policy.** The fixed rule's window is net1's capacity
-  times its one-way delay, so only those faults moved it. Halved, it used
-  0.64 to 0.65 of the link at 2 ms of queue; doubled, 0.99 at 52 ms;
-  unfaulted, 0.98 at 11 ms. The other ten faults left its summary the
-  same to the last digit, and the alarms flagged them anyway: detection
-  does not depend on whether the policy uses the belief.
-
-On expliCCit's own encoder (R2,
-[`exp-r2-expliccit-211`](https://github.com/Radonux/palaestra/releases/tag/exp-r2-expliccit-211)),
-the alarms catch little. Its released net1 states one value per LCF, so
-it has no entropy alarm; we call a value wrong when it is off by more
-than a factor of 2 (busy fraction: by more than 0.25). On the clean test
-links it is wrong in 41% of the (episode, LCF) pairs, where net1 v6, by
-its own 90% sets, is wrong in 1.1%. Thresholds at the 95th percentile of
-its normal behaviour therefore sit above most of its errors: the alarms
-catch 14% of them on the test links, 13% on its own flow on the
-validation links and 29% on the cellular traces. On the case-study
-links its busy fraction is wrong in one of the two episodes, and no
-alarm fires (AUC 0.07). Alarms calibrated without ground truth can only
-separate errors that are rare in normal running; an encoder that is
-often wrong gives them nothing to separate.
 
 ## Stated uncertainty has not helped net2 yet
 
