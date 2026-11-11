@@ -1,0 +1,27 @@
+{
+  "title": "Codec search: learning rate, size and weight decay on validation links",
+  "description": "Hyperparameter search for the codec (experiments/codec.py; docs/methodology.md): an encoder from one step's message to 16 ordered latents (nested dropout) and a decoder that predicts the flow's own smoothed RTT, delivery rate and loss 60 ms to 960 ms later from the latents and the window changes in between. Full grid: learning rate 3e-4, 1e-3, 3e-3; encoder width x depth 256x2, 256x4, 512x4 (decoder width equal, depth 2); weight decay 1e-4, 1e-2. Each run trains on 1,000,000 anchors drawn from the training links of release exp-phase0-steps-2 (links split 70/15/15, split seed 0), at most 25 epochs with cosine decay and early stopping, seed 0. The rule, fixed before the run: the setting with the lowest validation loss wins, where the loss averages over random prefixes of the latents, as in training. Scores are on validation links only; the test links are not read.",
+  "train": true,
+  "inputs": {
+    "steps": "release:exp-phase0-steps-2"
+  },
+  "matrix": {
+    "lr": [
+      0.0003,
+      0.001,
+      0.003
+    ],
+    "arch": [
+      "256x2",
+      "256x4",
+      "512x4"
+    ],
+    "wd": [
+      0.0001,
+      0.01
+    ]
+  },
+  "run": "ARCH_W=${ARCH%x*}; ARCH_D=${ARCH#*x}; uv run python experiments/codec.py train \"$OUT/runs/lr$LR-$ARCH-wd$WD\" --data \"$IN/steps\" --set lr=$LR --set width=$ARCH_W --set depth=$ARCH_D --set dec_width=$ARCH_W --set weight_decay=$WD --set anchors=1000000 --set epochs=25 --set time_budget_s=9000",
+  "collect": "uv run python experiments/codec_report.py \"$OUT\" \"$OUT\"/runs/*; find \"$OUT/runs\" -name model.pt -delete",
+  "timeout_minutes": 240
+}
