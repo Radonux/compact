@@ -14,7 +14,7 @@ Updated with each entry. The steps are those of the
 | Step | State | Can reuse | Not built |
 |---|---|---|---|
 | 1 Setup | done (2026-11-11) | | |
-| 2 The codec on logged steps | search running (Actions run 3 of `codec-search.json`); confirmation UNRUN | `experiments/codec.py`, its positive control (`tests/test_codec.py`), the link split | |
+| 2 The codec on logged steps | search done (`exp-codec-search-3`); confirmation over seeds dispatched (`experiments/codec-confirm.json`), no result yet | `experiments/codec.py`, its positive control (`tests/test_codec.py`), the link split | |
 | 3 Strengthen the codec | local probes only | the `frames` and `targets` options of the codec | the information-bottleneck term; the run on the test links |
 | 4 Grounding | UNRUN | the labels and the step message in `steps.parquet`; the codec's latents | the library, the fits, the stability and sensitivity checks |
 | 5 Control | UNRUN | a recurrent actor on raw measurements (`train ppo`, `inputs: "raw"`), trained by PPO, TD3+BC or DAgger; closed-loop rollouts and scoring | a controller that reads the codec's latents or fitted concepts; DAgger from a teacher given as a graph; the bottlenecked student in the closed loop |
@@ -45,6 +45,73 @@ No claim (C1 to C5) has evidence from a release.
   is processed ([architecture.md](architecture.md#known-limits)). The
   oracle net2 of step 6 and labels for fitted formulas need both
   extended.
+
+## 2026-11-11: the codec, its search and local probes
+
+- **The plan changed.** Discovery no longer distills a teacher. The
+  discovery model is the codec ([methodology.md](methodology.md#the-codec)):
+  it predicts the flow's own future (smoothed RTT, delivery rate, loss,
+  60 ms to 960 ms ahead) through k latents, given the window changes in
+  between. Reason: a student of a teacher can only return what that
+  teacher uses, and its latents collapse toward the action (finding 3 of
+  the prototype below); a predictive state depends on the path alone.
+  Teachers and the closed loop moved to step 5.
+- **Width.** 16 ordered latents (nested dropout), so one model gives the
+  score at every width from 1 to 16. The prototype's knee was near 3 and
+  the hand-picked set has 7, so 16 leaves room above both.
+- **Code.** `experiments/codec.py`, `experiments/codec_report.py`,
+  `tests/test_codec.py`. The positive control passes: on synthetic data
+  with 3 hidden factors the score levels off at 3 latents.
+- **Persistence.** Predicting that nothing changes already has a mean
+  R^2 of 0.87 on the validation links, so R^2 flatters a model that
+  copies the present. Every result below gives skill over persistence
+  (mean of 1 - MSE / persistence's MSE) beside R^2.
+- **Search.** Release
+  [`exp-codec-search-3`](https://github.com/Radonux/compact/releases/tag/exp-codec-search-3)
+  (`experiments/codec-search.json` at commit `44469af73`). Searched, as a
+  full grid of 18 runs: learning rate 3e-4, 1e-3, 3e-3; encoder width x
+  depth 256x2, 256x4, 512x4; weight decay 1e-4, 1e-2. Each run: 1,000,000
+  training anchors, 25 epochs, seed 0, 16 ordered latents. All 18
+  finished; none stopped early. Validation links (768,620 anchors):
+
+  | Setting | Validation loss | R^2 | Skill |
+  |---|---|---|---|
+  | lr 1e-3, 512x4, wd 1e-4 (winner by the rule: lowest validation loss) | 0.0325 | 0.960 | 0.607 |
+  | lr 1e-3, 512x4, wd 1e-2 | 0.0327 | 0.960 | 0.605 |
+  | best of 256x2 (lr 3e-3, wd 1e-4) | 0.0334 | 0.959 | 0.594 |
+  | best of 256x4 (lr 3e-3, wd 1e-4) | 0.0335 | 0.959 | 0.597 |
+  | worst (lr 3e-4, 256x2, wd 1e-2) | 0.0386 | 0.954 | 0.530 |
+
+  Persistence: R^2 0.869. The winner's skill by number of latents kept:
+  1: -2.75, 2: -0.16, 3: 0.32, 4: 0.46, 6: 0.52, 8: 0.56, 10: 0.59,
+  12: 0.60, 16: 0.61. A negative skill at 1 or 2 latents means that so
+  few latents predict worse than copying the present.
+- **Reading the search.** Weight decay does not matter. The learning
+  rate matters most (3e-4 is too low for 25 epochs). Size matters
+  little: the gap between the smallest and the largest network at their
+  best learning rates is 0.0009 in loss. Training and validation losses
+  are equal, so nothing overfits and the limit is data and steps, not
+  regularization. The winner is the largest network searched, so the
+  grid's edge was not passed; a larger network is UNRUN.
+- **Local probes** (4 of 20 shards, 8 epochs, default untuned settings,
+  validation links, one seed; run on the development machine, not a
+  release, so design hints only):
+
+  | Probe | Skill | Note |
+  |---|---|---|
+  | 16 ordered latents, one message | 0.47 | by width: 3: 0.15, 4: 0.27, 6: 0.40, 8: 0.44, 10: 0.45, 16: 0.47 |
+  | 64 latents, all kept | 0.52 | no narrow layer |
+  | input of the last 4 or 8 messages | 0.40 | validation loss within 3% of one message; anchors differ slightly |
+  | utility terms as extra targets | 0.07 over all targets | share of capacity and queueing delay are not visible to the sender, so their persistence is an oracle; R^2 0.76 to 0.95 on them |
+
+  On this evidence the message history is not adopted. Neither probe is
+  settled: both are UNRUN as experiments.
+- **Dispatched.** `experiments/codec-confirm.json`: the winner on all
+  4.0 million training anchors, 10 epochs: 16 ordered latents (5 seeds),
+  64 latents all kept (5 seeds), and fixed widths 2, 3, 4, 6, 8, 12, 16
+  (3 seeds each). No result yet.
+- **UNRUN.** The confirmation's results; the choice of the knee; the
+  information bottleneck; anything on the test links; grounding.
 
 ## 2026-11-11: setup
 
