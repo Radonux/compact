@@ -14,18 +14,20 @@ Updated with each entry. The steps are those of the
 | Step | State | Can reuse | Not built |
 |---|---|---|---|
 | 1 Setup | done (2026-11-11) | | |
-| 2 Phase 0 as a release | UNRUN | step data and both teachers as releases; the link split (`train.data.link_key`) | the student with a k-latent layer and its heads; the value head's targets (the teacher graphs hold no critic) |
-| 3 Black-box teacher, DAgger students | UNRUN | a recurrent actor on raw measurements (`train ppo`, `inputs: "raw"`), trained by PPO, TD3+BC or DAgger; closed-loop rollouts and scoring | DAgger from a teacher given as a graph (today's teacher is a rule or an actor on the true LCFs); the bottlenecked student in the closed loop; the information-bottleneck term |
-| 4 Grounding | UNRUN | the labels and the step message in `steps.parquet` | the library, the fits, the stability and sensitivity checks |
-| 5 Retrain and compare | UNRUN | `train run` for net1 and an offline net2; `train ppo` for a closed-loop net2; oracles on the seven LCFs | labels from fitted formulas; net1 on them; the live truth for them |
+| 2 The codec on logged steps | search running (Actions run 3 of `codec-search.json`); confirmation UNRUN | `experiments/codec.py`, its positive control (`tests/test_codec.py`), the link split | |
+| 3 Strengthen the codec | local probes only | the `frames` and `targets` options of the codec | the information-bottleneck term; the run on the test links |
+| 4 Grounding | UNRUN | the labels and the step message in `steps.parquet`; the codec's latents | the library, the fits, the stability and sensitivity checks |
+| 5 Control | UNRUN | a recurrent actor on raw measurements (`train ppo`, `inputs: "raw"`), trained by PPO, TD3+BC or DAgger; closed-loop rollouts and scoring | a controller that reads the codec's latents or fitted concepts; DAgger from a teacher given as a graph; the bottlenecked student in the closed loop |
+| 6 Retrain and compare | UNRUN | `train run` for net1 and an offline net2; `train ppo` for a closed-loop net2; oracles on the seven LCFs | labels from fitted formulas; net1 on them; the live truth for them |
 
 No claim (C1 to C5) has evidence from a release.
 
 ## Open items
 
-- **Targets for the value head.** The teacher graphs are policies and
-  come without a critic, and a rule has none at all. Q-values on a grid
-  of actions need a critic fitted to each teacher first.
+- **Targets for a value head** of a distilled student (step 5). The
+  teacher graphs are policies and come without a critic, and a rule has
+  none at all. Q-values on a grid of actions need a critic fitted to
+  each teacher first.
 - **Missing base variables.** The emulator does not label the arrival
   rate of all flows, the flow's own arrival rate or the number of active
   flows ([concepts.md](concepts.md#what-this-means-for-compact)). Without
@@ -35,13 +37,13 @@ No claim (C1 to C5) has evidence from a release.
 - **The scale of retained performance** ([methodology.md](methodology.md#retained-performance)).
 - **The threshold for C3**, and the choice rule for the knee in C1.
 - **The links, conditions and episode lengths** of the closed-loop
-  evaluation, to be fixed in step 3's experiment file.
+  evaluation, to be fixed in step 5's experiment file.
 - **The kind of output** the retrained net1 states (value, interval or
   distribution).
 - **Live truth for new concepts.** The guest gives a policy the true
   values of the seven LCFs only, and labels are computed when an episode
   is processed ([architecture.md](architecture.md#known-limits)). The
-  oracle net2 of step 5 and labels for fitted formulas need both
+  oracle net2 of step 6 and labels for fitted formulas need both
   extended.
 
 ## 2026-11-11: setup
