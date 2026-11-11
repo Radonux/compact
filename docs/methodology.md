@@ -33,7 +33,7 @@ The work has two phases with different rules.
 
 | Term | Meaning |
 |---|---|
-| LCF | Latent congestion factor, expliCCit's term: a physical property of the path at one instant, with an exact value in emulation. |
+| LCF | Latent congestion factor, expliCCit's term: a physical property of the path at one instant, with an exact value in emulation. Candidates from the literature: [lcf-concepts.md](lcf-concepts.md). |
 | the seven LCFs | expliCCit's set: mean queueing delay, queue (packets), capacity, free buffer (packets), busy fraction (bytes sent over bytes the link offered), one-way delay, and the flow's receive rate, each over the trailing 100 ms. Definitions: [architecture.md](architecture.md#ground-truth-labels). |
 | net1 | The estimator. It reads Sage's per-step state message (70 of its 78 values) and outputs one belief per LCF. It is trained against ground truth and never with net2. |
 | belief | net1's probability distribution for one LCF over 64 fixed bins (equal bins for a fraction; for a rate or delay a bin for zero, then log-spaced bins), averaged over an ensemble of three networks. |

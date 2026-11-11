@@ -151,6 +151,7 @@ are in `AGENTS.md` (also `CLAUDE.md`); agent skills come from the
 | Document | Read it for |
 |---|---|
 | [docs/methodology.md](docs/methodology.md) | The claims, the terms, the evaluation protocol, the status of each claim |
+| [docs/lcf-concepts.md](docs/lcf-concepts.md) | Candidate LCFs from the literature: what each means, its ground truth in the emulator, and its definition |
 | [docs/results.md](docs/results.md) | The findings, their evidence and caveats, with releases |
 | [docs/rounds.md](docs/rounds.md) | Every learned-net2 round: its gates, evaluations and training runs |
 | [docs/breakpoint.md](docs/breakpoint.md) | Where net1 and net2 tuning stood when it paused (2026-11-09), and how to resume |
