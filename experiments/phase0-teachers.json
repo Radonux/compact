@@ -1,0 +1,8 @@
+{
+  "title": "Phase 0 teachers: the BDP rule and a TD3+BC policy, as ONNX graphs",
+  "description": "The two teachers of Phase 0 (docs/methodology.md), copied byte for byte from the project compact was forked from, so that compact's experiments read them from compact's own releases. teachers/rule-bdp.onnx is a fixed rule: a window of 2^0.25 times the bandwidth-delay product its built-in estimator believes (source: release model-net1v5 of Radonux/palaestra, file rule-u0.25.onnx). teachers/td3bc.onnx is a policy trained offline with TD3+BC on its built-in estimator's outputs (source: release model-net1v3, file learned-td3bc-n40-s0.onnx). Both act through an estimator of seven path quantities, so they test recovery of a known bottleneck, not discovery. Each graph takes a batch of 1. summary.md lists each file's size and SHA-256.",
+  "shards": 1,
+  "run": "mkdir -p \"$OUT/teachers\" && curl -fsSL --retry 5 -o \"$OUT/teachers/rule-bdp.onnx\" https://github.com/Radonux/palaestra/releases/download/model-net1v5/rule-u0.25.onnx && curl -fsSL --retry 5 -o \"$OUT/teachers/td3bc.onnx\" https://github.com/Radonux/palaestra/releases/download/model-net1v3/learned-td3bc-n40-s0.onnx && test \"$(stat -c %s \"$OUT/teachers/rule-bdp.onnx\")\" = 16152577 && test \"$(stat -c %s \"$OUT/teachers/td3bc.onnx\")\" = 16152577",
+  "collect": "{ echo '| file | bytes | sha256 |'; echo '|---|---|---|'; for f in \"$OUT\"/teachers/*.onnx; do echo \"| teachers/$(basename \"$f\") | $(stat -c %s \"$f\") | $(sha256sum \"$f\" | cut -d' ' -f1) |\"; done; } > \"$OUT/summary.md\"",
+  "timeout_minutes": 20
+}
