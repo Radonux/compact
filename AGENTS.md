@@ -55,8 +55,9 @@ the plan. `docs/log.md` holds everything that changes with time: what
 ran, what it showed, the state of each step and the open items. Keep
 status, dates and results out of the README and the other documents.
 
-- **Discover.** Train a student whose decision passes through k latents.
-  The width at which performance stops improving counts the concepts.
+- **Discover.** Train a model whose output passes through k latents (the
+  codec, `experiments/codec.py`). The width at which its skill stops
+  improving counts the concepts.
 - **Ground.** Fit the latents to short closed-form formulas over emulator
   ground truth and sender metrics. Keep those stable across seeds.
 - **Retrain.** Train a normal net1 and net2 on the fitted formulas as LCF
@@ -78,8 +79,8 @@ Rules for this work:
 - A person still chooses the grounding library, which is the standing
   objection to the method. Every grounding result comes with its
   vocabulary sensitivity check.
-- Check every student for action collapse (z against the teacher's
-  action), and compare concepts across teachers.
+- Report the codec's skill over persistence beside its R^2. Check every
+  teacher's student for action collapse (z against the teacher's action).
 - A phase is done when it has a release with code, configuration, seeds
   and raw outputs, and an entry in `docs/log.md` saying what ran, what was searched,
   the held-out numbers and what remains UNRUN.

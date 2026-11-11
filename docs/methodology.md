@@ -24,16 +24,18 @@ recorded at every instant ([architecture.md](architecture.md)).
 
 Discovery is data driven. Deployment stays by design.
 
-1. **Discover.** Train a controller (the student) whose decision passes
-   through a narrow layer of k latents. The width at which performance
-   stops improving estimates how many concepts the task needs.
+1. **Discover.** Train a model whose output passes through a narrow layer
+   of k latents. The width at which its performance stops improving
+   estimates how many concepts the task needs. The model is the codec
+   ([below](#the-codec)): it predicts the flow's own future from the
+   latents, so no teacher defines what it learns.
 2. **Ground.** Fit the latents to short closed-form formulas over named
    variables (emulator ground truth plus basic sender metrics) under a
    harsh complexity penalty. Keep the formulas that are stable across
    seeds. A person names each one.
 3. **Retrain.** Train a normal net1 and net2 with the fitted formulas as
    the LCF labels, through the existing pipeline unchanged. Only this
-   controller ships, and the student of step 1 is thrown away. Every
+   controller ships, and the model of step 1 is thrown away. Every
    decision of the shipped controller passes through exact, checkable
    quantities, so it keeps expliCCit's faithfulness property.
 
@@ -42,15 +44,63 @@ the fitted concepts over the performance of the unconstrained teacher,
 measured in closed-loop rollouts, and compared with other ways of choosing
 concepts at the same budget ([below](#retained-performance)).
 
+## The codec
+
+What must a controller know at a step? It acts on a path it sees only
+through its own measurements. The state it needs is whatever, together
+with the actions it then takes, decides what happens to its flow next. A
+representation from which the future of the flow's measurements can be
+predicted under any actions is therefore sufficient for controlling
+anything defined on those measurements (predictive representations of
+state; Littman, Sutton and Singh, NIPS 2001). The codec
+(`experiments/codec.py`) is built on that:
+
+- **Encoder.** One step's message (net1's observation columns) to k
+  latents z, each normalized to unit variance.
+- **Decoder.** From z and the window's log2 change up to each horizon, it
+  predicts what the flow measures 60 ms to 960 ms later: smoothed RTT,
+  delivery rate and loss. It sees nothing of the step but z, and horizon
+  h sees only the actions up to h.
+- **Ordered latents.** Each training example keeps a random prefix of z
+  (nested dropout; Rippel, Gelbart and Adams, ICML 2014). One model then
+  gives a score at every width from 0 to k, and latent i matters more
+  than latent i + 1. Models trained at one fixed width check that the
+  ordering costs nothing.
+- **Scores.** R^2 on held-out links, and skill over persistence: 1 minus
+  the codec's squared error over that of predicting that nothing changes.
+  Smoothed RTT and delivery rate change slowly, so R^2 alone rewards a
+  codec that only copies the present; skill is 0 for such a codec.
+
+Three reasons to prefer this to imitating a teacher through the same
+layer. A student's latents can collapse to the teacher's action, and the
+codec's cannot, because the decoder is given the actions. The concepts of
+a student describe its teacher, and the codec has none. And a teacher
+worth imitating must first be trained and tuned without concepts, which
+is a project of its own. The student remains the second route, and
+agreement between the two is evidence for C5.
+
+What the codec does not cover:
+
+- **Utility.** The utility depends on the capacity, which no measurement
+  states. An optional group of targets adds the utility's terms; it uses
+  labels, so latents shaped by it are no longer label-free.
+- **Logged actions.** The actions in the data are those of the logging
+  controllers and follow from the path's state: a halved window reveals a
+  loss. The decoder can read state from the actions it is given, which
+  lowers what z must hold.
+- **Control.** Predictive skill is not closed-loop performance. That a
+  controller needs no more than the first k latents is shown only by a
+  controller that reads them, in the closed loop.
+
 ## Claims
 
 | | Claim | How it can fail |
 |---|---|---|
-| C1 | Count: a student's closed-loop performance stops improving at a small width k, the same across seeds | no knee: the controller does not compress into a few factors, which bears on the two-net design itself |
+| C1 | Count: the codec's held-out skill stops improving at a small width k, the same across seeds, and a controller that reads only the first k latents does as well in the closed loop as one that reads all | no knee: the controller does not compress into a few factors, which bears on the two-net design itself |
 | C2 | Grounding: at that width each latent is a short closed-form formula over named variables (held-out R^2 of 0.9 or more at the knee of size against fit), and the same formulas recur in at least 3 of 5 seeds | the latents fit no short formula, or differ between seeds |
 | C3 | Retention: net1 + net2 trained on the fitted concepts retain more of the teacher's closed-loop performance than the same number of concepts chosen any other way (the hand-picked LCFs, greedy subset search, SHAP-ranked inputs, a random subset) | a baseline ties or wins at the same budget |
 | C4 | The vocabulary is not the choice: with one base variable or operator family removed from the library, the selected concepts change only when the removed item was one of them | the selection follows whatever the library holds, which is the objection that a person still chooses the candidates |
-| C5 | Teacher independence: teachers trained differently yield the same concepts | the concepts describe one teacher, not the task |
+| C5 | Independence of the route: the codec and students of differently trained teachers yield the same concepts | the concepts describe one objective or one teacher, not the task |
 
 Every threshold and choice rule a claim depends on is written down
 before the run it decides.
@@ -66,8 +116,9 @@ before the run it decides.
   a mix: some concepts match familiar quantities, others are short but
   unfamiliar formulas. Unfamiliar ones are ranked by how much performance
   drops without them.
-- The student is never shipped and nothing is claimed about it. Claims
-  about the shipped controller rest on the retrained net1 and net2.
+- The codec and the students are never shipped and nothing is claimed
+  about them as controllers. Claims about the shipped controller rest on
+  the retrained net1 and net2.
 
 ## Related work
 
@@ -91,11 +142,15 @@ fitted formulas, and the base variables of the library.
 
 | Term | Meaning |
 |---|---|
-| teacher | The controller whose behaviour is distilled. An unconstrained teacher reads raw measurements and does not pass through net1 (the black-box teacher of step 3). The two Phase 0 teachers are not unconstrained: each acts through an estimator of the seven LCFs. |
+| codec | The discovery model: an encoder to k latents and a decoder of the flow's future from the latents and its actions ([above](#the-codec)). |
+| anchor, horizon | An anchor is a step the encoder reads; a horizon is how far ahead of it the decoder predicts. |
+| persistence | The forecast that every target keeps its current value. |
+| skill | 1 minus the codec's mean squared error over persistence's, averaged over horizons and targets: 0 for copying the present, 1 for a perfect forecast. |
+| teacher | The controller whose behaviour is distilled. An unconstrained teacher reads raw measurements and does not pass through net1 (the black-box controller of step 5). The two Phase 0 teachers are not unconstrained: each acts through an estimator of the seven LCFs. |
 | student | A network trained to imitate the teacher, whose decision passes through the latents. It is a measuring device and is never deployed. |
-| latents, z, k | The student's narrow layer z, of k dimensions. Everything after it reads z alone. |
+| latents, z, k | The narrow layer z, of k dimensions, of the codec or of a student. Everything after it reads z alone. In the codec the latents are ordered, and "width" means the number of leading latents kept. |
 | head | An output computed from z. The action head predicts the teacher's action; the next-state head predicts the next step's log sRTT and log delivery rate; the value head predicts the teacher's Q-values on a fixed grid of actions. |
-| knee | The smallest k beyond which performance stops improving. |
+| knee | The smallest width beyond which performance stops improving. |
 | grounding | Fitting each latent to a closed-form formula over the library, on held-out links. |
 | library | The candidate terms for grounding: base variables (hidden state from the `label_*` columns, and sender metrics) crossed with operators (windowed mean, min and max, first difference, pairwise ratio and product, log). |
 | concept | A grounded formula that is stable across seeds and has been named. The concepts become the LCF labels of the retrained net1. |
@@ -170,7 +225,7 @@ baseline at the same number of concepts.
 Log utility is at most about zero (the log of a share of capacity, minus
 penalties), so a plain ratio of two log utilities is not a fraction
 retained: a larger ratio would mean a worse controller. The scale must
-therefore be fixed before step 5 runs. One candidate is the fraction of
+therefore be fixed before step 6 runs. One candidate is the fraction of
 the teacher's lead over a fixed reference controller, (score - reference)
 / (teacher - reference), reported with the paired difference in log
 utility and its interval.
@@ -180,28 +235,23 @@ utility and its interval.
 The plan is a starting point. A step changes order, is added or is dropped
 when the evidence points elsewhere, and the log entry for it says why.
 
-The order follows from what each step can show. Step 2 costs little and
-tests the method where the answer is known (the teachers act through
-seven LCFs). Step 3 removes that crutch: only a teacher that never saw a
-concept can show discovery, and only the closed loop can show a knee in
-performance. Steps 4 and 5 are meaningful only for a student that passed
-the checks of step 3.
+The order follows from what each step can show. The codec needs only
+logged steps, so it comes first and is trained as well as we can train
+it. Grounding is meaningful only for latents that are stable across
+seeds. Control comes after grounding because it needs the closed loop and
+a tuned controller, and because its question (does a controller need more
+than these concepts?) can be asked of concepts directly.
 
 1. **Setup.** The documents state the idea, the claims and the plan, and
-   the inputs of Phase 0 are releases of this repository.
-2. **Phase 0 as a release.** Port the local prototype
-   ([log.md](log.md#before-2026-11-11-the-phase-0-prototype)) to an
-   experiment file and reproduce its findings. Add a value head (the teacher's
-   Q-values on a fixed grid of actions) as a third head, and report the
-   action-only, next-state and value variants side by side.
-3. **A black-box teacher.** Train a teacher on raw measurements that does
-   not pass through net1, with net1's observation window and net2's action
-   space, and tune it as the rules require before trusting it. This
-   teacher is the real test: the Phase 0 teachers already act through
-   seven LCFs. Then distill students with DAgger (roll out
-   the student, label the visited states with the teacher, retrain). Sweep
-   k = 1 to 8 and the weight beta of a variational information bottleneck,
-   with 5 seeds.
+   the logged step data is a release of this repository.
+2. **The codec on logged steps.** Search its settings on validation
+   links, confirm the winner over 5 seeds, and report the width curve
+   beside two references: models trained at one fixed width, and a model
+   with no narrow layer.
+3. **Strengthen the codec.** Try what could raise its skill and keep what
+   does on validation links: a history of messages as input, the
+   utility's terms as targets, an information bottleneck in place of a
+   hard width. Then run the test links once.
 4. **Grounding.** Build the library mechanically: base variables (hidden
    state and sender metrics) crossed with operators (windowed mean, min
    and max over 2 to 3 horizons, first difference, pairwise ratio and
@@ -217,7 +267,14 @@ the checks of step 3.
    - Vocabulary sensitivity (C4): refit with each base variable or
      operator family removed, and report whether the selected concepts
      change only when a removed item was one of them.
-5. **Retrain and compare.** Compute labels from the frozen formulas, train
+5. **Control.** Check the count in the closed loop: controllers that read
+   the first k latents, or the grounded concepts, against one that reads
+   raw measurements. This needs a tuned black-box controller, which also
+   serves as a teacher: distill students from it with DAgger through a
+   k-latent layer, and from the two logged teachers
+   ([log.md](log.md#before-2026-11-11-the-phase-0-prototype)), and
+   compare their concepts with the codec's (C5).
+6. **Retrain and compare.** Compute labels from the frozen formulas, train
    net1 and net2 as usual, and measure retained performance in closed
    loop.
    - Train the oracle net2 on the true concept values, as a diagnostic.
@@ -232,8 +289,10 @@ the checks of step 3.
 |---|---|
 | No knee | Report it and work out why: it bears on the two-net design itself |
 | The latents fit no short formula | Report it, and look at what the latents do encode before choosing what to try next |
-| Action collapse | Check z against the teacher's action directly, in every run |
-| Teacher dependence | Compare the concepts across teachers (C5) |
+| The codec copies the present | Report skill over persistence beside R^2, at every width |
+| Predictive is not decision-relevant | The closed-loop check of step 5; until then no claim about control |
+| Action collapse (students) | Check z against the teacher's action directly, in every run |
+| Dependence on the route | Compare the concepts of the codec and of students of different teachers (C5) |
 | Leakage | Compare net2 on net1's soft outputs with net2 on the exact concept values |
 
 ## Definition of done, for each step

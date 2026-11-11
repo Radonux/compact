@@ -61,6 +61,8 @@ class Config(BaseModel):
     # Horizons in rows of the data (one row is `stride` steps of 10 ms).
     horizons: tuple[Annotated[int, Field(ge=1)], ...] = (1, 2, 4, 8, 16)
     stride: Annotated[int, Field(ge=1)] = 6
+    # The encoder reads this many consecutive rows, ending at the anchor.
+    frames: Annotated[int, Field(ge=1)] = 1
     width: Annotated[int, Field(ge=8)] = 256
     depth: Annotated[int, Field(ge=1)] = 3
     dec_width: Annotated[int, Field(ge=8)] = 256
@@ -89,9 +91,10 @@ class Config(BaseModel):
 
 @dataclass(frozen=True, slots=True)
 class Data:
-    """Rows in episode order. An anchor i is a row whose horizons i+h all
-    lie in its own episode; x[i] is the encoder's input, tgt[i+h] the
-    decoder's target (NaN where undefined) and lc[i+h]-lc[i] its action."""
+    """Rows in episode order. An anchor i is a row whose horizons i+h and
+    whose earlier frames all lie in its own episode; x[i] and the frames
+    before it are the encoder's input, tgt[i+h] the decoder's target (NaN
+    where undefined) and lc[i+h]-lc[i] its action."""
 
     x: Tensor  # [n, f], standardized on the training anchors
     tgt: Tensor  # [n, t], standardized on the training anchors
@@ -132,6 +135,10 @@ def build(s: steps_data.Steps, cfg: Config) -> tuple[Data, dict[str, Any]]:
     ok = (s.episode[i + reach] == s.episode[i]) & (
         s.step[i + reach] - s.step[i] == reach * cfg.stride
     )
+    back = cfg.frames - 1
+    past = np.maximum(i - back, 0)
+    ok &= (i >= back) & (s.episode[past] == s.episode[i])
+    ok &= s.step[i] - s.step[past] == back * cfg.stride
     rows = i[ok]
     anchors = {sp: rows[s.split[rows] == sp] for sp in ("train", "val", "test")}
     if cfg.anchors is not None and anchors["train"].size > cfg.anchors:
@@ -214,10 +221,11 @@ class Codec(nn.Module):
         return self.decode(z * mask, a)
 
 
-def _batch(d: Data, idx: Tensor, horizons: Tensor) -> tuple[Tensor, Tensor, Tensor]:
-    j = idx[:, None] + horizons[None]
+def _batch(d: Data, idx: Tensor, cfg: Config) -> tuple[Tensor, Tensor, Tensor]:
+    j = idx[:, None] + torch.tensor(cfg.horizons)[None]
     a = (d.lc[j] - d.lc[idx][:, None]).clamp(-8, 8)
-    return d.x[idx], a, d.tgt[j]
+    x = d.x[idx[:, None] - torch.arange(cfg.frames)[None]].flatten(1)
+    return x, a, d.tgt[j]
 
 
 def _loss(pred: Tensor, y: Tensor) -> Tensor:
@@ -239,13 +247,12 @@ def errors(model: Codec | None, d: Data, idx: Tensor, cfg: Config, keep: int = 0
     target's variance there. With a model, its predictions from `keep`
     leading latents; without one, persistence: each target keeps the value
     it has at the anchor."""
-    hz = torch.tensor(cfg.horizons)
     n = torch.zeros(len(cfg.horizons), d.tgt.shape[1], dtype=torch.float64)
     sy, syy, se = n.clone(), n.clone(), n.clone()
     if model is not None:
         model.eval()
     for s in range(0, idx.numel(), 65536):
-        x, a, y = _batch(d, idx[s : s + 65536], hz)
+        x, a, y = _batch(d, idx[s : s + 65536], cfg)
         if model is None:
             pred = d.tgt[idx[s : s + 65536]][:, None, :].expand_as(y)
         else:
@@ -296,7 +303,7 @@ def fit(d: Data, cfg: Config, log: Any = print) -> tuple[Codec, list[dict[str, f
     validation loss (over the same random prefixes every epoch)."""
     torch.manual_seed(cfg.seed)
     gen = torch.Generator().manual_seed(cfg.seed)
-    model = Codec(d.x.shape[1], d.tgt.shape[1], cfg)
+    model = Codec(d.x.shape[1] * cfg.frames, d.tgt.shape[1], cfg)
     opt = torch.optim.AdamW(model.parameters(), lr=cfg.lr, weight_decay=cfg.weight_decay)
     tr, va = d.anchors["train"], d.anchors["val"]
     per_epoch = max(1, tr.numel() // cfg.batch)
@@ -308,7 +315,6 @@ def fit(d: Data, cfg: Config, log: Any = print) -> tuple[Codec, list[dict[str, f
         return 0.5 * (1 + math.cos(math.pi * (step - cfg.warmup_steps) / max(1, total)))
 
     sched = torch.optim.lr_scheduler.LambdaLR(opt, rate)
-    hz = torch.tensor(cfg.horizons)
     va = va[torch.randperm(va.numel(), generator=torch.Generator().manual_seed(0))[:200_000]]
     va_keep = _keep(va.numel(), cfg, torch.Generator().manual_seed(0))
     history: list[dict[str, float]] = []
@@ -318,7 +324,7 @@ def fit(d: Data, cfg: Config, log: Any = print) -> tuple[Codec, list[dict[str, f
         perm = tr[torch.randperm(tr.numel(), generator=gen)]
         run = 0.0
         for b in range(per_epoch):
-            x, a, y = _batch(d, perm[b * cfg.batch : (b + 1) * cfg.batch], hz)
+            x, a, y = _batch(d, perm[b * cfg.batch : (b + 1) * cfg.batch], cfg)
             loss = _loss(model(x, a, _keep(x.shape[0], cfg, gen)), y)
             opt.zero_grad(set_to_none=True)
             loss.backward()
@@ -330,7 +336,7 @@ def fit(d: Data, cfg: Config, log: Any = print) -> tuple[Codec, list[dict[str, f
         with torch.no_grad():
             v = 0.0
             for s in range(0, va.numel(), 65536):
-                x, a, y = _batch(d, va[s : s + 65536], hz)
+                x, a, y = _batch(d, va[s : s + 65536], cfg)
                 v += _loss(model(x, a, va_keep[s : s + 65536]), y).item() * x.shape[0]
             v /= va.numel()
         elapsed = time.monotonic() - t0
@@ -364,12 +370,12 @@ def _load(dirs: list[Path], cfg: Config) -> tuple[Data, dict[str, Any]]:
     return build(s, cfg)
 
 
-def _latents(model: Codec, d: Data, idx: Tensor) -> dict[str, Any]:
+def _latents(model: Codec, d: Data, idx: Tensor, cfg: Config) -> dict[str, Any]:
     """How the latents behave on held-out anchors: their spread, and how
     far each is from independent of the others."""
     with torch.no_grad():
         model.eval()
-        z = model.encode(d.x[idx[:200_000]])
+        z = model.encode(_batch(d, idx[:200_000], cfg)[0])
     c = torch.corrcoef(z.T).nan_to_num()
     off = c - torch.diag(torch.diag(c))
     return {"std": z.std(0).tolist(), "max_abs_corr": off.abs().max(0).values.tolist()}
@@ -391,7 +397,7 @@ def train(out: Path, dirs: list[Path], cfg: Config) -> None:
         "train_loss_at_best": min(history, key=lambda h: h["val"])["train"],
         "seconds": history[-1]["s"],
         "val": curve(model, d, va, cfg),
-        "latents": _latents(model, d, va),
+        "latents": _latents(model, d, va, cfg),
     }
     (out / "history.json").write_text(json.dumps(history, indent=1) + "\n")
     (out / "metrics.json").write_text(json.dumps(metrics, indent=1) + "\n")
@@ -403,7 +409,7 @@ def test(run: Path, dirs: list[Path]) -> None:
     every choice was made on validation."""
     cfg = Config.model_validate_json((run / "config.json").read_text())
     d, _ = _load(dirs, cfg)
-    model = Codec(d.x.shape[1], d.tgt.shape[1], cfg)
+    model = Codec(d.x.shape[1] * cfg.frames, d.tgt.shape[1], cfg)
     saved = torch.load(run / "model.pt", weights_only=True)
     model.load_state_dict(saved["state"])
     result = {"test": curve(model, d, d.anchors["test"], cfg)}

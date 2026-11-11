@@ -15,9 +15,9 @@ nothing says which LCFs to use or how many.
 
 compact asks whether the set can be derived:
 
-1. **Discover.** Train a controller whose decision passes through a narrow
-   layer of k latents. The width at which performance stops improving
-   estimates how many concepts the task needs.
+1. **Discover.** Train a model that must predict the flow's own future
+   through a narrow layer of k latents. The width at which its skill
+   stops improving estimates how many concepts the task needs.
 2. **Ground.** Fit the latents to short closed-form formulas over emulator
    ground truth and basic sender metrics, and keep the formulas that are
    stable across seeds. A person names each one.
