@@ -6,15 +6,6 @@ score a policy in the closed loop. Terms are in
 `uv sync --extra train`. Large runs are experiment files in GitHub Actions
 ([architecture.md](architecture.md#experiments-in-github-actions)).
 
-## What each step of the plan uses
-
-| Step of the [plan](methodology.md#plan) | Exists | Not built |
-|---|---|---|
-| 2. Students on logged states | step data and both teachers as releases; the link split (`train.data.link_key`) | the student with a k-latent layer and its heads; the value head's targets (the teacher graphs hold no critic) |
-| 3. Black-box teacher, DAgger students | a recurrent actor on raw measurements (`train ppo`, `inputs: "raw"`), trained by PPO, TD3+BC or DAgger; closed-loop rollouts and scoring | DAgger from a teacher given as a graph (today's teacher is a rule or an actor on the true LCFs); the bottlenecked student in the closed loop; the information-bottleneck term |
-| 4. Grounding | the labels and the step message in `steps.parquet` | the library, the fits, the stability and sensitivity checks |
-| 5. Retrain and compare | `train run` for net1 and an offline net2; `train ppo` for a closed-loop net2; oracles on the seven LCFs | labels from fitted formulas; net1 on them; the live truth for them |
-
 ## Step data
 
 A campaign records steps when it sets `"steps": true`; an episode that

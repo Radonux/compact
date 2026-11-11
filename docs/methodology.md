@@ -3,8 +3,9 @@
 compact asks one question: can the concepts of a concept-bottleneck
 congestion controller be chosen from what a trained controller actually
 uses, instead of being picked from a literature review? This page states
-the idea, the claims, the terms, how results are measured, the plan and
-the status of each step.
+the idea, the claims, the terms, how results are measured and the plan.
+What has run, what it showed and what is still open is in
+[log.md](log.md).
 
 The controller design is expliCCit's. net1, the estimator, maps end-host
 measurements to a small set of latent congestion factors (LCFs): physical
@@ -51,8 +52,8 @@ concepts at the same budget ([below](#retained-performance)).
 | C4 | The vocabulary is not the choice: with one base variable or operator family removed from the library, the selected concepts change only when the removed item was one of them | the selection follows whatever the library holds, which is the objection that a person still chooses the candidates |
 | C5 | Teacher independence: teachers trained differently yield the same concepts | the concepts describe one teacher, not the task |
 
-No threshold for "retains" in C3 is fixed yet. The choice rule is written
-down before the run it decides, as for every other choice here.
+Every threshold and choice rule a claim depends on is written down
+before the run it decides.
 
 ## What is not claimed
 
@@ -132,8 +133,6 @@ net2 is trained after net1, on a fixed net1's outputs: the sequential
 regime of concept bottleneck models (Koh et al., 2020). Soft outputs can
 carry more than the concepts, which is the leakage risk below.
 
-Which kind of output the retrained net1 uses in step 5 is not chosen yet.
-
 ## Evaluation protocol
 
 These rules hold for every step. The concrete link set, conditions and
@@ -168,20 +167,18 @@ the gap splits into what the concept set lacks (teacher minus oracle) and
 what net1's estimation costs (oracle minus net1 + net2), and with every
 baseline at the same number of concepts.
 
-The scale is an open choice, to be fixed before step 5 runs. Log utility
-is at most about zero (the log of a share of capacity, minus penalties),
-so a plain ratio of two log utilities is not a fraction retained: a larger
-ratio would mean a worse controller. One candidate is the fraction of the
-teacher's lead over a fixed reference controller, (score - reference) /
-(teacher - reference), reported with the paired difference in log utility
-and its interval. Undecided, and UNRUN.
+Log utility is at most about zero (the log of a share of capacity, minus
+penalties), so a plain ratio of two log utilities is not a fraction
+retained: a larger ratio would mean a worse controller. The scale must
+therefore be fixed before step 5 runs. One candidate is the fraction of
+the teacher's lead over a fixed reference controller, (score - reference)
+/ (teacher - reference), reported with the paired difference in log
+utility and its interval.
 
 ## Plan
 
 The plan is a starting point. A step changes order, is added or is dropped
-when the evidence points elsewhere, and the entry for it says why. What
-each step can reuse and what it still needs built is listed in
-[training.md](training.md#what-each-step-of-the-plan-uses).
+when the evidence points elsewhere, and the log entry for it says why.
 
 The order follows from what each step can show. Step 2 costs little and
 tests the method where the answer is known (the teachers act through
@@ -190,10 +187,11 @@ concept can show discovery, and only the closed loop can show a knee in
 performance. Steps 4 and 5 are meaningful only for a student that passed
 the checks of step 3.
 
-1. **Setup.** The documents state the idea, the claims and the plan; the
-   Phase 0 inputs are releases of this repository.
-2. **Phase 0 as a release.** Port the prototype (below) to an experiment
-   file and reproduce its findings. Add a value head (the teacher's
+1. **Setup.** The documents state the idea, the claims and the plan, and
+   the inputs of Phase 0 are releases of this repository.
+2. **Phase 0 as a release.** Port the local prototype
+   ([log.md](log.md#before-2026-11-11-the-phase-0-prototype)) to an
+   experiment file and reproduce its findings. Add a value head (the teacher's
    Q-values on a fixed grid of actions) as a third head, and report the
    action-only, next-state and value variants side by side.
 3. **A black-box teacher.** Train a teacher on raw measurements that does
@@ -242,99 +240,7 @@ the checks of step 3.
 
 - A release with the code, the configuration, the seeds and the raw
   outputs.
-- A short entry here or in a results page: what ran, what was searched,
-  the held-out numbers, and what remains unrun.
+- An entry in [log.md](log.md): what ran, what was searched, the held-out
+  numbers, and what remains unrun.
 - No performance claim without the tuning the rules in `AGENTS.md`
   require. Anything not run is labelled UNRUN.
-
-## Status
-
-| Step | State |
-|---|---|
-| 1 Setup | Done. The Phase 0 inputs are releases of this repository: the two teachers in [`exp-phase0-teachers-1`](https://github.com/Radonux/compact/releases/tag/exp-phase0-teachers-1), and the step data (20 complete shards, 2.2 GB unpacked) in [`exp-phase0-steps-2`](https://github.com/Radonux/compact/releases/tag/exp-phase0-steps-2). An experiment reads them as `"inputs": {"teachers": "release:exp-phase0-teachers-1", "steps": "release:exp-phase0-steps-2"}` |
-| 2 Phase 0 as a release | UNRUN. A local prototype ran (below). The value head is not built |
-| 3 Black-box teacher, DAgger students | UNRUN. No black-box teacher has been trained or tuned in this project |
-| 4 Grounding | UNRUN |
-| 5 Retrain and compare | UNRUN |
-| C1 to C5 | No evidence from a release yet |
-
-### Phase 0: the local prototype
-
-A prototype ran on 2 CPUs before this repository was set up. It is not a
-release, it was not tuned and it has no closed loop, so its numbers are
-feasibility signals only and support no claim. They are recorded here as
-reported, and nothing below was rerun in this repository. Its scripts
-(`build.py`, `student.py`, `ground.py`) are not in the repository; step 2
-replaces them.
-
-Setup:
-
-- Data: 300,000 steps from 8 of the 20 shards of the logged step data
-  (1,440 links), split by link 70/15/15 with
-  `expliccit_env.train.data.link_key`. The data keeps every 6th step, so
-  the next state is 60 ms later.
-- Teachers, applied to the logged states: the rule teacher
-  (`teachers/rule-bdp.onnx`, a window of 2^0.25 times its estimator's
-  believed BDP) and the TD3+BC teacher (`teachers/td3bc.onnx`). The graphs
-  have a fixed batch dimension of 1; setting dimension 0 of their inputs
-  and outputs to a symbolic `N` with the `onnx` package gave identical
-  outputs on batches. The target is the action plus log2 of the window,
-  which is log2 of the window the teacher sets.
-- Student: net1's observation columns (`EXPLICCIT_OBS_COLS`) and log2 of
-  the window, an MLP of two 256-unit layers, then z. Heads: the action,
-  and the next state (log sRTT, observation index 2, and log delivery
-  rate, index 7) with weight 0.5. k in {1, 2, 3, 4, 6, 32}, 3 seeds, 20
-  epochs of behavioural cloning.
-- Library: 12 hidden-state variables from the `label_*` columns and 7
-  sender observables, mostly as logs, so a linear fit is a power-law
-  product. Fitted on the validation links and scored on the test links.
-
-Reported findings:
-
-1. Positive control. With the action head only, one latent matched the
-   unconstrained student for the rule teacher (held-out action R^2 0.969
-   against 0.968). Greedy selection over the hidden state picked log
-   capacity and then log base RTT (R^2 0.86), which together are log BDP:
-   the rule's own concept, recovered without being given.
-2. With the next-state head, both teachers level off at k = 3. Without
-   it, the rule levels off at k = 1 and TD3+BC at k = 2.
-3. The next-state head shapes z. It lowers the action R^2 at k = 1 from
-   0.969 to 0.893 and makes the two teachers' latents nearly one subspace
-   (linear CKA 0.96). Without it, z is close to the teacher's action
-   (linear R^2 0.92 to 0.94), which is the action-collapse risk.
-4. With the next-state head and k of 2 or more, the first three greedy
-   picks are mostly log receive rate, log base RTT and log1p queueing
-   delay (R^2 0.62 to 0.84).
-5. The full library fits z linearly with a joint R^2 of 0.73 to 0.93; an
-   MLP on the same library reaches 0.92 to 0.99. So the latents are mostly
-   nonlinear functions of known variables.
-6. Linear CKA between seeds is 0.92 to 0.99; a random 3-dimensional
-   projection of the inputs scores 0.42.
-
-The main limitation: both teachers already act through an estimator of
-the seven LCFs, so this tests the recovery of a known bottleneck, not discovery.
-The knee here is in held-out action R^2 on logged states, while C1 is
-about closed-loop performance.
-
-### Open items
-
-- **Targets for the value head.** The teacher graphs are policies and
-  come without a critic, and a rule has none at all. Q-values on a grid
-  of actions need a critic fitted to each teacher first.
-- **Missing base variables.** The emulator does not label the arrival
-  rate of all flows, the flow's own arrival rate or the number of active
-  flows ([concepts.md](concepts.md#what-this-means-for-compact)). Without
-  them grounding cannot return a concept about demand or about the other
-  flows. They should be added before step 4, and data used for grounding
-  must be generated after that.
-- **The scale of retained performance** ([above](#retained-performance)).
-- **The threshold for C3**, and the choice rule for the knee in C1.
-- **The links, conditions and episode lengths** of the closed-loop
-  evaluation, to be fixed in step 3's experiment file.
-- **The kind of output** the retrained net1 states (value, interval or
-  distribution).
-- **Live truth for new concepts.** The guest gives a policy the true
-  values of the seven LCFs only, and labels are computed when an episode
-  is processed ([architecture.md](architecture.md#known-limits)). The
-  oracle net2 of step 5 and labels for fitted formulas need both
-  extended.

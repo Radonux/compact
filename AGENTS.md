@@ -50,8 +50,10 @@ Run what the change touches, and report only what actually ran:
 The goal is to choose the concepts (LCFs) of expliCCit's two-net
 controller from what a trained controller actually uses, instead of
 picking them from a literature review. Discovery is data driven;
-deployment stays by design. `docs/methodology.md` holds the claims, the
-plan and the current status.
+deployment stays by design. `docs/methodology.md` holds the claims and
+the plan. `docs/log.md` holds everything that changes with time: what
+ran, what it showed, the state of each step and the open items. Keep
+status, dates and results out of the README and the other documents.
 
 - **Discover.** Train a student whose decision passes through k latents.
   The width at which performance stops improving counts the concepts.
@@ -67,7 +69,8 @@ Rules for this work:
 
 - The plan is a starting point. Reason from the problem about what would
   show whether the idea works; reorder, add or drop steps when the
-  evidence says so, and record why in `docs/methodology.md`.
+  evidence says so, change the plan in `docs/methodology.md`, and record
+  why in `docs/log.md`.
 - Never claim that a bottleneck makes a network explainable. The claim is
   that the bottleneck counts the concepts and that grounding against
   ground truth names them. A closed-form concept is exact, not
@@ -78,7 +81,7 @@ Rules for this work:
 - Check every student for action collapse (z against the teacher's
   action), and compare concepts across teachers.
 - A phase is done when it has a release with code, configuration, seeds
-  and raw outputs, and a docs entry saying what ran, what was searched,
+  and raw outputs, and an entry in `docs/log.md` saying what ran, what was searched,
   the held-out numbers and what remains UNRUN.
 - compact is an independent project. Name every model, release and
   experiment for what it is in compact, never after the project compact

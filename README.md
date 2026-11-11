@@ -30,20 +30,9 @@ teacher's closed-loop performance the retrained controller keeps, against
 other ways of choosing the same number of concepts. The claim is not that
 a bottleneck makes a network explainable. The bottleneck counts the
 concepts; grounding against ground truth says which they are.
-[docs/methodology.md](docs/methodology.md) has the claims, the terms, the
-plan and the status.
-
-## Status
-
-No result is a release yet. A local prototype on logged states (not
-tuned, no closed loop, so a feasibility signal only) recovered a fixed
-rule's one concept, log BDP, from a one-latent student, and levelled off
-at three latents for two teachers once the student also had to predict
-the next state. Both teachers already act through an estimator of seven
-hand-picked LCFs, so that is recovery of a known bottleneck, not
-discovery. Repeating it as a release, the black-box teacher, the
-grounding and the retraining are all UNRUN
-([status](docs/methodology.md#status)).
+[docs/methodology.md](docs/methodology.md) has the claims, the terms and
+the plan; [docs/log.md](docs/log.md) records what has run and what it
+showed.
 
 ## The emulator
 
@@ -105,7 +94,7 @@ musl-tools, perl, rustup and uv. Clone with `--recurse-submodules`.
     uv run expliccit train ppo ppo.json out/ppo --build build/uml --workers 4
 
 [docs/training.md](docs/training.md) covers data, training, running and
-scoring policies, and what each step of the plan still needs built.
+scoring policies.
 
 ## Guarantees
 
@@ -142,9 +131,10 @@ releases of this repository. Agent instructions are in `AGENTS.md` (also
 
 | Document | Read it for |
 |---|---|
-| [docs/methodology.md](docs/methodology.md) | The idea, the claims, the terms, the evaluation protocol, the plan and the status |
+| [docs/methodology.md](docs/methodology.md) | The idea, the claims, the terms, the evaluation protocol and the plan |
+| [docs/log.md](docs/log.md) | What has run, what it showed, the state of each step and the open items |
 | [docs/concepts.md](docs/concepts.md) | Candidate concepts from the literature: the baseline way of choosing them, names for fitted formulas, and the grounding vocabulary |
-| [docs/training.md](docs/training.md) | Producing data, training net1 and net2, running and scoring a policy; what each step of the plan still needs |
+| [docs/training.md](docs/training.md) | Producing data, training net1 and net2, running and scoring a policy |
 | [docs/architecture.md](docs/architecture.md) | How an episode runs: the link model, the labels, the policy contract, experiments, limits |
 | [docs/validation.md](docs/validation.md) | What was checked about the emulator and the pipeline, and what was not |
 | [kernel/modules/README.md](kernel/modules/README.md) | The kernel modules and their ABIs |

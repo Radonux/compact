@@ -13,10 +13,8 @@ named, `EXPLICCIT_UML_DIR=build/uml`, a Mahak checkout at `5077583` in
 `EXPLICCIT_SAGE_DIR`. Tests check their property, not the exact numbers
 quoted, which come from the run where each check was first made.
 
-On 2026-11-11, without a UML build or the Mahak and Sage checkouts,
-`uv run pytest -q` gave 202 passed and 57 skipped (the tests that need
-them). The UML tests run in CI ([below](#ci)); they were not run for this
-page.
+Without a UML build or the outside checkouts, the tests that need them
+skip. The UML tests run in CI ([below](#ci)).
 
 ## The ground truth is exact
 
@@ -182,4 +180,3 @@ up to `include/linux/tcp.h`, where one hunk no longer applies; the pinned
 | Sage's per-ACK pacing on its own kernel | UNRUN: that kernel's source is not public. |
 | sparse (`C=1`) on the modules | UNRUN: Ubuntu 24.04's sparse is too old for Linux 7.0; W=1 and checkpatch `--strict` are clean. |
 | Training on GPU | UNRUN: no GPU here. |
-| The UML tests, for this page | UNRUN here; CI runs them. |
