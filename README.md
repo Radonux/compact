@@ -4,13 +4,6 @@ compact chooses the concepts of a concept-bottleneck congestion controller
 from what a trained controller actually uses, instead of picking them from
 a literature review.
 
-It includes the emulator the work runs in (Python package `expliccit-env`,
-command `expliccit`): the Linux 7.0 TCP stack in User-Mode Linux (UML) in
-virtual time, through a bottleneck that behaves as Mahimahi's does, with
-the true state of the path recorded at every instant. It runs on any
-x86_64 Linux host without root, including GitHub Actions, where every
-result is published as a release.
-
 ## The question
 
 expliCCit splits a learned congestion controller in two. net1, an
@@ -48,17 +41,22 @@ rule's one concept, log BDP, from a one-latent student, and levelled off
 at three latents for two teachers once the student also had to predict
 the next state. Both teachers already act through an estimator of seven
 hand-picked LCFs, so that is recovery of a known bottleneck, not
-discovery. The reproduction of it as a release, the black-box teacher,
-the grounding and the retraining are all UNRUN
+discovery. Repeating it as a release, the black-box teacher, the
+grounding and the retraining are all UNRUN
 ([status](docs/methodology.md#status)).
 
-## How it works
+## The emulator
+
+Everything runs in the emulator this repository holds (Python package
+`expliccit-env`, command `expliccit`): the Linux 7.0 TCP stack in
+User-Mode Linux (UML) in virtual time, on any x86_64 Linux host without
+root, including GitHub Actions.
 
 ```text
   spec.json ─► parse ─► plan ─► boot UML ─┐   ┌─► validate records ─► labels, metrics, Parquet
                                           │   │
   ┌───────────────────────────────────────┬───┴─ UML kernel, Linux 7.0 ────┐
-  │ guest runner (Rust): namespaces, flows, Sage's step loop, the policy,  │
+  │ guest runner (Rust): namespaces, flows, the step loop, the policy,     │
   │ the live truth, record drain                                           │
   │                                                                        │
   │  [sender] ──── veth ──── [path] ──── veth ──── [receiver]              │
@@ -70,18 +68,24 @@ the grounding and the retraining are all UNRUN
   └────────────────────────────────────────────────────────────────────────┘
 ```
 
-Each episode sends one bulk TCP flow, and optional cross traffic, through
-a trace-driven bottleneck with a fixed delay, a droptail buffer and
-optional random loss. Every arrival, drop and departure is recorded, so
-the LCFs are exact at every instant. A policy is an ONNX graph that sets
-the window every 10 ms step from Sage's state message, and can also read
-the true LCFs (an oracle). [docs/architecture.md](docs/architecture.md)
-has the design and its reasons.
+It gives compact three things:
+
+- **Ground truth.** Every arrival, drop and departure at the bottleneck is
+  recorded, so the path's hidden state is exact at every instant. These
+  labels supervise net1 and are the variables concepts are grounded in.
+- **A closed loop.** A policy is an ONNX graph that sets the window of a
+  real kernel TCP sender every 10 ms from the sender's own measurements,
+  beside any of Linux's 17 controllers as competitors.
+- **Step data.** Every step's measurements, labels and action are logged,
+  for distillation and for supervised training.
+
+[docs/architecture.md](docs/architecture.md) has the design and its
+reasons.
 
 ## Quick start
 
 It needs x86_64 Linux with gcc, make, flex, bison, bc, libelf-dev,
-musl-tools, perl, rustup and uv.
+musl-tools, perl, rustup and uv. Clone with `--recurse-submodules`.
 
     scripts/build-uml.sh build/uml && scripts/build-guest.sh build/uml
     uv sync
@@ -95,61 +99,56 @@ musl-tools, perl, rustup and uv.
     # an experiment in GitHub Actions; its result becomes release exp-NAME-RUN
     gh workflow run experiment.yml -f experiment=experiments/smoke.json
 
-    # training (net1 and an offline net2; learned net2 in closed loop)
+    # training: net1 and an offline net2, then a net2 in the closed loop
     uv sync --extra train
     uv run expliccit train run train.json out/model
     uv run expliccit train ppo ppo.json out/ppo --build build/uml --workers 4
 
 [docs/training.md](docs/training.md) covers data, training, running and
-scoring policies.
+scoring policies, and what each step of the plan still needs built.
 
 ## Guarantees
 
 A change that weakens one of these says so in its commit message. UML
-checks need `EXPLICCIT_UML_DIR=build/uml`; the Mahak checks need a Mahak
-checkout (`git clone https://github.com/Ppazhooh/mahak /tmp/mahak && git -C
-/tmp/mahak checkout 5077583`) in `EXPLICCIT_MAHAK_DIR`.
+checks need `EXPLICCIT_UML_DIR=build/uml`.
 
 | Property | Check |
 |---|---|
-| Real kernel TCP: every Linux controller is the kernel's own code, BBRv3 is Google's, and every kernel change is a separate commit | `git log --oneline e8eadca.. -- third_party/linux`; [third_party/README.md](third_party/README.md) |
+| Real kernel TCP: every Linux controller is the kernel's own code, and every kernel change is a separate commit | `git log --oneline e8eadca.. -- third_party/linux`; [third_party/README.md](third_party/README.md) |
 | The bottleneck equals an independent port of Mahimahi's link queue, event for event, also under loss and cross traffic | `pytest tests/test_uml.py -k "mahimahi_oracle or loss_and_cross"` |
-| Mahak's traces, metrics and active-learning driver equal Mahak's own code | `pytest tests/test_mahimahi.py tests/test_mahak.py` |
 | The same build, spec and seed give byte-identical records | `pytest tests/test_uml.py -k "bit_identical or loss_and_cross"` |
-| A failed or invalid episode becomes a `failed` row with a reason, never metrics or labels | `pytest tests/test_records_abi.py tests/test_agent.py::test_bad_policy_output_fails_the_episode tests/test_mahak.py::test_failed_queries_never_become_labels tests/test_score.py` |
+| A failed or invalid episode becomes a `failed` row with a reason, never metrics or labels | `pytest tests/test_records_abi.py tests/test_agent.py::test_bad_policy_output_fails_the_episode tests/test_score.py` |
 | The truth a policy reads equals the labels stored with its step | `pytest tests/test_truth.py` |
-| Every released policy (each `.onnx` asset of the `model-*` releases) runs on the current guest; rerun when the guest, its modules or the policy contract change | `experiments/onnx-compat.json` |
-| Every kind of net1 (single values, intervals, distributions) trains with every net2 (offline, or taught then PPO; all beliefs or their means), exports a graph that computes what was trained, and runs in the guest | `pytest tests/test_e2e.py` |
-| Mahak's "mRTT" is one-way; a spec names one-way delay or base RTT, never both | `pytest tests/test_spec.py` |
+| Every kind of net1 (single values, intervals, distributions) trains with every net2, exports a graph that computes what was trained, and runs in the guest | `pytest tests/test_e2e.py` |
+| A spec names one-way delay or base RTT, never both | `pytest tests/test_spec.py` |
 | Every episode row names its kernel tree, kernel config, repository commit and seed | columns `kernel_tree`, `config_sha256`, `repo_commit`, `seed` of `episodes.parquet` |
 
 Everything at once: `uv sync --extra train`, then
-`EXPLICCIT_UML_DIR=build/uml EXPLICCIT_MAHAK_DIR=/tmp/mahak uv run pytest -q`.
-The two comparisons with Sage's `sage.cc` also need a Sage checkout and
-g++ (`EXPLICCIT_SAGE_DIR`); CI skips them. What each check showed, and
-what was never run: [docs/validation.md](docs/validation.md).
+`EXPLICCIT_UML_DIR=build/uml uv run pytest -q`. Some comparisons with
+outside code need a checkout of it and skip without one. What each check
+showed, and what was never run: [docs/validation.md](docs/validation.md).
 
 ## Working conventions
 
 Commits go directly to `main` in Conventional Commits form, without pull
-requests, kernel changes as their own commits under `third_party/linux`. Results come only from
-experiments in GitHub Actions, published as releases. Agent instructions
-are in `AGENTS.md` (also `CLAUDE.md`); agent skills come from the
+requests; kernel changes are their own commits under `third_party/linux`.
+Results come only from experiments in GitHub Actions, published as
+releases of this repository. Agent instructions are in `AGENTS.md` (also
+`CLAUDE.md`); agent skills come from the
 [BTreeMap/SKILLs](https://github.com/BTreeMap/SKILLs) submodule at
-`.github/skills`, so clone with `--recurse-submodules`.
+`.github/skills`.
 
 ## Documents
 
 | Document | Read it for |
 |---|---|
 | [docs/methodology.md](docs/methodology.md) | The idea, the claims, the terms, the evaluation protocol, the plan and the status |
-| [docs/lcf-concepts.md](docs/lcf-concepts.md) | Candidate LCFs from the literature: the way of choosing concepts this project tests against, and the source of its hand-picked baseline |
-| [docs/training.md](docs/training.md) | How to produce data, train net1 and net2, and run and score a policy |
-| [docs/architecture.md](docs/architecture.md) | How an episode runs and why; known limits; decisions; extending |
-| [docs/validation.md](docs/validation.md) | What was checked about the emulator, how, and what was not |
+| [docs/concepts.md](docs/concepts.md) | Candidate concepts from the literature: the baseline way of choosing them, names for fitted formulas, and the grounding vocabulary |
+| [docs/training.md](docs/training.md) | Producing data, training net1 and net2, running and scoring a policy; what each step of the plan still needs |
+| [docs/architecture.md](docs/architecture.md) | How an episode runs: the link model, the labels, the policy contract, experiments, limits |
+| [docs/validation.md](docs/validation.md) | What was checked about the emulator and the pipeline, and what was not |
 | [kernel/modules/README.md](kernel/modules/README.md) | The kernel modules and their ABIs |
-| [third_party/README.md](third_party/README.md) | Vendored sources and our patches |
-| [tools/crosscheck/README.md](tools/crosscheck/README.md) | A kit that compares the emulator with the stack Sage and expliCCit ran on |
+| [third_party/README.md](third_party/README.md) | Vendored sources and the kernel patches |
 
 ## Origin
 
@@ -157,6 +156,6 @@ compact began as a fork of
 [Radonux/palaestra](https://github.com/Radonux/palaestra), which built the
 emulator and the trainer; the history up to commit `4d576dfa7` is that
 project's. compact is independent of it: its question, documents, models
-and releases are its own, and the few inputs it took from there are
-copied into its own releases with their source recorded
+and releases are its own, and the inputs it took from there are copied
+into its own releases with their source recorded
 (`experiments/phase0-teachers.json`, `experiments/phase0-steps.json`).

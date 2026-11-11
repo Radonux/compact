@@ -1,24 +1,34 @@
-# LCF concepts from the literature
+# Candidate concepts from the literature
 
-net1 estimates a set of latent congestion factors (LCFs), and net2 acts on
-net1's estimates alone. Training net1 needs each LCF's true value at every
-step, so an LCF must be a quantity the emulator can record exactly. The
-sender does not have to be able to measure it; estimating what the sender
-cannot measure directly is net1's job.
+compact derives a controller's concepts from what a trained controller
+uses. This page is the other way of choosing them: a review of the
+quantities that the literature on congestion control, queue management
+and path measurement defines. It serves compact in three ways.
 
-Candidates come in two kinds. A basic concept is a quantity the link
-itself determines and the emulator logs directly, such as capacity, the
-queue or a packet's delay. A compositional concept is a fixed formula over
-basic concepts in a short window (about 10 ms to 100 ms), such as the
-fraction of capacity in use.
+- **A baseline.** A concept set picked from this review, at the same
+  budget, is what the derived set must beat
+  ([methodology.md](methodology.md#claims), C3).
+- **Names.** A fitted formula that matches a quantity defined here gets
+  that quantity's name and citation. One that matches nothing here is an
+  unfamiliar concept, and is reported as such.
+- **Vocabulary.** The basic quantities here are the base variables of the
+  grounding library, and the review shows which of them the emulator does
+  not label yet ([below](#what-this-means-for-compact)).
 
-This document collects the candidate LCFs that the literature on congestion
-control, queue management and path measurement defines. For each one it
-says what the quantity means, how the emulator records it, whether the
-sender can measure it, and how it is defined. It is a literature review of
-78 papers and RFCs (method at the end). The definitions come from the cited
-sources. The judgments about ground truth, about what the sender can see
-and the recommendations are ours.
+A concept must have an exact value in emulation at every step, because
+net1 is supervised on it. The sender does not have to be able to measure
+it; estimating what the sender cannot measure directly is net1's job. A
+basic concept is a quantity the link itself determines and the emulator
+logs directly, such as capacity, the queue or a packet's delay. A
+compositional concept is a fixed formula over basic concepts in a short
+window, such as the fraction of capacity in use.
+
+For each concept the page says what it means, how the emulator records
+it, whether the sender can measure it, and how the cited source defines
+it. It reviews 78 papers and RFCs ([method](#how-this-review-was-done)).
+The definitions come from the cited sources. The judgments about ground
+truth and about what the sender can see, and the last section's
+inferences, are ours.
 
 ## In short
 
@@ -447,44 +457,60 @@ is ours:
 - stable or volatile conditions: the variation of capacity or of available
   capacity over a window.
 
-## What this means for the labels
+## What this means for compact
 
 This section is our inference, not a finding of the review.
 
-Nearly every compositional concept above is a closed form over a few basic
-concepts: capacity, arrival rate, departure rate, queue, sojourn time,
-base RTT, buffer, active flows and the cause of each drop. The emulator already
-labels most of these. Three are missing:
+**The library's base variables.** Nearly every compositional concept
+above is a closed form over a few basic ones: capacity, arrival rate,
+departure rate, queue, sojourn time, base RTT, buffer, active flows and
+the cause of each drop. The emulator labels most of these
+([architecture.md](architecture.md#ground-truth-labels)). Three are
+missing:
 
 - the arrival rate of all flows;
 - the number of active flows;
 - the observed flow's own arrival rate at the bottleneck.
 
 With those three added, most concepts in the busy-link, queue and
-other-flow sections become one-line functions of the labels. For example:
+other-flow sections are one ratio or product of base variables, which is
+exactly what the library's operators generate. For example:
 
 - available capacity is capacity times (1 minus busy fraction);
 - the load factor is arrival rate over capacity;
 - the fair share is capacity over active flows;
-- the flow's position relative to its fair share is receive rate over fair
-  share.
+- the flow's position relative to its fair share is receive rate over
+  fair share.
 
-Each definition should name its window, as RFC 5136 does [32]: these values
-change with it [23]. The emulator's labels use a trailing 100 ms. At 10 ms a
-12 Mbit/s link offers about ten 1500-byte delivery opportunities, so
-utilization moves in steps of 0.1, and at 1.2 Mbit/s it offers about one.
-The step can stay at 10 ms while each concept keeps its own trailing
-window.
+Without them, grounding cannot return any concept that depends on demand
+or on the number of flows, whatever the latents encode. This is the
+vocabulary objection in concrete form, and the sensitivity check (C4) can
+only test variables that are in the library to begin with.
 
-A concept computed exactly from other LCFs adds nothing net2 could not
-compute itself. If net1 outputs a composite and all its bases, the LCF set
-has an exact dependency among its coordinates. Per-LCF attribution then
-divides credit between them in a way set by the attribution method, not by
-the policy. So an LCF set should hold a composite or its bases, not both.
+**Windows.** Each definition should name its window, as RFC 5136 does
+[32]: these values change with it [23]. The emulator's labels use a
+trailing 100 ms. At 10 ms a 12 Mbit/s link offers about ten 1500-byte
+delivery opportunities, so utilization moves in steps of 0.1, and at 1.2
+Mbit/s it offers about one. The library's windowed operators should
+therefore start no shorter than the labels' own window.
 
-The cause-of-congestion concepts are where an estimator could do better
-than the published heuristics. Each is a plain fact in the emulator, while a
-sender needs seconds of probing or a slow start to infer it.
+**A composite or its bases, not both.** A concept computed exactly from
+other concepts adds nothing net2 could not compute itself, and it puts an
+exact dependency among the set's coordinates. Any per-concept attribution
+then divides credit between them in a way set by the attribution method,
+not by the policy. The sparse basis of step 4 should be chosen with this
+in mind, and so should the hand-picked baseline.
+
+**Where an estimator can beat the published heuristics.** The
+cause-of-congestion concepts are plain facts in the emulator, while a
+sender needs seconds of probing or a slow start to infer them. If the
+latents encode one of them, the heuristics here say how hard it is to
+estimate from the sender.
+
+**What the review did not find.** No included paper defines a
+congestion-control concept by a formula over path state and checks it
+against ground truth, and none compares candidate concept sets by how
+well a policy on them performs. Those two gaps are compact's question.
 
 ## How this review was done
 

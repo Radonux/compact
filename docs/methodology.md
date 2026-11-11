@@ -81,10 +81,10 @@ The closest networking work: Agua (SIGCOMM 2025) maps a controller's
 embeddings to text concepts written by an LLM, after the fact. Niedermayer
 et al. (IFIP Networking 2026) measure the completeness of a given concept
 set. Mutant (NSDI 2025) and UNUM (NSDI 2026) learn latents but do not
-ground them. [lcf-concepts.md](lcf-concepts.md) reviews the candidate LCFs
-the literature defines. Choosing from such a review is the alternative
-this project tests against; the review also supplies the hand-picked
-baseline and helps name a fitted formula.
+ground them. [concepts.md](concepts.md) reviews the concepts the
+literature defines. Choosing from such a review is the alternative this
+project tests against; the review also supplies a baseline, names for
+fitted formulas, and the base variables of the library.
 
 ## Terms
 
@@ -179,7 +179,16 @@ and its interval. Undecided, and UNRUN.
 ## Plan
 
 The plan is a starting point. A step changes order, is added or is dropped
-when the evidence points elsewhere, and the entry for it says why.
+when the evidence points elsewhere, and the entry for it says why. What
+each step can reuse and what it still needs built is listed in
+[training.md](training.md#what-each-step-of-the-plan-uses).
+
+The order follows from what each step can show. Step 2 costs little and
+tests the method where the answer is known (the teachers act through
+seven LCFs). Step 3 removes that crutch: only a teacher that never saw a
+concept can show discovery, and only the closed loop can show a knee in
+performance. Steps 4 and 5 are meaningful only for a student that passed
+the checks of step 3.
 
 1. **Setup.** The documents state the idea, the claims and the plan; the
    Phase 0 inputs are releases of this repository.
@@ -242,7 +251,7 @@ when the evidence points elsewhere, and the entry for it says why.
 
 | Step | State |
 |---|---|
-| 1 Setup | Done. The Phase 0 teachers are release [`exp-phase0-teachers-1`](https://github.com/Radonux/compact/releases/tag/exp-phase0-teachers-1). The step data is copied by `experiments/phase0-steps.json`; its release is not published yet |
+| 1 Setup | Done. The Phase 0 inputs are releases of this repository: the two teachers in [`exp-phase0-teachers-1`](https://github.com/Radonux/compact/releases/tag/exp-phase0-teachers-1), and the step data (20 complete shards, 2.2 GB unpacked) in [`exp-phase0-steps-2`](https://github.com/Radonux/compact/releases/tag/exp-phase0-steps-2). An experiment reads them as `"inputs": {"teachers": "release:exp-phase0-teachers-1", "steps": "release:exp-phase0-steps-2"}` |
 | 2 Phase 0 as a release | UNRUN. A local prototype ran (below). The value head is not built |
 | 3 Black-box teacher, DAgger students | UNRUN. No black-box teacher has been trained or tuned in this project |
 | 4 Grounding | UNRUN |
@@ -309,6 +318,15 @@ about closed-loop performance.
 
 ### Open items
 
+- **Targets for the value head.** The teacher graphs are policies and
+  come without a critic, and a rule has none at all. Q-values on a grid
+  of actions need a critic fitted to each teacher first.
+- **Missing base variables.** The emulator does not label the arrival
+  rate of all flows, the flow's own arrival rate or the number of active
+  flows ([concepts.md](concepts.md#what-this-means-for-compact)). Without
+  them grounding cannot return a concept about demand or about the other
+  flows. They should be added before step 4, and data used for grounding
+  must be generated after that.
 - **The scale of retained performance** ([above](#retained-performance)).
 - **The threshold for C3**, and the choice rule for the knee in C1.
 - **The links, conditions and episode lengths** of the closed-loop

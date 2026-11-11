@@ -1,20 +1,26 @@
-# Training net1 and net2
+# Data, training and scoring
 
-How to produce training data, train net1 and net2, and run and score a
-policy; terms are in [methodology.md](methodology.md#terms). This is the
-existing pipeline that step 5 of the plan retrains through unchanged.
-Training needs `uv sync --extra train`. Large
-runs are experiment files in GitHub Actions
-([architecture.md](architecture.md#experiments-in-github-actions)); those
-under `experiments/` are worked examples of every command below.
+The commands that produce step data, train net1 and net2, and run and
+score a policy in the closed loop. Terms are in
+[methodology.md](methodology.md#terms). Training needs
+`uv sync --extra train`. Large runs are experiment files in GitHub Actions
+([architecture.md](architecture.md#experiments-in-github-actions)).
 
-## Data: teacher campaigns and step data
+## What each step of the plan uses
 
-A campaign records Sage's steps when it sets `"steps": true`; an episode
-that runs a policy always records them. Each shard then has
-`steps.parquet`: per 10 ms step, the 78-value message (`obs`), the labels
-at that instant (`label_*`), Sage's reward from the exact capacity, the
-action taken (the next step's column 76) and whether a policy set it.
+| Step of the [plan](methodology.md#plan) | Exists | Not built |
+|---|---|---|
+| 2. Students on logged states | step data and both teachers as releases; the link split (`train.data.link_key`) | the student with a k-latent layer and its heads; the value head's targets (the teacher graphs hold no critic) |
+| 3. Black-box teacher, DAgger students | a recurrent actor on raw measurements (`train ppo`, `inputs: "raw"`), trained by PPO, TD3+BC or DAgger; closed-loop rollouts and scoring | DAgger from a teacher given as a graph (today's teacher is a rule or an actor on the true LCFs); the bottlenecked student in the closed loop; the information-bottleneck term |
+| 4. Grounding | the labels and the step message in `steps.parquet` | the library, the fits, the stability and sensitivity checks |
+| 5. Retrain and compare | `train run` for net1 and an offline net2; `train ppo` for a closed-loop net2; oracles on the seven LCFs | labels from fitted formulas; net1 on them; the live truth for them |
+
+## Step data
+
+A campaign records steps when it sets `"steps": true`; an episode that
+runs a policy always records them. Each shard then has `steps.parquet`:
+per 10 ms step, the 78-value message (`obs`), the labels at that instant
+(`label_*`), the action taken and whether a policy set it.
 
     {"name": "teachers", "duration_ms": 20000, "seed": 9, "steps": true,
      "ccs": [{"kind": "stock", "name": "cubic"}, {"kind": "stock", "name": "bbr3"}],
@@ -25,65 +31,64 @@ action taken (the next step's column 76) and whether a policy set it.
     uv run expliccit campaign plan teachers.json out/teachers
     uv run expliccit campaign run out/teachers --build build/uml --workers 4 --tables steps
 
-`--tables steps` drops the large link tables; `--steps-stride K` keeps
-every K-th step (enough for net1, not for net2, which needs consecutive
-steps). A sweep `{"kind": "paths", "paths": [...]}` takes any paths, and
-`"ccs_per_point": k` runs k of the controllers per point: net1 learns
-more from many links with a few controllers than the reverse. Any of the
-17 Linux controllers can teach (`StockName` in `spec.py`). The datasets:
+`--tables steps` drops the large link tables. `--steps-stride K` keeps
+every K-th step: enough to supervise an estimator, not enough for a
+learner that needs consecutive steps. A sweep `{"kind": "paths", "paths":
+[...]}` takes any paths, and `"ccs_per_point": k` runs k of the
+controllers per point: many links with a few controllers each teach an
+estimator more than the reverse. Any of the 17 Linux controllers can
+generate data (`StockName` in `spec.py`).
 
-| Data | Made by | Notes |
+| Link set | Made by | Notes |
 |---|---|---|
-| BBRv1, Cubic and Vegas on 120 paths, 30 s | `examples/campaign-expliccit-teachers.json` | expliCCit's own setup: few paths, three controllers |
+| 120 paths, BBRv1, Cubic and Vegas, 30 s | `examples/campaign-expliccit-teachers.json` | expliCCit's own setup |
 | 180 links with every controller, 1,050 with three each | `examples/net1_varied.py` | three conditions; its plan also defines validation and test links |
 | 3,600 broad links under 64 conditions, and four held-out families | `examples/net1_broad.py` | needs `--models DIR` holding `rule-u0.25.onnx`, a fixed-rule policy some episodes run (export one with `experiments/rule_export.py`) |
 
-The Phase 0 step data is the 30 s set of the broad links, every 6th step
-kept, published as a release of this repository by
-`experiments/phase0-steps.json`.
+The Phase 0 step data is the 30 s training set of the broad links with
+every 6th step kept. `experiments/phase0-steps.json` publishes it as a
+release of this repository.
 
 ## net1: `train run`
 
     uv run expliccit train run train.json out/model
 
-`train.json` is a `TrainSpec` (`src/expliccit_env/train/spec.py`); only
-`data` is required. `experiments/specs/net1v4.json` is a worked set of
-settings (a distribution net1, 64 bins, 3 members), and
-`experiments/net1_train.py` trains such a net1 and scores it on held-out
-families (as `experiments/net1v6.json` does; `--stride 24` fits the
-largest dataset on a runner, and `--eval NET1.pt` scores a trained net1
-without training, as `experiments/net1v6-inrange.json` does).
+`train.json` is a `TrainSpec` (`src/expliccit_env/train/spec.py`, the
+reference for every field); only `data` is required.
+`experiments/specs/net1v4.json` is a worked set of settings (a
+distribution net1, 64 bins, 3 members), and `experiments/net1_train.py`
+trains such a net1 and scores it on held-out families.
 
 | Field | Default | Meaning |
 |---|---|---|
 | `data` | | campaign directories, searched for `steps.parquet` |
-| `split_by` | `spec` | `link` keeps a link's episodes in one split under every condition; use it |
+| `split_by` | `spec` | `link` keeps a link's episodes in one split under every condition; use it. `row` scatters rows and overstates accuracy |
 | `val_fraction`, `test_fraction`, `seed` | 0.1, 0.1, 0 | the split and the initialization |
 | `controllers` | all | train only on these controllers' episodes |
 | `step_stride` | 1 | keep every n-th step and the step after it |
 | `net1_from` | none | reuse a trained `net1.pt` |
-| `net1.output` | `{"kind": "point"}` | what net1 states per LCF: one value (`point`), a centre and an interval holding `coverage` (`interval`), or a distribution over `bins` fixed bins, trained with the log score and averaged over `members` net1s (`bins`) |
-| `net1.lcfs`, `net1.obs_cols` | expliCCit's 7 and 70 | what net1 predicts and reads |
+| `net1.lcfs` | expliCCit's 7 | the labels net1 predicts, from the names in `Lcf` |
+| `net1.obs_cols` | expliCCit's 70 | the message columns net1 reads |
+| `net1.output` | `{"kind": "point"}` | what net1 states per label: one value (`point`), a centre and an interval holding `coverage` (`interval`), or a distribution over `bins` fixed bins, trained with the log score and averaged over `members` net1s (`bins`) |
 | `net1.width`, `dropout`, `lr`, `epochs`, `patience` | 512, 0.3, 1e-3, 50, 5 | the network and its training |
 
 Output: `net1.pt`, `net2.pt`, `policy.onnx`, `report.json` and the spec.
-Per LCF on the test split, `report.json` gives R^2 and the mean absolute
-error of the belief's mean,
-CRPS skill and log-score bits against a forecast that ignores the
-measurements, coverage at 50% to 95%, and the 90% width, also on busy and
-idle steps. `fit.quantiles` reads a median and intervals off a belief.
+Per label on the test split, `report.json` gives R^2 and the mean absolute
+error of the belief's mean, CRPS skill and log-score bits against a
+forecast that ignores the measurements, coverage at 50% to 95%, and the
+90% width, also on busy and idle steps.
 
 ## net2 from step data: `train run`
 
-`train run` also trains an offline net2 on net1's beliefs, expliCCit's
-memoryless actor asked at every step, on any kind of net1 (single
-values, intervals or distributions). The defaults are untuned (TD3+BC on
-Sage's reward collapsed the window), so tune it before any claim.
+`train run` also trains an offline net2 on net1's output: a memoryless
+actor asked at every step, on any kind of net1. The defaults are untuned
+(TD3+BC on Sage's reward collapsed the window), so tune it before any
+claim.
 
 | `net2` field | Default | Meaning |
 |---|---|---|
 | `algo` | `td3bc` | `iql` (implicit Q-learning), `bc` (cloning), `expliccit-v1` (expliCCit's objective, kept for comparison) |
-| `inputs` | `net1` | `truth`: train on the labels; the exported policy reads the live truth (an oracle). `raw`: the measurements net1 reads, without net1 (the black box); `net1+raw`: both |
+| `inputs` | `net1` | `truth`: train on the labels; the exported policy reads the live truth (an oracle). `raw`: the measurements net1 reads, without net1 (a black box). `net1+raw`: both |
 | `view`, `input_bins` | `bins`, none | `bins` gives net2 all of net1's output; `means` only each belief's mean; `input_bins` pools a distribution's bins |
 | `action` | `multiplier` | `bdp`: net2 outputs u, the window as a log2 multiple of the believed BDP (for `raw`, of BBR's estimate) |
 | `reward` | `sage` | `utility` or `log_utility` (with `delay_weight` 0.5, `loss_weight` 4) |
@@ -100,58 +105,43 @@ Read them before any closed-loop result:
 | `pi_mean`, `pi_std`, `sat` | the actor's output, and its share near the tanh limits | a mean far from the data's, or saturation |
 | `adv_std`, `w_mean`, `w_capped` | IQL: advantage spread, mean weight, share at the cap | weights near 1: IQL is cloning |
 
-## The rules
-
-    uv run python experiments/rule_export.py out/rules NET1.pt --u 0.25 [--oracle]
-    uv run python experiments/share_rule_export.py out/rules NET1.pt --u0 0.25 --k 0.5 [--oracle]
-
-`--oracle` exports the same rule reading the guest's live truth. The share
-rule's exporter also takes `--flows N` (and `--used`) for the oracle rules
-told the number of flows; `experiments/mode_rule_export.py` exports the
-mode rule. The Phase 0 rule teacher (`teachers/rule-bdp.onnx`, published
-by `experiments/phase0-teachers.json`) is a fixed rule with u = 0.25.
-
-## Learned net2: `train ppo`
+## net2 in the closed loop: `train ppo`
 
     uv run python experiments/net2_ppo_setup.py out/setup --net1 NET1.pt --models MODELS --u 0.25
     uv run expliccit train ppo ppo.json out/ppo --build build/uml --workers 4
 
-The setup writes what every run shares: the fixed rule (the start and
-the baseline), the training paths (600 broad links of their own, 9,600 with
-`--paths net2-train-xl`; MODELS
-is a directory holding `rule-u0.25.onnx`, a fixed-rule policy some of
-their episodes run), the
-validation set scored during training, and `ppo-base.json`, which each
-run edits. `train ppo` takes a `PPOSpec` (`train/spec.py`). The actor is a
-GRU that sees net1's pooled beliefs and its own last u, decides once per
-min RTT (clamped to 10 to 50 ms) and holds u between decisions while the
-window follows each step's believed BDP. The critic also sees the true
-LCFs.
+The setup writes what every run shares: a fixed rule (the start and the
+baseline), the training paths (600 broad links, or 9,600 with `--paths
+net2-train-xl`; MODELS is a directory holding `rule-u0.25.onnx`), a
+validation set scored during training, and `ppo-base.json`, which each run
+edits. `train ppo` takes a `PPOSpec` (`train/spec.py`, the reference for
+every field). The actor is a GRU that decides once per min RTT (clamped to
+10 to 50 ms) and holds u between decisions. The fields that matter here:
 
 | Field | Default | Meaning |
 |---|---|---|
-| `algo` | `ppo` | `td3bc` (from a replay of recent iterations, weight `alpha`), `dagger` (imitation of a privileged teacher) |
-| `student` | `{"kind": "u"}` | what the actor learns and how its output becomes u (`train/spec.py` U, Gate, Gate3). `u` learns u itself; its `base` `share` makes it a residual on the share rule (gain `share_k`). `gate` learns p, the probability that a stock TCP flow shares the link, and sets u = u_rule + p (share rule's u - u_rule), acting past `threshold`. `gate3` also learns q for copies (`threshold_q`) and cooperates with them, or with `copies` `rule` lets q veto the push. `dagger` teaches any of them, `ppo` continues any of them on the reward |
-| `u_rule`, `share_k` | 0.125, 0.5 | the fixed rule's u, and the share rule's gain (the teacher's gain for `dagger`) |
-| `init_actor`, `init_critic` | none | start from a saved `actor.pt`, and PPO's value network from a `critic.pt` |
-| `init_from` | none | continue an earlier run's directory (in place of the two above): its actor, and for `ppo` its value network where it reads the same inputs; refuses another net1 or another actor shape |
-| `anchor` | 0 | `ppo`: weight of the KL divergence to the policy it started from, added to the loss |
-| `teacher_from` | none | `dagger`, student `u`: a run on the true LCFs (`inputs` "truth") as the teacher, in place of the rules |
-| `alone`, `compete`, `copies`, `copies_share`, `competition` | 0, 0.5, (2, 3, 4), none, `at-start` | share of training links where the flow runs alone (no cross flows, the link's loss kept), share with competition (the rest keep the paths' conditions), the copies drawn there, the share of competition links with copies (none: as likely as each of Cubic and BBRv1), and when stock competitors start (`broad`: within the first 10 s, a second one half the time; `diverse`: the same with any controller but the held-out BBRv3 and Westwood; `dynamic`: as `diverse`, arriving anywhere in the first 60% of the episode, and 30% leaving early) |
-| `copies_reward`, `critic_flows` | `own`, false | `team`: copies learn from their mean utility; the critic also counts the flows on the link |
-| `iterations`, `links_per_iteration`, `group` | 40, 8, 4 | rollouts per iteration are links times group (K rollouts per link) |
-| `noise_sigma`, `noise_hold_steps`, `tau_s`, `lr` | 0.1, 1, 3.0, 3e-4 | exploration (log2 of the window) and how many 10 ms steps each draw is held, the reward's time constant, the actor's learning rate |
-| `updates_per_iteration`, `replay_iterations` | 200, 8 | `td3bc` and `dagger` batches per iteration, and the replay's length |
+| `algo` | `ppo` | `td3bc` (from a replay of recent iterations), `dagger` (imitation: the student acts, the teacher labels each decision) |
+| `inputs` | `net1` | what the actor reads: net1's beliefs, the `truth` (an oracle), or `raw` measurements through net1's input scaler, with the window aimed at a measured BDP (the black box) |
+| `student` | `{"kind": "u"}` | what the actor learns; `u` learns u itself. The other kinds in `train/spec.py` learn beliefs about the other flows on the link |
+| `teacher_from` | none | `dagger`, student `u`: a run on the true LCFs (`inputs` "truth") as the teacher, in place of a rule |
+| `init_actor`, `init_critic`, `init_from` | none | start from saved networks, or continue an earlier run's directory |
+| `anchor` | 0 | `ppo`: weight of the KL divergence to the policy it started from |
+| `alone`, `compete`, `copies`, `competition` | 0, 0.5, (2, 3, 4), `at-start` | the mixture of training links: the flow alone, with Linux competitors, or with copies of itself, and when competitors start |
+| `iterations`, `links_per_iteration`, `group` | 40, 8, 4 | rollouts per iteration are links times group |
+| `noise_sigma`, `noise_hold_steps`, `tau_s`, `lr` | 0.1, 1, 3.0, 3e-4 | exploration, the reward's time constant, the actor's learning rate |
 | `time_budget_s` | none | stop before an iteration would cross it |
 
-Output: `policy.onnx`, `actor.pt`, `critic.pt` (PPO's value network, or
-the one `dagger` trains for PPO to continue from), and `history.json`
-(each iteration's rollouts and diagnostics, and every `eval_every`
-iterations the policy against the rule). A taught run continues by PPO
-with `init_from`. The gate experiments
-(`experiments/net2-gate-*.json`) apply `experiments/net2_ppo_gate_report.py`;
-`gate_threshold_export.py` and `gate_ensemble_export.py` there re-export
-gate students at a threshold or as one policy on their mean belief.
+Output: `policy.onnx`, `actor.pt`, `critic.pt` and `history.json` (each
+iteration's rollouts and diagnostics, and every `eval_every` iterations
+the policy against the rule).
+
+## Rules
+
+    uv run python experiments/rule_export.py out/rules NET1.pt --u 0.25 [--oracle]
+
+A fixed rule sets the window to 2^u times net1's believed BDP; `--oracle`
+exports the same rule reading the live truth. The Phase 0 rule teacher
+(`teachers/rule-bdp.onnx`) is such a rule with u = 0.25.
 
 ## Running and scoring a policy
 
@@ -161,42 +151,26 @@ cross flow:
     {"kind": "agent", "mode": "hold",
      "policy": {"path": "out/model/policy.onnx", "sha256": "<sha256 of the file>"}}
 
-In `hold` mode the window and pacing stay as the policy set them, as in
-Sage; `reno` lets Reno grow the window between actions.
+In `hold` mode the window and pacing stay as the policy set them; `reno`
+lets Reno grow the window between actions.
 
     experiments/rule_eval.sh out/val val 11 11 bbr3 --policy rule=out/rules/rule-u0.25.onnx
-    uv run python experiments/copies.py out/copies --split val --duration-ms 30000 --seed 11 --n 2 4 \
-        --stock bbr3 --policy rule=out/rules/rule-u0.25.onnx
     uv run python experiments/rule_report.py out/val
 
-`rule_eval.sh` plans the five families (`experiments/heldout.py` writes
-any one, `held-competitors` included); run each `c-*` campaign with
-`campaign run`, then `rule_report.py` scores them against BBRv3. On any
-campaign with step tables, `expliccit score DIRS --reference bbr3` prints
-log utility per controller, link and condition, paired by link; it
-refuses incomplete shards. `campaign summary` gives Mahak's metrics.
+`rule_eval.sh` plans families of evaluation conditions on the validation
+or test links (`experiments/heldout.py` writes any one); run each `c-*`
+campaign with `campaign run`. On any campaign with step tables,
+`expliccit score DIRS --reference bbr3` prints log utility per controller,
+link and condition, paired by link; it refuses incomplete shards.
 
-## Oracle and patched policies
+## Oracles
 
-A policy can read the path's true LCFs at each step through the
-contract's `truth` input, equal to the labels stored with that step. An
-oracle reads all of them (`net2.inputs: "truth"`, or `--oracle`). A
-patch takes some from the truth and the rest from net1, to test whether a
-wrong belief explains a fault; a patched belief puts all its probability
-on the true value's bin (net1's own where the truth is NaN):
-
-    from pathlib import Path
-    import torch
-    from expliccit_env.train import fit, export, models, spec as ts
-
-    run = Path("out/model")
-    spec = ts.TrainSpec.parse((run / "train_spec.json").read_text())
-    net1, _ = fit.load_net1(run / "net1.pt")
-    actor = models.NET2[spec.net2.arch](net1.width, spec.net2.hidden)
-    actor.load_state_dict(torch.load(run / "net2.pt", map_location="cpu", weights_only=True))
-    graph = fit.policy_graph(net1, actor.eval(), spec.net2.action_max, spec.net2.action_decimals,
-                             truth=frozenset({"busy_fraction"}))
-    (run / "policy-busy-truth.onnx").write_bytes(export.to_onnx(graph))
+A policy can read the true values of the seven LCFs at each step through
+the contract's `truth` input, equal to the labels stored with that step.
+An oracle reads all of them (`net2.inputs: "truth"`, or `--oracle`). A
+patched policy takes some from the truth and the rest from net1
+(`fit.policy_graph(..., truth=frozenset({"busy_fraction"}))`), which
+isolates what one estimate costs.
 
 ## expliCCit's released models
 
@@ -207,9 +181,9 @@ its code stays out of this repository until expliCCit is published.
         --as-deployed [--truth busy_fraction] [--data out/teachers]
 
 `--as-deployed` repeats its deployed controller: beliefs clamped at 0, the
-first six rounded, and the action rounded to three decimals. `--truth`
-patches the named LCFs, and `--data` reports its net1's error on step
-data. The pickled scalers are never loaded, only their parameters.
+first six rounded, and the action rounded to three decimals. `--data`
+reports its net1's error on step data. The pickled scalers are never
+loaded, only their parameters.
 
 ## GPU
 
