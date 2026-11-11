@@ -14,7 +14,6 @@ from pathlib import Path
 
 import numpy as np
 import numpy.typing as npt
-import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import pytest
@@ -23,7 +22,7 @@ from expliccit_env import campaign, labels
 from expliccit_env import mahimahi as mm
 from expliccit_env.cli import main
 from expliccit_env.dataset import read_episode
-from expliccit_env.episode import EpisodeOk, run_episode
+from expliccit_env.episode import EpisodeOk, path_constants, run_episode
 from expliccit_env.guest_plan import GuestPlan, LinkPlan
 from expliccit_env.records import DROP_QUEUE_FULL, DROP_RANDOM, Records, load_records
 from expliccit_env.spec import CampaignSpec, EpisodeSpec
@@ -205,19 +204,43 @@ def test_a_window_far_beyond_the_path_is_bounded(build: UmlBuild, tmp_path: Path
     assert ratio["path"] < 15 and ratio["64mb"] > 30, ratio
 
 
-def _check_arrival_labels(lab: pa.Table, t_ms: npt.NDArray[np.int64]) -> None:
-    """The episode of test_loss_and_cross_traffic: UDP from 2 s, Cubic from 6 s."""
-    total = np.asarray(lab["arrival_rate_bps"])
-    own = np.asarray(lab["flow_arrival_rate_bps"])
-    flows = np.asarray(lab["active_flows"])
-    assert np.all((own >= 0) & (own <= total))
-    assert np.all(total[t_ms < 2000] == own[t_ms < 2000])
-    assert np.all(flows[t_ms < 2000] <= 1) and np.median(flows[t_ms < 2000]) == 1
-    others = (total - own)[(t_ms >= 2200) & (t_ms < 6000)]
-    assert abs(float(np.median(others)) - 0.25 * 20e6) < 0.02 * 20e6
-    assert np.median(flows[(t_ms >= 2200) & (t_ms < 6000)]) == 2
-    assert flows[(t_ms >= 6500) & (t_ms < 8000)].max() == 3
-    assert np.all((flows >= 0) & (flows <= 3))
+def _check_newer_labels(out: EpisodeOk, rec: Records, spec: EpisodeSpec, trace: mm.I64) -> None:
+    """test_loss_and_cross_traffic's episode: the labels beyond expliCCit's."""
+    lab = out.tables["labels"]
+    t_ms = (np.asarray(lab["t_ns"]).astype(np.int64) - out.row["base_ns"]) // 1_000_000  # type: ignore[operator]
+
+    # Flows at the bottleneck: the
+    # observed one, then UDP joins, then cubic, then UDP leaves.
+    def col(name: str) -> npt.NDArray[np.float64]:
+        return np.asarray(lab[name], np.float64)
+
+    flows = col("active_flows")
+    assert np.all(flows[(t_ms >= 500) & (t_ms < 2000)] == 1)
+    assert float(np.median(flows[(t_ms >= 2200) & (t_ms < 6000)])) == 2
+    assert float(np.median(flows[(t_ms >= 6500) & (t_ms < 8000)])) == 3
+    assert float(np.median(flows[t_ms >= 8200])) == 2
+    assert np.all(col("arrival_rate_bps") >= col("flow_arrival_rate_bps"))
+    # What arrives either leaves or is dropped or waits: over the episode the
+    # arrival rate is at least the rate out (capacity times busy fraction).
+    out_bps = np.nan_to_num(col("capacity_bps") * col("busy_fraction"))
+    assert float(col("arrival_rate_bps").mean()) >= float(out_bps.mean()) * 0.99
+    # The least queue of a window is at most the queue at its end.
+    assert np.all(np.nan_to_num(col("queue_min_pkts")) <= col("queue_pkts").max())
+    assert float(np.nanmax(col("queue_min_pkts"))) > 0
+    # The random loss is 1% of the observed flow's packets, window by window.
+    assert abs(float(np.nanmean(col("random_drop_fraction"))) - 0.01) < 0.005
+    assert np.all(np.nan_to_num(col("ack_queue_delay_mean_ns")) >= 0)
+    # Each flow's packets in the queue add up to the queue, at every ACK.
+    k = path_constants(spec, out.row["base_ns"])  # type: ignore[arg-type]
+    t = rec.tcp_obs["t_ns"].astype(np.int64)
+    per_flow = [
+        labels.labels_at(rec, trace, k, t, duration_ms=10_000, sport=port)["flow_queue_pkts"]
+        for port in (labels.MAIN_SPORT, 6000, 6001)
+    ]
+    assert np.array_equal(sum(per_flow), col("queue_pkts")) and all(
+        np.all(q >= 0) for q in per_flow
+    )
+    assert np.array_equal(per_flow[0], col("flow_queue_pkts")) and per_flow[1].max() > 0
 
 
 def test_a_cross_flow_sends_nothing_after_its_stop(build: UmlBuild, tmp_path: Path) -> None:
@@ -345,7 +368,7 @@ def test_loss_and_cross_traffic(build: UmlBuild, tmp_path: Path) -> None:
     with_tcp = share[(t_ms >= 6500) & (t_ms < 8000)]
     assert float(np.median(with_tcp)) > float(np.median(udp_only)) + 0.01
     assert float(np.median(share[t_ms >= 8200])) > 0
-    _check_arrival_labels(lab, t_ms)
+    _check_newer_labels(out, rec, spec, trace)
 
 
 @pytest.mark.skipif(shutil.which("perl") is None, reason="needs perl")
