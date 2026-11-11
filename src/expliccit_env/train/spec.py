@@ -209,7 +209,7 @@ class TrainSpec(_Frozen):
     # "link": the bottleneck link alone, so a link seen in training under
     # one condition (cross traffic, random loss) is never tested under
     # another. "row": rows scattered at random, so one path's steps land in
-    # every split; it overstates accuracy (results.md) and is for checks on
+    # every split; it overstates accuracy and is for checks on
     # a handful of paths, such as the end-to-end tests.
     split_by: Literal["spec", "link", "row"] = "spec"
     val_fraction: Annotated[float, Field(ge=0, lt=1)] = 0.1

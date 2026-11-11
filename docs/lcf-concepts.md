@@ -28,7 +28,7 @@ and the recommendations are ours.
   metrics RFCs and the bandwidth-estimation literature. Rates are defined
   over an explicit interval and delays per packet, and each is exact from
   the emulator's link records.
-- expliCCit's busy fraction, as palaestra labels it, is the standard link
+- expliCCit's busy fraction, as the emulator labels it, is the standard link
   utilization: bits sent over bits the link could have sent, in the window
   (RFC 5136).
 - Most compositional concepts with an exact formula come from
@@ -59,7 +59,7 @@ reference.
 
 In the tables:
 
-- "Truth" says how the emulator records the value. palaestra's link qdisc
+- "Truth" says how the emulator records the value. The emulator's link qdisc
   logs every arrival, departure and drop (with its cause and its flow), the
   queue after each event, one delivery-opportunity record per millisecond,
   and the buffer limit. "Exact" means a function of those records in the
@@ -67,7 +67,7 @@ In the tables:
   value exists only in a model the emulator does not run.
 - "Sender" says whether the sender can measure the value: "yes", "estimate"
   (biased, delayed or conditional, as the cited estimators are) or "no".
-- "Label" is palaestra's existing ground-truth label, if there is one
+- "Label" is the emulator's existing ground-truth label, if there is one
   ([architecture.md](architecture.md#ground-truth-labels)).
 
 Notation used in the definitions:
@@ -158,7 +158,7 @@ Definitions:
   ```
 
   On a trace-driven link (Mahimahi, pending), this is bytes sent over bytes
-  the delivery opportunities offered, which is palaestra's busy fraction.
+  the delivery opportunities offered, which is the emulator's busy fraction.
 - Available capacity, RFC 5136 [32]:
   $`A(L,T,I) = C(L,T,I)\,\bigl(1 - U(L,T,I)\bigr)`$; the tight link is the
   one with the least [32] [23] [21]. In fluid form, the time average of
@@ -222,7 +222,7 @@ Definitions:
   U_j = \frac{q_j}{C_j T} + \frac{\mathrm{txRate}_j}{C_j}
   ```
 
-  Over palaestra's labels this is queue over (capacity times base RTT),
+  Over the emulator's labels this is queue over (capacity times base RTT),
   plus the busy fraction.
 - Normalized power, PowerTCP [60], with $`b`$ the bottleneck bandwidth,
   $`\tau`$ the base RTT and $`\lambda`$ the arrival rate:
@@ -447,13 +447,13 @@ is ours:
 - stable or volatile conditions: the variation of capacity or of available
   capacity over a window.
 
-## What this means for palaestra
+## What this means for the labels
 
 This section is our inference, not a finding of the review.
 
 Nearly every compositional concept above is a closed form over a few basic
 concepts: capacity, arrival rate, departure rate, queue, sojourn time,
-base RTT, buffer, active flows and the cause of each drop. palaestra already
+base RTT, buffer, active flows and the cause of each drop. The emulator already
 labels most of these. Three are missing:
 
 - the arrival rate of all flows;
@@ -470,7 +470,7 @@ other-flow sections become one-line functions of the labels. For example:
   share.
 
 Each definition should name its window, as RFC 5136 does [32]: these values
-change with it [23]. palaestra's labels use a trailing 100 ms. At 10 ms a
+change with it [23]. The emulator's labels use a trailing 100 ms. At 10 ms a
 12 Mbit/s link offers about ten 1500-byte delivery opportunities, so
 utilization moves in steps of 0.1, and at 1.2 Mbit/s it offers about one.
 The step can stay at 10 ms while each concept keeps its own trailing

@@ -1,8 +1,9 @@
 # Training net1 and net2
 
 How to produce training data, train net1 and net2, and run and score a
-policy; terms are in [methodology.md](methodology.md#inherited-terms), results in
-[results.md](results.md). Training needs `uv sync --extra train`. Large
+policy; terms are in [methodology.md](methodology.md#terms). This is the
+existing pipeline that step 5 of the plan retrains through unchanged.
+Training needs `uv sync --extra train`. Large
 runs are experiment files in GitHub Actions
 ([architecture.md](architecture.md#experiments-in-github-actions)); those
 under `experiments/` are worked examples of every command below.
@@ -31,23 +32,27 @@ steps). A sweep `{"kind": "paths", "paths": [...]}` takes any paths, and
 more from many links with a few controllers than the reverse. Any of the
 17 Linux controllers can teach (`StockName` in `spec.py`). The datasets:
 
-| Data | Made by | Used for |
+| Data | Made by | Notes |
 |---|---|---|
-| expliCCit-like: BBRv1, Cubic and Vegas on 120 paths, 30 s | `examples/campaign-expliccit-teachers.json` | the reproduction, the row split |
-| 180 links with every controller, 1,050 with three each | `examples/net1_varied.py` | net1 v3; the evaluation links |
-| 3,600 broad links under 64 conditions, and four held-out families | `examples/net1_broad.py`; releases `exp-data-net1-broad-30s-73`, `-60s-74`, `-ood-75` | net1 v4 and v5; net2's training paths |
+| BBRv1, Cubic and Vegas on 120 paths, 30 s | `examples/campaign-expliccit-teachers.json` | expliCCit's own setup: few paths, three controllers |
+| 180 links with every controller, 1,050 with three each | `examples/net1_varied.py` | three conditions; its plan also defines validation and test links |
+| 3,600 broad links under 64 conditions, and four held-out families | `examples/net1_broad.py` | needs `--models DIR` holding `rule-u0.25.onnx`, a fixed-rule policy some episodes run (export one with `experiments/rule_export.py`) |
+
+The Phase 0 step data is the 30 s set of the broad links, every 6th step
+kept, published as a release of this repository by
+`experiments/phase0-steps.json`.
 
 ## net1: `train run`
 
     uv run expliccit train run train.json out/model
 
 `train.json` is a `TrainSpec` (`src/expliccit_env/train/spec.py`); only
-`data` is required. net1 v5's and v6's settings are
-`experiments/specs/net1v4.json`, and `experiments/net1_train.py` trains
-such a net1 and scores it on held-out families (as
-`experiments/net1v6.json` does; `--stride 24` fits net1 v6's data on a
-runner, and `--eval NET1.pt` scores a trained net1 without training, as
-`experiments/net1v6-inrange.json` does).
+`data` is required. `experiments/specs/net1v4.json` is a worked set of
+settings (a distribution net1, 64 bins, 3 members), and
+`experiments/net1_train.py` trains such a net1 and scores it on held-out
+families (as `experiments/net1v6.json` does; `--stride 24` fits the
+largest dataset on a runner, and `--eval NET1.pt` scores a trained net1
+without training, as `experiments/net1v6-inrange.json` does).
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -57,7 +62,7 @@ runner, and `--eval NET1.pt` scores a trained net1 without training, as
 | `controllers` | all | train only on these controllers' episodes |
 | `step_stride` | 1 | keep every n-th step and the step after it |
 | `net1_from` | none | reuse a trained `net1.pt` |
-| `net1.output` | `{"kind": "point"}` | what net1 states per LCF: one value (`point`), a centre and an interval holding `coverage` (`interval`), or a distribution over `bins` fixed bins, trained with the log score and averaged over `members` net1s (`bins`; net1 v5 and v6: 64 bins, 3 members) |
+| `net1.output` | `{"kind": "point"}` | what net1 states per LCF: one value (`point`), a centre and an interval holding `coverage` (`interval`), or a distribution over `bins` fixed bins, trained with the log score and averaged over `members` net1s (`bins`) |
 | `net1.lcfs`, `net1.obs_cols` | expliCCit's 7 and 70 | what net1 predicts and reads |
 | `net1.width`, `dropout`, `lr`, `epochs`, `patience` | 512, 0.3, 1e-3, 50, 5 | the network and its training |
 
@@ -72,18 +77,14 @@ idle steps. `fit.quantiles` reads a median and intervals off a belief.
 
 `train run` also trains an offline net2 on net1's beliefs, expliCCit's
 memoryless actor asked at every step, on any kind of net1 (single
-values, intervals or distributions). It did not beat the fixed rule
-([results](results.md#a-learned-net2-beats-the-rule-against-competitors)),
-and the defaults are untuned (TD3+BC on Sage's reward collapsed the
-window). A closed-loop TD3 for this actor (`train online`) was removed
-once the recurrent learners below superseded it; release
-`exp-net2v4-val-16` holds its last runs.
+values, intervals or distributions). The defaults are untuned (TD3+BC on
+Sage's reward collapsed the window), so tune it before any claim.
 
 | `net2` field | Default | Meaning |
 |---|---|---|
 | `algo` | `td3bc` | `iql` (implicit Q-learning), `bc` (cloning), `expliccit-v1` (expliCCit's objective, kept for comparison) |
 | `inputs` | `net1` | `truth`: train on the labels; the exported policy reads the live truth (an oracle). `raw`: the measurements net1 reads, without net1 (the black box); `net1+raw`: both |
-| `view`, `input_bins` | `bins`, none | `bins` gives net2 all of net1's output; `means` only each belief's mean (arm A2); `input_bins` pools a distribution's bins |
+| `view`, `input_bins` | `bins`, none | `bins` gives net2 all of net1's output; `means` only each belief's mean; `input_bins` pools a distribution's bins |
 | `action` | `multiplier` | `bdp`: net2 outputs u, the window as a log2 multiple of the believed BDP (for `raw`, of BBR's estimate) |
 | `reward` | `sage` | `utility` or `log_utility` (with `delay_weight` 0.5, `loss_weight` 4) |
 | `discount`, `n_step` | 0.95, 1 | multi-step returns let a target's effect over an RTT reach the critic |
@@ -107,9 +108,8 @@ Read them before any closed-loop result:
 `--oracle` exports the same rule reading the guest's live truth. The share
 rule's exporter also takes `--flows N` (and `--used`) for the oracle rules
 told the number of flows; `experiments/mode_rule_export.py` exports the
-mode rule. Release `model-net1v5` holds net1 v5 (`net1v5.pt`), the fixed
-rule (`rule-u0.25.onnx`), its oracle (`rule-u0.25-oracle.onnx`) and the
-share rule (`share-u0.25-k0.5.onnx`).
+mode rule. The Phase 0 rule teacher (`teachers/rule-bdp.onnx`, published
+by `experiments/phase0-teachers.json`) is a fixed rule with u = 0.25.
 
 ## Learned net2: `train ppo`
 
@@ -119,7 +119,8 @@ share rule (`share-u0.25-k0.5.onnx`).
 The setup writes what every run shares: the fixed rule (the start and
 the baseline), the training paths (600 broad links of their own, 9,600 with
 `--paths net2-train-xl`; MODELS
-is release `model-net1v3`, whose rule some of their episodes run), the
+is a directory holding `rule-u0.25.onnx`, a fixed-rule policy some of
+their episodes run), the
 validation set scored during training, and `ppo-base.json`, which each
 run edits. `train ppo` takes a `PPOSpec` (`train/spec.py`). The actor is a
 GRU that sees net1's pooled beliefs and its own last u, decides once per
@@ -133,7 +134,7 @@ LCFs.
 | `student` | `{"kind": "u"}` | what the actor learns and how its output becomes u (`train/spec.py` U, Gate, Gate3). `u` learns u itself; its `base` `share` makes it a residual on the share rule (gain `share_k`). `gate` learns p, the probability that a stock TCP flow shares the link, and sets u = u_rule + p (share rule's u - u_rule), acting past `threshold`. `gate3` also learns q for copies (`threshold_q`) and cooperates with them, or with `copies` `rule` lets q veto the push. `dagger` teaches any of them, `ppo` continues any of them on the reward |
 | `u_rule`, `share_k` | 0.125, 0.5 | the fixed rule's u, and the share rule's gain (the teacher's gain for `dagger`) |
 | `init_actor`, `init_critic` | none | start from a saved `actor.pt`, and PPO's value network from a `critic.pt` |
-| `init_from` | none | continue an earlier run's directory (in place of the two above): its actor, and for `ppo` its value network where it reads the same inputs; refuses another net1 or another actor shape ([staged-net2.md](staged-net2.md)) |
+| `init_from` | none | continue an earlier run's directory (in place of the two above): its actor, and for `ppo` its value network where it reads the same inputs; refuses another net1 or another actor shape |
 | `anchor` | 0 | `ppo`: weight of the KL divergence to the policy it started from, added to the loss |
 | `teacher_from` | none | `dagger`, student `u`: a run on the true LCFs (`inputs` "truth") as the teacher, in place of the rules |
 | `alone`, `compete`, `copies`, `copies_share`, `competition` | 0, 0.5, (2, 3, 4), none, `at-start` | share of training links where the flow runs alone (no cross flows, the link's loss kept), share with competition (the rest keep the paths' conditions), the copies drawn there, the share of competition links with copies (none: as likely as each of Cubic and BBRv1), and when stock competitors start (`broad`: within the first 10 s, a second one half the time; `diverse`: the same with any controller but the held-out BBRv3 and Westwood; `dynamic`: as `diverse`, arriving anywhere in the first 60% of the episode, and 30% leaving early) |
@@ -147,7 +148,7 @@ Output: `policy.onnx`, `actor.pt`, `critic.pt` (PPO's value network, or
 the one `dagger` trains for PPO to continue from), and `history.json`
 (each iteration's rollouts and diagnostics, and every `eval_every`
 iterations the policy against the rule). A taught run continues by PPO
-with `init_from`; [staged-net2.md](staged-net2.md) has the recipe. The gate experiments
+with `init_from`. The gate experiments
 (`experiments/net2-gate-*.json`) apply `experiments/net2_ppo_gate_report.py`;
 `gate_threshold_export.py` and `gate_ensemble_export.py` there re-export
 gate students at a threshold or as one policy on their mean belief.

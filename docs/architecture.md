@@ -247,7 +247,7 @@ deletes any stash branch a ruleset kept once its release holds every file.
 ## Benchmark suites
 
 Two outside benchmarks run unchanged on the kernel controllers and
-policies ([results](results.md#the-split-costs-little)).
+policies.
 `experiments/ccbench.py` plans ccBench's `solo` and `friendly` suites
 (github.com/Soheil-ab/ccBench at `49b5ada`) and three more (`loss`,
 `copies`, `competitors`); `ccbench_report.py` keeps ccBench's leagues but
@@ -263,12 +263,12 @@ Limits marked `ponytail` in the code name their upgrade path there.
 
 | Limit | Consequence |
 |---|---|
-| Inference and decisions cost no virtual time | a policy acts the instant it reads its step; a fixed decision delay is UNRUN ([measured cost](results.md#the-split-costs-little)) |
+| Inference and decisions cost no virtual time | a policy acts the instant it reads its step; a fixed decision delay is UNRUN |
 | One bottleneck: droptail, fixed delay, i.i.d. loss | no AQM, ECN, jitter, bursty loss or multiple bottlenecks |
 | One decision per 10 ms step | pacing refreshed per step, where Sage's kernel may pace per ACK |
 | At most 64 cross flows, all sender to receiver | no reverse traffic on the ACK path |
 | Several step loops each sleep 1 ns before reading their truth | at 64 agents, 1 of 7,909 steps saw a truth that differed from the labels; labels are always exact |
-| `truth` carries the seven LCFs only | arm A0 (the full path state) is unavailable |
+| `truth` carries the seven LCFs only | a policy cannot read any other true quantity live, so an oracle on a new concept needs the guest's truth extended |
 | Labels are computed when an episode is processed | no code recomputes them from stored link tables; a new label means rerunning |
 | Per-ms u8 trace counts | at most 3 Gbit/s and about 65 s per trace |
 | Mahak's metrics describe the whole link | with cross traffic, `utilization` and `mean_delay_ms` include other flows |

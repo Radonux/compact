@@ -47,13 +47,11 @@ Run what the change touches, and report only what actually ran:
 
 ## Research direction
 
-compact is a fork of Radonux/palaestra with one goal: to choose the
-concepts (LCFs) of expliCCit's two-net controller from what a trained
-controller actually uses, instead of picking them from a literature
-review. Discovery is data driven; deployment stays by design.
-`docs/methodology.md` holds the claims, the plan and the current status;
-palaestra's own claims and results are in `docs/palaestra.md` and
-`docs/results.md`.
+The goal is to choose the concepts (LCFs) of expliCCit's two-net
+controller from what a trained controller actually uses, instead of
+picking them from a literature review. Discovery is data driven;
+deployment stays by design. `docs/methodology.md` holds the claims, the
+plan and the current status.
 
 - **Discover.** Train a student whose decision passes through k latents.
   The width at which performance stops improving counts the concepts.
@@ -82,9 +80,11 @@ Rules for this work:
 - A phase is done when it has a release with code, configuration, seeds
   and raw outputs, and a docs entry saying what ran, what was searched,
   the held-out numbers and what remains UNRUN.
-- "palaestra" names the inherited environment and its results. Releases
-  cited with a `Radonux/palaestra` URL were published there before the
-  fork; compact's own releases are in `Radonux/compact`.
+- compact is an independent project. Name every model, release and
+  experiment for what it is in compact, never after the project compact
+  was forked from. An input taken from there is copied into a compact
+  release by an experiment file whose description records the source;
+  experiments read inputs only from compact's releases.
 
 ## Engineering rules
 
