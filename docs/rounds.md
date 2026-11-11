@@ -2,9 +2,14 @@
 
 The record behind [results.md](results.md#a-learned-net2-beats-the-rule-against-competitors):
 every gate a learned net2 faced on net1 v5, and the training run of every
-round. Terms and scoring are in [methodology.md](methodology.md#terms);
+round. Terms and scoring are in [methodology.md](methodology.md#inherited-terms);
 each number is a candidate minus the fixed rule, paired by link, with its
 95% interval over links.
+
+This page is palaestra's record, inherited by compact at the fork and not
+rerun here. Its claim labels (H1 to H6) are defined in
+[palaestra.md](palaestra.md); compact's own plan and status are in
+[methodology.md](methodology.md#status).
 
 Every round on net1 v5, minus the fixed rule on the 21 validation links
 (campaign seed 21); the kept candidate unless named. "Competition" is

@@ -1,24 +1,65 @@
-# palaestra
+# compact
 
-palaestra (Python package `expliccit-env`, command `expliccit`) is an
-emulation environment for learned TCP congestion control. It runs the
+compact chooses the concepts of a concept-bottleneck congestion controller
+from what a trained controller actually uses, instead of picking them from
+a literature review. It is a fork of
+[Radonux/palaestra](https://github.com/Radonux/palaestra) and runs as an
+independent project.
+
+It keeps palaestra's environment (Python package `expliccit-env`, command
+`expliccit`): an emulator for learned TCP congestion control that runs the
 Linux 7.0 TCP stack in User-Mode Linux (UML) in virtual time, through a
 bottleneck that behaves as Mahimahi's does, and records the true state of
 the path at every instant. It runs on any x86_64 Linux host without root,
 including GitHub Actions, where every result is published as a release.
+In these documents "palaestra" names that environment and the results
+obtained before the fork.
 
 ## The question
 
-Can a learned congestion controller be split into an estimator of the
-path's physical state (net1, trained against ground truth) and a decision
-maker that sees only net1's output (net2), at small cost, and does the
-split make it explainable and repairable? The idea, and the seven
-quantities net1 estimates (latent congestion factors, LCFs: queueing
-delay, queue, capacity, free buffer, busy fraction, one-way delay, receive
-rate), are expliCCit's. [docs/methodology.md](docs/methodology.md) states
-the claims and defines every term used below.
+expliCCit splits a learned congestion controller in two. net1, an
+estimator, maps end-host measurements to a few latent congestion factors
+(LCFs): physical path state such as capacity, queueing delay and base RTT,
+with exact ground truth in emulation. net2, the decision maker, sets the
+window from net1's estimates alone. Its LCF set was chosen by hand, and
+nothing says which LCFs to use or how many.
 
-## What we found
+compact asks whether the set can be derived:
+
+1. **Discover.** Train a controller whose decision passes through a narrow
+   layer of k latents. The width at which performance stops improving
+   estimates how many concepts the task needs.
+2. **Ground.** Fit the latents to short closed-form formulas over emulator
+   ground truth and basic sender metrics, and keep the formulas that are
+   stable across seeds. A person names each one.
+3. **Retrain.** Train a normal net1 and net2 on those formulas as the LCF
+   labels. Only this controller ships, so every decision still passes
+   through exact, checkable quantities.
+
+The measure is retained performance: how much of an unconstrained
+teacher's closed-loop performance the retrained controller keeps, against
+other ways of choosing the same number of concepts. The claim is not that
+a bottleneck makes a network explainable. The bottleneck counts the
+concepts; grounding against ground truth says which they are.
+[docs/methodology.md](docs/methodology.md) has the claims, the terms, the
+plan and the status.
+
+## Status
+
+No compact result is a release yet. A local prototype on logged states
+(not tuned, no closed loop, so a feasibility signal only) recovered the
+fixed rule's one concept, log BDP, from a one-latent student, and
+levelled off at three latents for two teachers once the student also had
+to predict the next state. Both teachers already act through net1's seven
+LCFs, so that is recovery of a known bottleneck, not discovery. The
+reproduction of it as a release, the black-box teacher, the grounding and
+the retraining are all UNRUN
+([status](docs/methodology.md#status)).
+
+## What palaestra found
+
+compact starts from these results. Each is from a release in
+`Radonux/palaestra`, published before the fork; none was rerun here.
 
 1. net1 estimates most LCFs well on links it never saw (R^2 0.88 to 1.00
    for five of seven), and its 90% intervals hold 91% to 97% of the time.
@@ -59,6 +100,7 @@ the claims and defines every term used below.
    the beliefs' means does as well.
 
 Evidence, caveats and every release: [docs/results.md](docs/results.md).
+The claims they answer: [docs/palaestra.md](docs/palaestra.md).
 
 ## How it works
 
@@ -139,8 +181,8 @@ what was never run: [docs/validation.md](docs/validation.md).
 
 ## Working conventions
 
-Commits go to `main` in Conventional Commits form, kernel changes as
-their own commits under `third_party/linux`. Results come only from
+Commits go directly to `main` in Conventional Commits form, without pull
+requests, kernel changes as their own commits under `third_party/linux`. Results come only from
 experiments in GitHub Actions, published as releases. Agent instructions
 are in `AGENTS.md` (also `CLAUDE.md`); agent skills come from the
 [BTreeMap/SKILLs](https://github.com/BTreeMap/SKILLs) submodule at
@@ -150,15 +192,16 @@ are in `AGENTS.md` (also `CLAUDE.md`); agent skills come from the
 
 | Document | Read it for |
 |---|---|
-| [docs/methodology.md](docs/methodology.md) | The claims, the terms, the evaluation protocol, the status of each claim |
-| [docs/lcf-concepts.md](docs/lcf-concepts.md) | Candidate LCFs from the literature: what each means, its ground truth in the emulator, and its definition |
-| [docs/results.md](docs/results.md) | The findings, their evidence and caveats, with releases |
-| [docs/rounds.md](docs/rounds.md) | Every learned-net2 round: its gates, evaluations and training runs |
-| [docs/breakpoint.md](docs/breakpoint.md) | Where net1 and net2 tuning stood when it paused (2026-11-09), and how to resume |
+| [docs/methodology.md](docs/methodology.md) | compact's idea, claims, terms, evaluation protocol, plan and status |
+| [docs/lcf-concepts.md](docs/lcf-concepts.md) | Candidate LCFs from the literature: the way of choosing concepts that compact replaces, and the source of its hand-picked baseline |
+| [docs/palaestra.md](docs/palaestra.md) | palaestra's claims (H1 to H6), arms and their status at the fork |
+| [docs/results.md](docs/results.md) | palaestra's findings, their evidence and caveats, with releases |
+| [docs/rounds.md](docs/rounds.md) | palaestra's learned-net2 rounds: gates, evaluations and training runs |
+| [docs/breakpoint.md](docs/breakpoint.md) | Where palaestra's net1 and net2 tuning stood when it paused (2026-11-09), and the policies and templates to reuse |
 | [docs/training.md](docs/training.md) | How to produce data, train net1 and net2, and run and score a policy |
-| [docs/staged-net2.md](docs/staged-net2.md) | The next architecture: net2 taught, then trained by RL, on a distributional net1; and the plan for real paths |
+| [docs/staged-net2.md](docs/staged-net2.md) | palaestra's design for a net2 taught, then trained by RL, on a distributional net1; and its plan for real paths |
 | [docs/architecture.md](docs/architecture.md) | How an episode runs and why; known limits; decisions; extending |
 | [docs/validation.md](docs/validation.md) | What was checked, how, and what was not |
 | [kernel/modules/README.md](kernel/modules/README.md) | The kernel modules and their ABIs |
 | [third_party/README.md](third_party/README.md) | Vendored sources and our patches |
-| [tools/crosscheck/README.md](tools/crosscheck/README.md) | The kit that compares palaestra with the original stack |
+| [tools/crosscheck/README.md](tools/crosscheck/README.md) | The kit that compares the environment with the original stack |

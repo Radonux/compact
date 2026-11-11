@@ -2,9 +2,14 @@
 
 Every number here comes from a published release unless it says
 otherwise; terms, families and the scoring are defined in
-[methodology.md](methodology.md#terms). Scores are log utility, paired by
+[methodology.md](methodology.md#inherited-terms). Scores are log utility, paired by
 link, with 95% bootstrap intervals over links in brackets. "Minus BBRv3"
 means a controller's score minus BBRv3's on the same links.
+
+This page is palaestra's record, inherited by compact at the fork and not
+rerun here. Its claim labels (H1 to H6) are defined in
+[palaestra.md](palaestra.md); compact's own plan and status are in
+[methodology.md](methodology.md#status).
 
 Runs from #69 on use the guest and TCP settings frozen at `1365f0e`;
 the few earlier runs cited here decided questions those settings did not

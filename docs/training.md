@@ -1,7 +1,7 @@
 # Training net1 and net2
 
 How to produce training data, train net1 and net2, and run and score a
-policy; terms are in [methodology.md](methodology.md#terms), results in
+policy; terms are in [methodology.md](methodology.md#inherited-terms), results in
 [results.md](results.md). Training needs `uv sync --extra train`. Large
 runs are experiment files in GitHub Actions
 ([architecture.md](architecture.md#experiments-in-github-actions)); those

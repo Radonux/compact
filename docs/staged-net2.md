@@ -8,6 +8,10 @@ on net1's output alone, and net1 learns only from ground truth. What
 changes is how net2 is trained. Status: the code paths below exist and
 are tested. No experiment has run the staged pipeline yet (UNRUN).
 
+This is palaestra's design, inherited by compact at the fork. compact's
+plan is in [methodology.md](methodology.md#plan); its step 3 uses the
+DAgger path described here.
+
 ## net1
 
 A distribution net1 exists: `BinNet1` (`train/models.py`), 64 bins per

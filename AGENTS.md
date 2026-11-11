@@ -5,7 +5,8 @@ must keep. Implementation detail is in `docs/architecture.md`.
 
 ## Git
 
-- Push directly to `main`. Force-push is disabled; never rewrite history.
+- Push directly to `main`. Pull requests are not used. Force-push is
+  disabled; never rewrite history.
 - Write commit messages in Conventional Commits form (the `git-commit` skill
   in `.claude/skills` has the rules).
 - End every commit message with exactly this trailer, and no other
@@ -46,19 +47,44 @@ Run what the change touches, and report only what actually ran:
 
 ## Research direction
 
-The goal is to prove that separating net1 (an estimator of physical path
-state, supervised by ground truth) from net2 (a decision maker that acts on
-net1's output alone) works. `docs/methodology.md` holds the claims, the plan
-and the current status. Work in two phases:
+compact is a fork of Radonux/palaestra with one goal: to choose the
+concepts (LCFs) of expliCCit's two-net controller from what a trained
+controller actually uses, instead of picking them from a literature
+review. Discovery is data driven; deployment stays by design.
+`docs/methodology.md` holds the claims, the plan and the current status;
+palaestra's own claims and results are in `docs/palaestra.md` and
+`docs/results.md`.
 
-- **Reproduction**, a short step: run expliCCit's artifacts and setup in
-  this environment and name every divergence, to show that UML reproduces
-  its setup and roughly its results. Here, stay faithful to the original.
-- **Everything after it**: derive each choice from the problem itself and
-  the goal. Algorithms, network sizes, rewards, action spaces, and offline
-  or online training are all free choices. Neither the inherited code nor
-  the draft's choices carry weight of their own; only the separation is the
-  thesis.
+- **Discover.** Train a student whose decision passes through k latents.
+  The width at which performance stops improving counts the concepts.
+- **Ground.** Fit the latents to short closed-form formulas over emulator
+  ground truth and sender metrics. Keep those stable across seeds.
+- **Retrain.** Train a normal net1 and net2 on the fitted formulas as LCF
+  labels, through the existing pipeline. Only this controller ships; the
+  student is thrown away. The metric is retained performance against the
+  unconstrained teacher, in closed loop, compared with other ways of
+  choosing concepts at the same budget.
+
+Rules for this work:
+
+- The plan is a starting point. Reason from the problem about what would
+  show whether the idea works; reorder, add or drop steps when the
+  evidence says so, and record why in `docs/methodology.md`.
+- Never claim that a bottleneck makes a network explainable. The claim is
+  that the bottleneck counts the concepts and that grounding against
+  ground truth names them. A closed-form concept is exact, not
+  necessarily readable.
+- A person still chooses the grounding library, which is the standing
+  objection to the method. Every grounding result comes with its
+  vocabulary sensitivity check.
+- Check every student for action collapse (z against the teacher's
+  action), and compare concepts across teachers.
+- A phase is done when it has a release with code, configuration, seeds
+  and raw outputs, and a docs entry saying what ran, what was searched,
+  the held-out numbers and what remains UNRUN.
+- "palaestra" names the inherited environment and its results. Releases
+  cited with a `Radonux/palaestra` URL were published there before the
+  fork; compact's own releases are in `Radonux/compact`.
 
 ## Engineering rules
 

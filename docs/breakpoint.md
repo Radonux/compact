@@ -4,8 +4,13 @@ Tuning of net1 and net2 paused on 2026-11-09 so that the work can turn to
 choosing the LCFs. This page is the point to resume from: what each line
 of work established, what was running at the pause, what is open, and how
 to pick it up. Every number comes from the release named beside it unless
-it says "local"; terms are defined in [methodology.md](methodology.md#terms)
+it says "local"; terms are defined in [methodology.md](methodology.md#inherited-terms)
 and scores are log utility, paired by link, minus the named reference.
+
+This page is palaestra's record, inherited by compact at the fork and not
+rerun here. Its claim labels (H1 to H6) are defined in
+[palaestra.md](palaestra.md); compact's own plan and status are in
+[methodology.md](methodology.md#status).
 
 ## Where things stand
 
