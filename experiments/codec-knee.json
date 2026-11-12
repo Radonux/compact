@@ -1,0 +1,33 @@
+{
+  "title": "Codecs at the knee, trained on the step data that carries every label",
+  "description": "Step 4 of the plan (docs/methodology.md) needs codecs trained on the data they are grounded on, and five seeds of each. Release exp-steps-broad-30s-9 is the campaign of exp-phase0-steps-2 run again with three more labels; its links and split are the same but most of its episodes are not byte for byte the same. Cells fixedK train a codec with K latents, all kept, for K of 6 (the knee by the rule in docs/methodology.md) and of 4 and 8 (its sensitivity), seeds 0 to 4. Cells wide64 train the model with no narrow layer, seeds 0 to 2, so that the skills can be set beside those on the first copy (0.607, 0.643, 0.657 and 0.674 at 4, 6, 8 and 64 latents). Settings are those fixed on validation links in releases exp-codec-confirm-4 and exp-codec-dropout-6: dropout 0.3, learning rate 1e-3, width 512, encoder depth 4, weight decay 1e-4, 10 epochs, all training anchors, links split 70/15/15 with split seed 0. Scores are on validation links only; the test links are not read. The trained weights are kept.",
+  "train": true,
+  "inputs": {
+    "steps": "release:exp-steps-broad-30s-9"
+  },
+  "matrix": {
+    "job": [
+      "fixed4-s0",
+      "fixed4-s1",
+      "fixed4-s2",
+      "fixed4-s3",
+      "fixed4-s4",
+      "fixed6-s0",
+      "fixed6-s1",
+      "fixed6-s2",
+      "fixed6-s3",
+      "fixed6-s4",
+      "fixed8-s0",
+      "fixed8-s1",
+      "fixed8-s2",
+      "fixed8-s3",
+      "fixed8-s4",
+      "wide64-s0",
+      "wide64-s1",
+      "wide64-s2"
+    ]
+  },
+  "run": "MODEL=${JOB%-s*}; SEED=${JOB##*-s}; case \"$MODEL\" in wide64) K=64;; fixed*) K=${MODEL#fixed};; *) exit 2;; esac; uv run python experiments/codec.py train \"$OUT/runs/$JOB\" --data \"$IN/steps\" --set dropout=0.3 --set k=$K --set nested=false --set seed=$SEED --set lr=0.001 --set width=512 --set depth=4 --set dec_width=512 --set weight_decay=0.0001 --set epochs=10 --set time_budget_s=18000",
+  "collect": "uv run python experiments/codec_report.py \"$OUT\" \"$OUT\"/runs/*",
+  "timeout_minutes": 350
+}
