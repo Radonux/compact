@@ -16,7 +16,7 @@ Updated with each entry. The steps are those of the
 | 1 Setup | done (2026-11-11) | | |
 | 2 The codec on logged steps | done (2026-11-12): search `exp-codec-search-3`, confirmation `exp-codec-confirm-4` | `experiments/codec.py`, its positive control (`tests/test_codec.py`), the link split; the trained weights in `exp-codec-confirm-4` | |
 | 3 Strengthen the codec | dropout 0.3 chosen and the width curve rerun with it (2026-11-12, `exp-codec-dropout-6`); knee rule fixed, 6 latents; longer training and a deeper encoder dispatched (`experiments/codec-capacity.json`), no result yet | the `dropout` option of the codec; the trained weights in `exp-codec-dropout-6` | the information-bottleneck term; the run on the test links |
-| 4 Grounding | UNRUN | the labels and the step message in `steps.parquet`; the codec's latents | the library, the fits, the stability and sensitivity checks |
+| 4 Grounding | started (2026-11-12): the three missing labels added and the step data run again with them (`exp-steps-broad-30s-9`); a linear probe (`experiments/ground-probe.json`) and codecs trained on that data (`experiments/codec-knee.json`) dispatched, no result yet | the labels and the step message in `steps.parquet`; `experiments/ground.py probe` | the library, the fits, the stability and sensitivity checks |
 | 5 Control | UNRUN | a recurrent actor on raw measurements (`train ppo`, `inputs: "raw"`), trained by PPO, TD3+BC or DAgger; closed-loop rollouts and scoring | a controller that reads the codec's latents or fitted concepts; DAgger from a teacher given as a graph; the bottlenecked student in the closed loop |
 | 6 Retrain and compare | UNRUN | `train run` for net1 and an offline net2; `train ppo` for a closed-loop net2; oracles on the seven LCFs | labels from fitted formulas; net1 on them; the live truth for them |
 
@@ -29,12 +29,6 @@ C1 has first evidence from a release, on validation links only (entry of
   teacher graphs are policies and come without a critic, and a rule has
   none at all. Q-values on a grid of actions need a critic fitted to
   each teacher first.
-- **Missing base variables.** The emulator does not label the arrival
-  rate of all flows, the flow's own arrival rate or the number of active
-  flows ([concepts.md](concepts.md#what-this-means-for-compact)). Without
-  them grounding cannot return a concept about demand or about the other
-  flows. They should be added before step 4, and data used for grounding
-  must be generated after that.
 - **The scale of retained performance** ([methodology.md](methodology.md#retained-performance)).
 - **The threshold for C3.**
 - **The links, conditions and episode lengths** of the closed-loop
@@ -46,6 +40,54 @@ C1 has first evidence from a release, on validation links only (entry of
   is processed ([architecture.md](architecture.md#known-limits)). The
   oracle net2 of step 6 and labels for fitted formulas need both
   extended.
+
+## 2026-11-12: three more labels, and the step data run again
+
+Grounding can only return a concept its vocabulary holds, and three base
+variables were missing ([concepts.md](concepts.md#what-this-means-for-compact)).
+
+- **Code.** `labels_at` now gives `arrival_rate_bps`,
+  `flow_arrival_rate_bps` and `active_flows` over the same trailing 100 ms
+  as the other windowed labels
+  ([architecture.md](architecture.md#ground-truth-labels)). A unit test
+  covers the flow count, and the UML test with UDP and TCP cross traffic
+  checks all three against the episode's known traffic.
+- **Data.** Labels are computed from link events, which the first copy of
+  the step data (`exp-phase0-steps-2`) does not hold, so the campaign was
+  run again in compact: release `exp-steps-broad-30s-9`
+  (`experiments/steps-broad-30s.json`), 14,400 episodes, all valid. The
+  rule controller that drives some of its episodes is release
+  `exp-steps-behaviour-rule-8`; it is not the rule of
+  `exp-phase0-teachers-1`, which sits on a later estimator.
+- **It is the same campaign but not the same bytes.** Checked locally on
+  the two releases, not by an experiment:
+  - Every episode spec of one copy is in the other, once the directory of
+    each policy file is dropped. Links and their split are therefore the
+    same.
+  - In 2 of 20 shards (1,440 episodes, 591,331 steps), 468 episodes are
+    equal in every column both copies have, and 972 are not.
+  - In 1 shard (720 episodes), no BBR, BBR3 or CDG episode has the same
+    number of steps, mean window and mean receive rate in both copies;
+    every other controller has some that do. The ratio of an episode's
+    mean receive rate, new over old, has median 1.0000 and its 10th and
+    90th percentiles are 0.950 and 1.062.
+  - Why the copies differ is not known. The first copy was made by a
+    different build of the emulator, outside compact.
+- **The new labels**, in 1 shard (294,830 steps): never undefined; the
+  flow's own arrival rate never exceeds the total; the flow count runs
+  from 0 to 5 with median 2.
+- **Consequence.** A codec is grounded on the data it was trained on, so
+  the knee codecs are trained again on the new release, with five seeds
+  as C2 needs: `experiments/codec-knee.json` (4, 6 and 8 latents, and 64
+  latents over 3 seeds to compare skills between the two copies).
+  Dispatched, no result yet.
+- **Probe.** `experiments/ground.py probe` is the first, linear look
+  ([methodology.md](methodology.md#plan)). `experiments/ground-probe.json`
+  runs it on the codecs of `exp-codec-dropout-6` with the new release's
+  messages and labels. Dispatched, no result yet.
+- **UNRUN.** The cause of the difference between the copies; the
+  comparison over all 20 shards; the probe on codecs trained on the new
+  release.
 
 ## 2026-11-12: the width curve with dropout, and the knee rule
 
