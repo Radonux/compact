@@ -1,0 +1,13 @@
+{
+  "title": "Grounding, a first linear look: codec latents against the ground-truth labels",
+  "description": "Step 4 of the plan (docs/methodology.md), before any formula search. For the fixed-width codecs at dropout 0.3 of release exp-codec-dropout-6 (2, 3, 4, 6, 12 and 16 latents, seeds 0 to 2), experiments/ground.py probe reports, on anchors of the validation links with fits made on anchors of the training links: how well each ground-truth label is predicted from the latents (linear, and quadratic in the latents), how much of each latent a linear fit on all labels explains, and how well one seed's latents predict another's at the same width. The labels come from release exp-steps-broad-30s-9, which adds the arrival rates and the number of active flows to the step data the codecs were trained on. A linear probe is a lower bound on what the latents hold. The test links are not read.",
+  "train": true,
+  "inputs": {
+    "steps": "release:exp-steps-broad-30s-9",
+    "codecs": "release:exp-codec-dropout-6"
+  },
+  "shards": 1,
+  "run": "uv run python experiments/ground.py probe \"$OUT\" --data \"$IN/steps\" --runs \"$IN\"/codecs/runs/drop0.3-fixed*",
+  "collect": "test -s \"$OUT/summary.md\"",
+  "timeout_minutes": 120
+}

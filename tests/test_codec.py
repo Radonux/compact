@@ -77,3 +77,27 @@ def test_a_horizon_sees_only_the_actions_up_to_it() -> None:
     p, q = model.decode(z, a), model.decode(z, b)
     assert torch.equal(p[:, :2], q[:, :2])
     assert not torch.equal(p[:, 2], q[:, 2])
+
+
+def test_ground_probe_scores_linear_and_quadratic_relations() -> None:
+    spec = importlib.util.spec_from_file_location("ground", _PATH.with_name("ground.py"))
+    assert spec is not None and spec.loader is not None
+    ground = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ground)
+    rng = np.random.default_rng(0)
+    z = rng.normal(size=(4000, 3))
+    y = np.stack([z @ [1.0, -2.0, 0.5] + 3, z[:, 0] * z[:, 1], rng.normal(size=4000)], axis=1)
+    y[::7, 0] = np.nan  # undefined rows are left out, not scored as errors
+    fit, score = slice(0, 3000), slice(3000, None)
+    linear = ground.r2(z[fit], y[fit], z[score], y[score])
+    assert linear[0] > 0.999 and linear[1] < 0.1 and linear[2] < 0.05
+    q = ground.quadratic(z)
+    assert q.shape == (4000, 9)
+    assert ground.r2(q[fit], y[fit], q[score], y[score])[1] > 0.999
+    # A variable that is sometimes undefined: its indicator carries that.
+    b = z.copy()
+    b[z[:, 2] > 1, 2] = np.nan
+    b_fit, b_score = ground.filled(b[fit], b[score])
+    assert b_fit.shape[1] == 4 and np.isfinite(b_score).all()
+    target = np.isnan(b[:, 2:3]).astype(np.float64)
+    assert ground.r2(b_fit, target[fit], b_score, target[score])[0] > 0.999

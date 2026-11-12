@@ -257,6 +257,11 @@ than these concepts?) can be asked of concepts directly.
    state and sender metrics) crossed with operators (windowed mean, min
    and max over 2 to 3 horizons, first difference, pairwise ratio and
    product, log).
+   - First look, before any formula (`experiments/ground.py probe`):
+     linear fits between the latents and the base variables, in both
+     directions, and between the latents of two seeds. It says which
+     variables the latents carry, how much of a latent the vocabulary
+     can express at all, and whether seeds agree, each as a lower bound.
    - Fit all k latents jointly with a multi-output group lasso, then take
      a sparse basis of the fitted subspace.
    - Run PySR, with a parsimony penalty, only on the residual the linear
