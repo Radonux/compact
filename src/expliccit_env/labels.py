@@ -41,6 +41,13 @@ trace ms before the sample, as for capacity_bps):
   receive_rate_bps    the observed flow's bits leaving the bottleneck per
                       second (link bytes, as capacity_bps counts them); the
                       receiver sees them one propagation delay later
+  arrival_rate_bps    bits of every flow's packets that reached the
+                      bottleneck queue per second, counting those the full
+                      queue then dropped; over capacity_bps it is the load
+  flow_arrival_rate_bps  the same for the observed flow alone
+  active_flows        flows (protocol and sender port) with at least one
+                      packet reaching the bottleneck in the window, the
+                      observed flow included
 """
 
 from __future__ import annotations
@@ -178,6 +185,17 @@ def drop_fraction(rec: Records, duration_ms: int) -> float:
     return int((drp["ms"] < duration_ms).sum()) / n if n else float("nan")
 
 
+def active_flows(arr: Table, lo: mm.I64, hi: mm.I64) -> mm.I64:
+    """Flows (protocol, sender port) with an arrival in each [lo, hi) of trace ms."""
+    key = arr["proto"].astype(np.int64) << 16 | arr["sport"].astype(np.int64)
+    ms = arr["ms"].astype(np.int64)  # nondecreasing, so each flow's subset is too
+    n = np.zeros(lo.size, dtype=np.int64)
+    for flow in np.unique(key):
+        own = ms[key == flow]
+        n += np.searchsorted(own, hi) > np.searchsorted(own, lo)
+    return n
+
+
 def _window_sums(ms: mm.I64, values: F64, lo: mm.I64, hi: mm.I64) -> tuple[F64, mm.I64]:
     """Sum and count of ``values`` whose (nondecreasing) ``ms`` lies in [lo, hi)."""
     cum = np.concatenate(([0.0], np.cumsum(values)))
@@ -230,6 +248,10 @@ def labels_at(
     one = np.ones
     _, arrivals = _window_sums(arr["ms"].astype(np.int64), one(arr.size), lo, hi)
     _, drops = _window_sums(drp["ms"].astype(np.int64), one(drp.size), lo, hi)
+    all_arr = rec.link(rec.link_arrival, DOWNLINK)
+    all_ms = all_arr["ms"].astype(np.int64)
+    arr_bytes, _ = _window_sums(all_ms, all_arr["bytes"].astype(np.float64), lo, hi)
+    own_bytes, _ = _window_sums(arr["ms"].astype(np.int64), arr["bytes"].astype(np.float64), lo, hi)
     fills = [q_pkts / k.buffer_pkts] if k.buffer_pkts else []
     fills += [q_bytes / k.buffer_bytes] if k.buffer_bytes else []
     with np.errstate(divide="ignore", invalid="ignore"):
@@ -246,6 +268,9 @@ def labels_at(
             "busy_fraction": np.where(cap > 0, used * 8 / (cap * window_s), np.nan),
             "receive_rate_bps": recv_bytes * 8 / window_s,
             "drop_fraction": np.where(arrivals > 0, drops / arrivals, np.nan),
+            "arrival_rate_bps": arr_bytes * 8 / window_s,
+            "flow_arrival_rate_bps": own_bytes * 8 / window_s,
+            "active_flows": active_flows(all_arr, lo, hi),
             "base_rtt_ns": np.full(n, 2 * k.one_way_ns, dtype=np.int64),
             # Mahak's and expliCCit's "mRTT" (named for what it is: one way).
             "one_way_delay_ns": np.full(n, k.one_way_ns, dtype=np.int64),

@@ -143,7 +143,7 @@ ATM explicit-rate control.
 
 | Concept | What it means | Truth | Sender | Label |
 |---|---|---|---|---|
-| Arrival rate | bits per second entering the bottleneck queue, all flows | exact | no | none |
+| Arrival rate | bits per second entering the bottleneck queue, all flows | exact | no | arrival_rate_bps |
 | Usage (departure rate) | bits per second the link actually sent, all flows | exact | estimate, with in-network telemetry | none (capacity times busy fraction) |
 | Receive rate | the observed flow's share of the usage | exact, per flow | yes | receive_rate_bps |
 | Utilization (busy fraction) | the fraction of the link's capacity that was used | exact | estimate | busy_fraction |
@@ -308,8 +308,8 @@ matter whenever the observed flow shares the bottleneck.
 
 | Concept | What it means | Truth | Sender | Label |
 |---|---|---|---|---|
-| Cross-traffic rate | arrival rate of all other flows | exact, per flow | estimate | cross_traffic_share (as a share) |
-| Active flows | how many flows have packets at the bottleneck in the window | exact, per flow | no | none |
+| Cross-traffic rate | arrival rate of all other flows | exact, per flow | estimate | arrival_rate_bps less flow_arrival_rate_bps; cross_traffic_share (as a share) |
+| Active flows | how many flows have packets at the bottleneck in the window | exact, per flow | no | active_flows |
 | Fair share | capacity divided equally among the active flows | exact, per flow | no | none |
 | Max-min share | the fair share after flows that need less have been served | exact, per flow | no | none |
 | Fairness index | how evenly the link is split: 1 for equal shares, $`k/n`$ when $`k`$ of $`n`$ flows share equally and the rest get nothing | exact, per flow | no | none |
@@ -464,17 +464,16 @@ This section is our inference, not a finding of the review.
 **The library's base variables.** Nearly every compositional concept
 above is a closed form over a few basic ones: capacity, arrival rate,
 departure rate, queue, sojourn time, base RTT, buffer, active flows and
-the cause of each drop. The emulator labels most of these
-([architecture.md](architecture.md#ground-truth-labels)). Three are
-missing:
+the cause of each drop. The emulator labels these
+([architecture.md](architecture.md#ground-truth-labels)), including the
+three that expliCCit's seven concepts do not need: the arrival rate of
+all flows (`arrival_rate_bps`), the observed flow's own arrival rate at
+the bottleneck (`flow_arrival_rate_bps`) and the number of active flows
+(`active_flows`).
 
-- the arrival rate of all flows;
-- the number of active flows;
-- the observed flow's own arrival rate at the bottleneck.
-
-With those three added, most concepts in the busy-link, queue and
-other-flow sections are one ratio or product of base variables, which is
-exactly what the library's operators generate. For example:
+Most concepts in the busy-link, queue and other-flow sections are then
+one ratio or product of base variables, which is exactly what the
+library's operators generate. For example:
 
 - available capacity is capacity times (1 minus busy fraction);
 - the load factor is arrival rate over capacity;
@@ -482,7 +481,7 @@ exactly what the library's operators generate. For example:
 - the flow's position relative to its fair share is receive rate over
   fair share.
 
-Without them, grounding cannot return any concept that depends on demand
+Without those three, grounding could not return any concept that depends on demand
 or on the number of flows, whatever the latents encode. This is the
 vocabulary objection in concrete form, and the sensitivity check (C4) can
 only test variables that are in the library to begin with.

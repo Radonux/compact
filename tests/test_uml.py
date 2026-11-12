@@ -13,6 +13,8 @@ import shutil
 from pathlib import Path
 
 import numpy as np
+import numpy.typing as npt
+import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
@@ -201,6 +203,21 @@ def test_a_window_far_beyond_the_path_is_bounded(build: UmlBuild, tmp_path: Path
     assert ratio["path"] < 15 and ratio["64mb"] > 30, ratio
 
 
+def _check_arrival_labels(lab: pa.Table, t_ms: npt.NDArray[np.int64]) -> None:
+    """The episode of test_loss_and_cross_traffic: UDP from 2 s, Cubic from 6 s."""
+    total = np.asarray(lab["arrival_rate_bps"])
+    own = np.asarray(lab["flow_arrival_rate_bps"])
+    flows = np.asarray(lab["active_flows"])
+    assert np.all((own >= 0) & (own <= total))
+    assert np.all(total[t_ms < 2000] == own[t_ms < 2000])
+    assert np.all(flows[t_ms < 2000] <= 1) and np.median(flows[t_ms < 2000]) == 1
+    others = (total - own)[(t_ms >= 2200) & (t_ms < 6000)]
+    assert abs(float(np.median(others)) - 0.25 * 20e6) < 0.02 * 20e6
+    assert np.median(flows[(t_ms >= 2200) & (t_ms < 6000)]) == 2
+    assert flows[(t_ms >= 6500) & (t_ms < 8000)].max() == 3
+    assert np.all((flows >= 0) & (flows <= 3))
+
+
 def test_loss_and_cross_traffic(build: UmlBuild, tmp_path: Path) -> None:
     # 20 Mbit/s; 5 Mbit/s of CBR UDP over [2 s, 8 s); Cubic cross traffic from
     # 6 s; 1% random loss on data, 0.5% on ACKs.
@@ -292,6 +309,7 @@ def test_loss_and_cross_traffic(build: UmlBuild, tmp_path: Path) -> None:
     with_tcp = share[(t_ms >= 6500) & (t_ms < 8000)]
     assert float(np.median(with_tcp)) > float(np.median(udp_only)) + 0.01
     assert float(np.median(share[t_ms >= 8200])) > 0
+    _check_arrival_labels(lab, t_ms)
 
 
 @pytest.mark.skipif(shutil.which("perl") is None, reason="needs perl")

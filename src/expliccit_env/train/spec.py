@@ -26,6 +26,9 @@ LCF_UNITS: Final = {
     "receive_rate_bps": (1e-6, "Mbit/s"),
     "random_loss_rate": (1.0, ""),
     "cross_traffic_share": (1.0, ""),
+    "arrival_rate_bps": (1e-6, "Mbit/s"),
+    "flow_arrival_rate_bps": (1e-6, "Mbit/s"),
+    "active_flows": (1.0, "flows"),
 }
 # expliCCit's seven LCFs, c0 to c6, in its order (its concepts log names them
 # avg_queuing_delay_ms, buffer_occupancy_pkts, channel_capacity_Mbps,
@@ -56,6 +59,9 @@ type Lcf = Literal[
     "receive_rate_bps",
     "random_loss_rate",
     "cross_traffic_share",
+    "arrival_rate_bps",
+    "flow_arrival_rate_bps",
+    "active_flows",
 ]
 
 

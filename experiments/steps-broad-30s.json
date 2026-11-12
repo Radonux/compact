@@ -1,0 +1,13 @@
+{
+  "title": "Logged steps on a broad set of links, with the arrival and flow-count labels",
+  "description": "The step data the codec is trained on (experiments/phase0-steps.json), generated again in compact so that each step also carries the three ground-truth labels grounding needs and the first copy lacks: label_arrival_rate_bps, label_flow_arrival_rate_bps and label_active_flows (src/expliccit_env/labels.py). Same campaign: 2,400 links, two conditions each from a broad set of 64, three controllers per link, 30 s episodes, every 6th 10 ms step kept (examples/net1_broad.py, set train30), 20 shards. Episodes run in virtual time from seeds, so the observations and actions should equal the first copy's; the log entry citing this release says whether they do. The rule controller comes from experiments/steps-behaviour-rule.json.",
+  "uml": true,
+  "inputs": {
+    "rule": "release:exp-steps-behaviour-rule-8"
+  },
+  "prepare": "uv run python examples/net1_broad.py \"$OUT/spec-train30\" --set train30 --models \"$IN/rule/models\" && uv run expliccit campaign plan \"$OUT/spec-train30/campaign.json\" \"$OUT/campaign-train30\"",
+  "shards": 20,
+  "run": "uv run expliccit campaign run \"$OUT/campaign-train30\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps --steps-stride 6",
+  "collect": "uv run expliccit campaign status \"$OUT/campaign-train30\" > \"$OUT/status-train30.json\"; { echo '| set | status |'; echo '|---|---|'; echo \"| train30 | $(jq -c . \"$OUT/status-train30.json\") |\"; } > \"$OUT/summary.md\"",
+  "timeout_minutes": 180
+}

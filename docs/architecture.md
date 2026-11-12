@@ -136,12 +136,14 @@ the data direction; windowed labels cover the trailing 100 trace ms.
 | `drop_fraction` | the flow's packets dropped by the full queue over those that reached it, in the window |
 | `random_loss_rate` | the configured random loss on the data direction |
 | `cross_traffic_share` | the share of the bottleneck's capacity that every other flow used in the window |
+| `arrival_rate_bps` | bits of every flow's packets that reached the bottleneck queue per second, over the window, counting those the full queue then dropped |
+| `flow_arrival_rate_bps` | the same for the observed flow alone |
+| `active_flows` | flows (protocol and sender port) with at least one packet reaching the bottleneck in the window, the observed flow included |
 
 The seven LCFs of expliCCit are `queue_delay_mean_ns`, `queue_pkts`,
 `capacity_bps`, `free_buffer_pkts`, `busy_fraction`, `one_way_delay_ns`
-and `receive_rate_bps`. Three quantities that many published concepts need
-are not labelled yet: the arrival rate of all flows, the observed flow's
-own arrival rate, and the number of active flows
+and `receive_rate_bps`. The arrival rates and the flow count are there
+because many published concepts are closed forms over them
 ([concepts.md](concepts.md#what-this-means-for-compact)).
 
 ## Sage's step and the policy contract (`sage-v1`)
