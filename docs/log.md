@@ -15,7 +15,7 @@ Updated with each entry. The steps are those of the
 |---|---|---|---|
 | 1 Setup | done (2026-11-11) | | |
 | 2 The codec on logged steps | done (2026-11-12): search `exp-codec-search-3`, confirmation `exp-codec-confirm-4` | `experiments/codec.py`, its positive control (`tests/test_codec.py`), the link split; the trained weights in `exp-codec-confirm-4` | |
-| 3 Strengthen the codec | variants dispatched (`experiments/codec-variants.json`), no result yet | the `frames`, `targets` and `dropout` options of the codec | the information-bottleneck term; the run on the test links |
+| 3 Strengthen the codec | variants done (2026-11-12, `exp-codec-variants-5`): dropout kept, message history and utility targets dropped; the width curve with dropout is dispatched (`experiments/codec-dropout.json`), no result yet | the `dropout` option of the codec | the information-bottleneck term; the run on the test links |
 | 4 Grounding | UNRUN | the labels and the step message in `steps.parquet`; the codec's latents | the library, the fits, the stability and sensitivity checks |
 | 5 Control | UNRUN | a recurrent actor on raw measurements (`train ppo`, `inputs: "raw"`), trained by PPO, TD3+BC or DAgger; closed-loop rollouts and scoring | a controller that reads the codec's latents or fitted concepts; DAgger from a teacher given as a graph; the bottlenecked student in the closed loop |
 | 6 Retrain and compare | UNRUN | `train run` for net1 and an offline net2; `train ppo` for a closed-loop net2; oracles on the seven LCFs | labels from fitted formulas; net1 on them; the live truth for them |
@@ -46,6 +46,70 @@ C1 has first evidence from a release, on validation links only (entry of
   is processed ([architecture.md](architecture.md#known-limits)). The
   oracle net2 of step 6 and labels for fitted formulas need both
   extended.
+
+## 2026-11-12: codec variants, dropout helps and the other two do not
+
+- **Release.**
+  [`exp-codec-variants-5`](https://github.com/Radonux/compact/releases/tag/exp-codec-variants-5)
+  (`experiments/codec-variants.json` at commit `fdf49cf22`): 24 models,
+  each change alone on the confirmed settings, at 8 latents and at 64,
+  all kept, seeds 0 to 2. Searched: dropout 0.1 and 0.3, the last 4
+  messages as input, the utility's terms as extra targets. No cell
+  failed and no run stopped early. The baselines are the 8-latent and
+  64-latent models of `exp-codec-confirm-4`.
+- **Validation links** (mean and standard deviation over seeds; skill
+  and R^2 are over the three observation targets and five horizons;
+  "60 ms" and "960 ms" are the skill at that horizon):
+
+  | Model | Seeds | R^2 | Skill | 60 ms | 960 ms | Training loss | Validation loss |
+  |---|---|---|---|---|---|---|---|
+  | 8 latents, baseline | 3 | 0.9619 | 0.636 ± 0.002 | 0.527 | 0.661 | 0.0096 | 0.0146 |
+  | 8 latents, dropout 0.1 | 3 | 0.9637 | 0.652 ± 0.001 | 0.545 | 0.684 | 0.0110 | 0.0140 |
+  | 8 latents, dropout 0.3 | 3 | 0.9647 | 0.657 ± 0.001 | 0.546 | 0.697 | 0.0129 | 0.0137 |
+  | 64 latents, baseline | 5 | 0.9629 | 0.652 ± 0.001 | 0.568 | 0.667 | 0.0088 | 0.0142 |
+  | 64 latents, dropout 0.1 | 3 | 0.9647 | 0.669 ± 0.001 | 0.586 | 0.690 | 0.0099 | 0.0135 |
+  | 64 latents, dropout 0.3 | 3 | 0.9658 | 0.674 ± 0.001 | 0.586 | 0.704 | 0.0116 | 0.0132 |
+  | 8 latents, utility targets | 3 | 0.9586 | 0.583 ± 0.004 | 0.405 | 0.637 | | |
+  | 64 latents, utility targets | 3 | 0.9603 | 0.613 ± 0.002 | 0.488 | 0.651 | | |
+  | 8 latents, 4 messages | 3 | 0.9629 | 0.606 ± 0.002 (other anchors) | 0.490 | 0.638 | 0.0092 | 0.0141 |
+  | 64 latents, 4 messages | 3 | 0.9640 | 0.625 ± 0.001 (other anchors) | 0.538 | 0.645 | 0.0082 | 0.0136 |
+
+  The training loss of a dropout model is measured with dropout on, so
+  it is not a clean measure of fit. The losses of the utility models
+  cover six targets and are left out.
+- **What it shows.**
+  1. Dropout helps at both widths, by 10 or more standard deviations:
+     +0.021 skill at 8 latents and +0.022 at 64 for dropout 0.3. Most of
+     the gain is at the long horizons. 0.3 beat 0.1 and is the largest
+     value tried, so the best value may be higher.
+  2. Dropout does not close the gap between 8 and 64 latents (0.016
+     without, 0.018 with dropout 0.3). The width curve of the
+     confirmation was read from models that overfit, so it is rerun with
+     dropout before the count is read.
+  3. The utility's terms as extra targets lower the skill on the
+     observation targets (0.636 to 0.583 at 8 latents, 0.652 to 0.613 at
+     64), most at 60 ms. The codec also predicts those terms badly at
+     short horizons: for the flow's share the skill is -0.88 at 60 ms
+     and 0.19 at 960 ms (64 latents, seed 0), so persistence is better
+     there. Dropped.
+  4. With the last 4 messages as input the anchors differ (an anchor
+     needs 3 earlier steps; persistence R^2 0.875 against 0.869), so the
+     skill cannot be set beside the baseline's. R^2 rises by 0.001, a
+     third of what dropout 0.3 gives, and by target the skill is lower
+     for the delivery rate (0.63 against 0.73 at 64 latents) and higher
+     for loss (0.70 against 0.68), which may be the anchors and not the
+     model. It also fits the training links hardest (0.0082). Dropped:
+     no clear gain, and the one-message encoder keeps a concept a
+     function of one step. A comparison on the same anchors is UNRUN.
+  These agree with the local probes of 2026-11-11.
+- **Dispatched.** `experiments/codec-dropout.json`: the width curve at
+  dropout 0.3 (2, 3, 4, 6, 12 and 16 latents; 8 and 64 are in this
+  release), and dropout 0.5 at 8 and 64 latents, 3 seeds each. No result
+  yet.
+- **UNRUN.** The width curve with dropout; dropout above 0.3; dropout
+  with ordered latents; message history on matched anchors; the
+  information bottleneck; widths 1, 5, 7 and 10; a network larger than
+  512x4; the knee rule; anything on the test links; grounding.
 
 ## 2026-11-12: the codec confirmed over seeds
 
