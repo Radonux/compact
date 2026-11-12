@@ -1,0 +1,8 @@
+{
+  "title": "The rule controller that drove a third of the logged steps, as an ONNX graph",
+  "description": "One of the three kinds of controller behind compact's logged step data (experiments/phase0-steps.json): a fixed rule that sets the window to 2^0.25 times the bandwidth-delay product its built-in estimator believes. Regenerating that data needs this exact file, so it is copied byte for byte from the project compact was forked from (source: release model-net1v3 of Radonux/palaestra, file rule-u0.25.onnx; SHA-256 ba480095699ced163672cd774466eec66d6e2a6fe44b46d8d62f62e87bf115ef). It is not teachers/rule-bdp.onnx of experiments/phase0-teachers.json, which is the same rule over a later estimator. The file keeps the name examples/net1_broad.py looks for. summary.md lists its size and SHA-256.",
+  "shards": 1,
+  "run": "mkdir -p \"$OUT/models\" && curl -fsSL --retry 5 -o \"$OUT/models/rule-u0.25.onnx\" https://github.com/Radonux/palaestra/releases/download/model-net1v3/rule-u0.25.onnx && echo 'ba480095699ced163672cd774466eec66d6e2a6fe44b46d8d62f62e87bf115ef  models/rule-u0.25.onnx' | (cd \"$OUT\" && sha256sum -c -)",
+  "collect": "{ echo '| file | bytes | sha256 |'; echo '|---|---|---|'; for f in \"$OUT\"/models/*.onnx; do echo \"| models/$(basename \"$f\") | $(stat -c %s \"$f\") | $(sha256sum \"$f\" | cut -d' ' -f1) |\"; done; } > \"$OUT/summary.md\"",
+  "timeout_minutes": 20
+}
