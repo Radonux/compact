@@ -15,7 +15,7 @@ Updated with each entry. The steps are those of the
 |---|---|---|---|
 | 1 Setup | done (2026-11-11) | | |
 | 2 The codec on logged steps | done (2026-11-12): search `exp-codec-search-3`, confirmation `exp-codec-confirm-4` | `experiments/codec.py`, its positive control (`tests/test_codec.py`), the link split; the trained weights in `exp-codec-confirm-4` | |
-| 3 Strengthen the codec | variants done (2026-11-12, `exp-codec-variants-5`): dropout kept, message history and utility targets dropped; the width curve with dropout is dispatched (`experiments/codec-dropout.json`), no result yet | the `dropout` option of the codec | the information-bottleneck term; the run on the test links |
+| 3 Strengthen the codec | dropout 0.3 chosen and the width curve rerun with it (2026-11-12, `exp-codec-dropout-6`); knee rule fixed, 6 latents; longer training and a deeper encoder dispatched (`experiments/codec-capacity.json`), no result yet | the `dropout` option of the codec; the trained weights in `exp-codec-dropout-6` | the information-bottleneck term; the run on the test links |
 | 4 Grounding | UNRUN | the labels and the step message in `steps.parquet`; the codec's latents | the library, the fits, the stability and sensitivity checks |
 | 5 Control | UNRUN | a recurrent actor on raw measurements (`train ppo`, `inputs: "raw"`), trained by PPO, TD3+BC or DAgger; closed-loop rollouts and scoring | a controller that reads the codec's latents or fitted concepts; DAgger from a teacher given as a graph; the bottlenecked student in the closed loop |
 | 6 Retrain and compare | UNRUN | `train run` for net1 and an offline net2; `train ppo` for a closed-loop net2; oracles on the seven LCFs | labels from fitted formulas; net1 on them; the live truth for them |
@@ -36,7 +36,7 @@ C1 has first evidence from a release, on validation links only (entry of
   flows. They should be added before step 4, and data used for grounding
   must be generated after that.
 - **The scale of retained performance** ([methodology.md](methodology.md#retained-performance)).
-- **The threshold for C3**, and the choice rule for the knee in C1.
+- **The threshold for C3.**
 - **The links, conditions and episode lengths** of the closed-loop
   evaluation, to be fixed in step 5's experiment file.
 - **The kind of output** the retrained net1 states (value, interval or
@@ -46,6 +46,69 @@ C1 has first evidence from a release, on validation links only (entry of
   is processed ([architecture.md](architecture.md#known-limits)). The
   oracle net2 of step 6 and labels for fitted formulas need both
   extended.
+
+## 2026-11-12: the width curve with dropout, and the knee rule
+
+- **Release.**
+  [`exp-codec-dropout-6`](https://github.com/Radonux/compact/releases/tag/exp-codec-dropout-6)
+  (`experiments/codec-dropout.json` at commit `e84c9abcc`), with the
+  trained weights of its 24 models: fixed widths 2, 3, 4, 6, 12 and 16
+  at dropout 0.3, and dropout 0.5 at 8 and 64 latents, seeds 0 to 2.
+  Widths 8 and 64 at dropout 0.3 are in `exp-codec-variants-5`. No cell
+  failed and no run stopped early. Searched so far for dropout: 0, 0.1,
+  0.3 and 0.5, at 8 and 64 latents.
+- **Validation links** (skill over persistence, mean and standard
+  deviation over 3 seeds, 5 for 64 latents without dropout; the share is
+  of the 64-latent skill in the same column):
+
+  | Latents, all kept | No dropout | Share | Dropout 0.3 | Share | 60 ms, dropout 0.3 |
+  |---|---|---|---|---|---|
+  | 2 | 0.091 ± 0.044 | 14% | 0.086 ± 0.037 | 13% | -0.69 |
+  | 3 | 0.519 ± 0.002 | 80% | 0.520 ± 0.003 | 77% | 0.23 |
+  | 4 | 0.589 ± 0.004 | 90% | 0.607 ± 0.001 | 90% | 0.44 |
+  | 6 | 0.624 ± 0.003 | 96% | 0.643 ± 0.001 | 95.4% | 0.52 |
+  | 8 | 0.636 ± 0.002 | 97% | 0.657 ± 0.001 | 97% | 0.55 |
+  | 12 | 0.647 ± 0.002 | 99% | 0.666 ± 0.000 | 99% | 0.57 |
+  | 16 | 0.649 ± 0.002 | 100% | 0.670 ± 0.000 | 99% | 0.57 |
+  | 64 | 0.652 ± 0.001 | 100% | 0.674 ± 0.001 | 100% | 0.59 |
+
+  Dropout at 8 latents: 0: 0.636, 0.1: 0.652, 0.3: 0.657, 0.5: 0.647.
+  At 64 latents: 0: 0.652, 0.1: 0.669, 0.3: 0.674, 0.5: 0.669.
+- **What it shows.**
+  1. Dropout 0.3 is the best of the four values at both widths, with
+     lower skill on either side, so the search has an interior optimum.
+     Dropout 0.3 is now the codec's setting.
+  2. The shape of the width curve does not depend on regularization.
+     With and without dropout, 2 latents fail, 3 give about 80% of the
+     64-latent skill, 4 give 90%, 6 give 95 to 96%, and the curve is flat
+     from 12. Dropout does not help at 2 and 3 latents, where the model
+     is limited by its width and not by overfitting, and helps by about
+     0.02 from 4 latents on.
+  3. The spread over seeds with dropout is at most 0.003 from 3 latents
+     on, far below the steps between widths up to 8.
+  4. As before, the extra latents mostly buy the 60 ms horizon.
+- **The knee rule is fixed** ([methodology.md](methodology.md#terms)):
+  the smallest fixed width whose validation skill is within 5% of the
+  64-latent skill at the tuned settings. That is **6 latents** (95.4%
+  with dropout 0.3, 96% without). Reasons for 5% and not 10%: the 10%
+  rule gives 4 latents, which sit exactly on its threshold (90%) and
+  reach only 0.44 skill at 60 ms against 0.59; and the steps from 4 to 6
+  are 20 or more standard deviations, so they are real. The rule was
+  chosen after seeing validation links and before any test link is
+  read. Grounding will also be run at 4 and 8 latents, as the
+  sensitivity of everything downstream to this choice. The number is
+  close to the seven hand-picked LCFs, which says nothing yet about
+  whether the concepts are the same.
+- **Dispatched.** `experiments/codec-capacity.json`: 13 epochs in place
+  of 10, and encoder depth 6 in place of 4, each at 6 and 64 latents,
+  dropout 0.3, 3 seeds. The validation loss was still falling in the
+  last epoch of the dropout models, and the search's winner was the
+  largest network on its grid. A wider network does not fit a runner's
+  6 hours and is UNRUN. No result yet.
+- **UNRUN.** Longer training and a deeper encoder (dispatched); a wider
+  network; dropout with ordered latents; message history on matched
+  anchors; the information bottleneck; widths 1, 5, 7 and 10; anything
+  on the test links; grounding.
 
 ## 2026-11-12: codec variants, dropout helps and the other two do not
 

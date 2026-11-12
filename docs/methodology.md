@@ -64,8 +64,9 @@ state; Littman, Sutton and Singh, NIPS 2001). The codec
 - **Ordered latents.** Each training example keeps a random prefix of z
   (nested dropout; Rippel, Gelbart and Adams, ICML 2014). One model then
   gives a score at every width from 0 to k, and latent i matters more
-  than latent i + 1. Models trained at one fixed width check that the
-  ordering costs nothing.
+  than latent i + 1. Ordering costs skill, most at small widths, so the
+  count is read from models trained at one fixed width with every latent
+  kept; the ordered model ranks the latents.
 - **Scores.** R^2 on held-out links, and skill over persistence: 1 minus
   the codec's squared error over that of predicting that nothing changes.
   Smoothed RTT and delivery rate change slowly, so R^2 alone rewards a
@@ -150,7 +151,7 @@ fitted formulas, and the base variables of the library.
 | student | A network trained to imitate the teacher, whose decision passes through the latents. It is a measuring device and is never deployed. |
 | latents, z, k | The narrow layer z, of k dimensions, of the codec or of a student. Everything after it reads z alone. In the codec the latents are ordered, and "width" means the number of leading latents kept. |
 | head | An output computed from z. The action head predicts the teacher's action; the next-state head predicts the next step's log sRTT and log delivery rate; the value head predicts the teacher's Q-values on a fixed grid of actions. |
-| knee | The smallest width beyond which performance stops improving. |
+| knee | The smallest width beyond which performance stops improving. For the codec: the smallest fixed width whose skill on validation links is within 5% of the skill of the model with no narrow layer (64 latents), both at the tuned settings. |
 | grounding | Fitting each latent to a closed-form formula over the library, on held-out links. |
 | library | The candidate terms for grounding: base variables (hidden state from the `label_*` columns, and sender metrics) crossed with operators (windowed mean, min and max, first difference, pairwise ratio and product, log). |
 | concept | A grounded formula that is stable across seeds and has been named. The concepts become the LCF labels of the retrained net1. |
