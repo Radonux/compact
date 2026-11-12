@@ -14,13 +14,14 @@ Updated with each entry. The steps are those of the
 | Step | State | Can reuse | Not built |
 |---|---|---|---|
 | 1 Setup | done (2026-11-11) | | |
-| 2 The codec on logged steps | search done (`exp-codec-search-3`); confirmation over seeds dispatched (`experiments/codec-confirm.json`), no result yet | `experiments/codec.py`, its positive control (`tests/test_codec.py`), the link split | |
-| 3 Strengthen the codec | local probes only | the `frames` and `targets` options of the codec | the information-bottleneck term; the run on the test links |
+| 2 The codec on logged steps | done (2026-11-12): search `exp-codec-search-3`, confirmation `exp-codec-confirm-4` | `experiments/codec.py`, its positive control (`tests/test_codec.py`), the link split; the trained weights in `exp-codec-confirm-4` | |
+| 3 Strengthen the codec | variants dispatched (`experiments/codec-variants.json`), no result yet | the `frames`, `targets` and `dropout` options of the codec | the information-bottleneck term; the run on the test links |
 | 4 Grounding | UNRUN | the labels and the step message in `steps.parquet`; the codec's latents | the library, the fits, the stability and sensitivity checks |
 | 5 Control | UNRUN | a recurrent actor on raw measurements (`train ppo`, `inputs: "raw"`), trained by PPO, TD3+BC or DAgger; closed-loop rollouts and scoring | a controller that reads the codec's latents or fitted concepts; DAgger from a teacher given as a graph; the bottlenecked student in the closed loop |
 | 6 Retrain and compare | UNRUN | `train run` for net1 and an offline net2; `train ppo` for a closed-loop net2; oracles on the seven LCFs | labels from fitted formulas; net1 on them; the live truth for them |
 
-No claim (C1 to C5) has evidence from a release.
+C1 has first evidence from a release, on validation links only (entry of
+2026-11-12). C2 to C5 have none.
 
 ## Open items
 
@@ -45,6 +46,75 @@ No claim (C1 to C5) has evidence from a release.
   is processed ([architecture.md](architecture.md#known-limits)). The
   oracle net2 of step 6 and labels for fitted formulas need both
   extended.
+
+## 2026-11-12: the codec confirmed over seeds
+
+- **Release.**
+  [`exp-codec-confirm-4`](https://github.com/Radonux/compact/releases/tag/exp-codec-confirm-4)
+  (`experiments/codec-confirm.json` at commit `88db3f48d`), with the
+  trained weights of all 31 models. Settings: the search's winner
+  (learning rate 1e-3, width 512, encoder depth 4, weight decay 1e-4),
+  all 4,079,476 training anchors, 10 epochs; nothing else was searched.
+  One cell (16 ordered latents, seed 4) lost its runner and was rerun in
+  the same run. No run stopped early.
+- **Validation links** (768,620 anchors; mean and standard deviation over
+  seeds; persistence has R^2 0.869 and skill 0 by definition):
+
+  | Model | Seeds | R^2 | Skill | Share of the 64-latent skill |
+  |---|---|---|---|---|
+  | 2 latents, all kept | 3 | 0.920 | 0.091 ± 0.044 | 14% |
+  | 3 latents | 3 | 0.954 | 0.519 ± 0.002 | 80% |
+  | 4 latents | 3 | 0.959 | 0.589 ± 0.004 | 90% |
+  | 6 latents | 3 | 0.961 | 0.624 ± 0.003 | 96% |
+  | 8 latents | 3 | 0.962 | 0.636 ± 0.002 | 97% |
+  | 12 latents | 3 | 0.963 | 0.647 ± 0.002 | 99% |
+  | 16 latents | 3 | 0.963 | 0.649 ± 0.002 | 100% |
+  | 64 latents (no narrow layer) | 5 | 0.963 | 0.652 ± 0.001 | 100% |
+  | 16 ordered latents, all kept | 5 | 0.962 | 0.626 ± 0.003 | 96% |
+
+  The ordered model's skill with its first n latents kept: 1: -2.49,
+  2: -0.14, 3: 0.33, 4: 0.48, 6: 0.56, 8: 0.59, 10: 0.61, 12: 0.62,
+  16: 0.63 (standard deviation over 5 seeds at most 0.01 from 3 latents
+  on).
+- **What it shows.**
+  1. Two latents are not enough and three are: skill jumps from 0.09 to
+     0.52 between 2 and 3 latents, then rises slowly (0.59 at 4, 0.62 at
+     6, 0.64 at 8) and is flat from 12 on. The spread over seeds is far
+     smaller than the steps between widths up to 8.
+  2. 16 is wide enough: 16 latents reach the skill of 64 (0.649 against
+     0.652).
+  3. Ordering has a cost that is largest at small widths: the first 3
+     ordered latents reach 0.33 where a 3-latent model reaches 0.52, and
+     all 16 ordered reach 0.626 where 16 unordered reach 0.649. So the
+     ordered model's curve understates what a narrow layer can do, and
+     the count must be read from the fixed-width models. The ordered
+     model is still useful as one model whose latents come in order of
+     importance.
+  4. The gain of more latents is mostly at the shortest horizon: at
+     60 ms the skill is 0.21 with 3 latents, 0.40 with 4, 0.53 with 8 and
+     0.57 with 64, while at 240 ms and beyond 3 latents already reach
+     0.61 to 0.62 of 64 latents' 0.67 to 0.69.
+  5. The fixed-width models fit the training links better than the
+     validation links (64 latents: training loss 0.0088, validation loss
+     0.0142, validation flat over the last two epochs). The search did
+     not see this because its models were ordered, and dropping latents
+     regularizes. So regularization is worth a try (dispatched below).
+  6. The ordered latents are correlated with each other (largest absolute
+     correlation of a latent with another: 0.17 to 0.66 in seed 0), so
+     grounding should fit the subspace, as planned, and not each latent
+     alone.
+- **The knee is not chosen yet.** The curve has a sharp step at 3 and a
+  long shallow tail. Candidates for the rule: the smallest width within
+  10% of the 64-latent skill (4 latents) or within 5% (6 latents). The
+  rule is an open item; it should be fixed before the test links are
+  read.
+- **Dispatched.** `experiments/codec-variants.json`, step 3: each change
+  alone at 8 and at 64 latents, 3 seeds: the last 4 messages as input,
+  the utility's terms as extra targets, and dropout 0.1 and 0.3. No
+  result yet.
+- **UNRUN.** The variants' results; the information bottleneck; widths 1,
+  5, 7 and 10 as fixed-width models; a network larger than 512x4;
+  anything on the test links; grounding.
 
 ## 2026-11-11: the codec, its search and local probes
 
