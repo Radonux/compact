@@ -92,10 +92,12 @@ C3 and C5 have none.
   and `mean_240ms(queue_delay_ns)` in its place. Without
   `sender_loss_rate`: 0.884, with two windows of `drop_fraction`.
   Without `sender_delivery_rate`: 0.893, with `receive_rate_bps`. Any
-  other picked variable: within 0.005, and the other picks stay. This is
-  the first check for C4 and it holds for base variables: the selection
-  changes only where the removed variable was picked. Operator families
-  are UNRUN.
+  other picked variable: within 0.005, with the three sender readings
+  still first and the later picks reshuffled. This is the first check
+  for C4, for base variables: the fit and the leading picks change only
+  when a leading pick is removed, and the later picks are not stable
+  under removal, as they are not between seeds. Operator families are
+  UNRUN.
 - **Against the claims.**
   - C1: the knee is at 6 latents on both copies of the data. Its
     closed-loop half is UNRUN.
