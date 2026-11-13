@@ -21,6 +21,7 @@ from expliccit_env.spec import (
     OnnxPolicy,
     PathSpec,
     PeriodicLevels,
+    StockCC,
     StockName,
     TcpCross,
     Trace,
@@ -186,11 +187,20 @@ def group_episodes(
             return c.model_copy(update={"cc": c.cc.model_copy(update={"noise_seed": noise})})
         return c
 
+    if spec.teacher_cc is not None:  # algo "clone": the teacher in the policy's place
+        cross = [
+            c.model_copy(update={"cc": spec.teacher_cc})
+            if isinstance(c, TcpCross) and isinstance(c.cc, AgentCC)
+            else c
+            for c in cross
+        ]
     return [
         EpisodeSpec(
             path=path.model_copy(update={"loss": cond.loss}),
             cross=[own(c, base + k + 7919 * (i + 1)) for i, c in enumerate(cross)],
-            cc=template.model_copy(update={"noise_seed": base + k}),
+            cc=StockCC(name=spec.teacher_cc)
+            if spec.teacher_cc is not None
+            else template.model_copy(update={"noise_seed": base + k}),
             duration_ms=spec.duration_ms,
             seed=seed,
             steps=True,

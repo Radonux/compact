@@ -8,6 +8,7 @@ from typing import Annotated, Final, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt, model_validator
 
 from expliccit_env.policy import EXPLICCIT_OBS_COLS, OBS_DIM
+from expliccit_env.spec import StockName
 
 # Label columns (labels.labels_at) net1 can learn, with the factor to the
 # units its errors are reported in.
@@ -396,7 +397,16 @@ class PPOSpec(BaseModel):
     # (share_k) while a stock TCP flow shares the link and the fixed rule
     # (u_rule) otherwise; "gate3" has its own teacher (below). The teacher
     # knows the other flows, which the actor must infer from net1's output.
-    algo: Literal["ppo", "td3bc", "dagger"] = "ppo"
+    # "clone": behaviour cloning from a Linux controller (teacher_cc). The
+    # teacher drives every training rollout, alone and as the copies, and
+    # the actor learns the window that sends as the teacher did
+    # (trajectories.paced_window). The actor never acts in a training
+    # rollout, so it reads its own previous decisions while it learns
+    # (RecurrentActor.free); fed the teacher's, it would learn to repeat
+    # them and ignore the measurements. A start for "ppo", not a result:
+    # only the closed-loop evaluations say how the clone drives.
+    algo: Literal["ppo", "td3bc", "dagger", "clone"] = "ppo"
+    teacher_cc: StockName | None = None
     # What the actor learns and how its output becomes u (U, Gate, Gate3
     # below; actors.policy_u computes it, the same in every learner and in
     # the exported graph).
@@ -463,6 +473,18 @@ class PPOSpec(BaseModel):
     seed: Annotated[int, Field(ge=0)] = 0
     keep_rollouts: bool = False
     time_budget_s: PositiveInt | None = None
+
+    @model_validator(mode="after")
+    def _clone_a_linux_controller(self) -> PPOSpec:
+        if (self.algo == "clone") != (self.teacher_cc is not None):
+            raise ValueError('algo "clone" and teacher_cc go together: set both or neither')
+        if self.algo == "clone" and (
+            self.inputs != "raw" or self.base != "fixed" or self.student.kind != "u"
+        ):
+            # ponytail: the measurements alone, upgrade when a split
+            # controller needs a Linux teacher.
+            raise ValueError('algo "clone" teaches u to an actor on inputs "raw", base "fixed"')
+        return self
 
     @model_validator(mode="after")
     def _dagger_from_the_rule(self) -> PPOSpec:

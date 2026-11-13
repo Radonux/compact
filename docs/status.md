@@ -9,50 +9,65 @@ dated entries; its history is in git. The steps are those of the
 
 No claim has evidence yet. Nothing has finished in the closed loop.
 
-The discovery controller is built and unit-tested. Its first closed-loop
-stage, the taught start, is running
-(`experiments/controller-clone.json`, workflow run 21, dispatched
-2026-11-13).
+The discovery controller is built and unit-tested. Its bootstrap from
+Cubic and from BBRv3 is running (`experiments/controller-teachers.json`,
+dispatched 2026-11-13).
 
 | Step | State | Built | Not built |
 |---|---|---|---|
 | 1 Setup | done | the documents; the estimator of the seven LCFs and the rule graph as releases | |
-| 2 The controller in the closed loop | the taught start is running | `PPOSpec.latents`; `train ppo` by DAgger, PPO or TD3+BC; closed-loop rollouts and scoring; `experiments/net2_ppo_setup.py`, `net2_ppo_report.py` | the reinforcement-learning stage; the collapse check on rollouts; a start that does not come from the rule |
+| 2 The controller in the closed loop | the bootstrap is running | `PPOSpec.latents`; `train ppo` by cloning a Linux controller, PPO, DAgger or TD3+BC; closed-loop rollouts and scoring; `experiments/net2_ppo_setup.py`, `net2_ppo_report.py` | the reinforcement-learning stage; the collapse check on rollouts; the teachers' own scores on the validation links |
 | 3 Grounding | UNRUN | `experiments/ground.py probe` and `select`, with the sensitivity check; 19 ground-truth labels in the step tables | grounding on a controller's own rollouts; formulas beyond a linear fit; the operator-family sensitivity |
 | 4 Retrain and compare | UNRUN | `train run` for net1; `train ppo` for a closed-loop net2; oracles on the seven LCFs | labels from fitted formulas; net1 on them; the live truth for them |
 
-## The taught start
+## The bootstrap
 
 What it trains: the discovery controller at widths 1, 2, 4, 7, 10, 16 and
-64, three seeds each, by DAgger. The controller acts in every rollout
-and each decision is labelled with the fixed rule's window. A reference
-without an encoder (k 0 in the experiment file) is the recurrent network
-on the raw measurements, its window on a measured bandwidth-delay
-product.
+64, three seeds each, once from Cubic and once from BBRv3. The teacher
+drives every training rollout, and the controller learns the window that
+sends as the teacher did. A reference without an encoder (k 0 in the
+experiment file) is the recurrent network on the raw measurements, its
+window on a measured bandwidth-delay product.
 
 Why these widths: 7 is expliCCit's budget, 10 was the owner's first
 proposal, and 64 stands for no constraint. Widths 1 and 2 are there to
 show action collapse.
 
-What will be read from it: how far each start is from the rule, in log
-utility on 21 validation links under 6 conditions, and whether width 1
-already matches width 64. Nothing is chosen from this run, and its width
-curve is not a count, because the rule's window is one number. Every
-width goes on to reinforcement learning.
+What will be read from it: how each start drives in the closed loop, in
+log utility on 21 validation links under 6 conditions against the fixed
+rule, and whether width 1 already matches width 64. Nothing is chosen
+from this run, and its width curve is not a count, because a teacher's
+window is one number. Every width goes on to reinforcement learning.
 
-Two caveats on its inputs. The estimator and the rule were fitted on
-episodes from the guest before the cross-flow fix (below). Every rollout
-and score of the run comes from the fixed guest, the rule included, so
-the comparison with the rule is fair, but the rule may be weaker than
-one fitted on clean episodes. And the exported graph of the narrow
-controller has never run in the guest before this run.
+What to keep in mind when reading it:
+
+- The exported graph of the narrow controller, and the cloning code, have
+  not run in the guest before this run.
+- The label for BBRv3 is its pacing rate times its smoothed RTT, capped
+  by its window. That reproduces its sending rate under the `agent`
+  controller, not its internal state machine.
+- The MSS in that conversion is a constant, 1448 bytes. It is UNRUN
+  against a recorded `TCP_INFO`.
+- The estimator of the seven LCFs serves only as the measurement scaler
+  and as the rule the evaluations compare with. That estimator and rule
+  were fitted on episodes from the guest before the cross-flow fix
+  (below).
+- The teachers' own scores on the validation links are not in the report
+  yet, so the report says how a start compares with the rule and not how
+  close it is to its teacher in the closed loop.
+
+An earlier start is also running: the same widths taught by DAgger from
+the fixed rule (`experiments/controller-clone.json`, workflow run 21). It
+leans toward the seven hand-picked LCFs, which is why the teachers above
+replaced it. It stays as a check that the narrow graph runs in the guest
+and as a third start for C5.
 
 ## Releases
 
 | Release | What it holds | State |
 |---|---|---|
-| `exp-estimator-seven-20` | The estimator of the seven LCFs: `estimator/source-net1.pt` as copied, and `estimator/net1.pt` converted to the current spec with weights and scalers untouched (a distribution over 64 bins, 3 members, 70 inputs). Hashes are in the release notes. | input of the taught start |
-| `exp-steps-behaviour-rule-8` | The fixed rule as an ONNX graph. | input of the taught start |
+| `exp-estimator-seven-20` | The estimator of the seven LCFs: `estimator/source-net1.pt` as copied, and `estimator/net1.pt` converted to the current spec with weights and scalers untouched (a distribution over 64 bins, 3 members, 70 inputs). Hashes are in the release notes. | input of the bootstrap |
+| `exp-steps-behaviour-rule-8` | The fixed rule as an ONNX graph. | input of the bootstrap |
 | `exp-steps-broad-30s-9` | Logged steps on a broad set of links, 14,400 episodes, with every label. | old guest; regenerate before use |
 | `exp-phase0-teachers-1`, `exp-phase0-steps-2` | Two policy graphs and logged steps, copied in at setup. | old guest; not used by the plan |
 
@@ -101,7 +116,8 @@ What that work left that is still used: the split by link,
 
 | Question | Note |
 |---|---|
-| What keeps the decision out of the latents | The first failure in [methodology.md](methodology.md#how-it-can-fail). An untuned prototype on logged states, made before this repository and never released, saw it: with only the action to fit, one latent was enough. The taught start will show whether it happens in the closed loop. What to change if it does is not decided. |
+| What keeps the decision out of the latents | The first failure in [methodology.md](methodology.md#how-it-can-fail). An untuned prototype on logged states, made before this repository and never released, saw it: with only the action to fit, one latent was enough. The bootstrap will show whether it happens in the closed loop. What to change if it does is not decided. |
+| How far reinforcement learning moves a controller from its teacher | If it barely moves, the concepts are the teacher's. The measure is not chosen yet. |
 | The knee rule for the width curve | To be fixed in the experiment file of the reinforcement-learning stage. |
 | The scale of retained performance | [methodology.md](methodology.md#retained-performance). |
 | The threshold for C3 | |

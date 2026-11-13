@@ -1,0 +1,19 @@
+{
+  "title": "A controller with a narrow middle, started from Cubic and from BBRv3",
+  "description": "The bootstrap of compact's controller from traditional congestion control: an encoder in net1's place maps each step's measurements to k latents, and a recurrent decoder in net2's place sets the window from the latents and its own previous decision alone (PPOSpec.latents; the decoder's output is log2 of the window over a fixed 2^7 packets). Each controller is cloned from one Linux controller, Cubic or BBRv3 (algo clone, teacher_cc): the teacher drives every training rollout in the emulator, alone on 35% of the links and against Linux competitors or copies of itself on 60%, and the controller learns the window that sends as the teacher did (the teacher's window, or its pacing rate times its smoothed RTT where it paces below its window, as BBR does). While it learns, the controller reads its own previous decisions and never the teacher's, so it cannot fit the teacher by repeating the last window. One start per teacher, never a mixture: the two set contradictory windows in the same state. Widths 1, 2, 4, 7, 10, 16 and 64 (64 stands for no constraint; 1 and 2 show whether one latent can carry the whole decision), seeds 1 to 3; k 0 is a reference without an encoder, the recurrent network on the measurements with its window on a measured bandwidth-delay product. This stage only gives reinforcement learning a start. Nothing is chosen from it and its width curve is not read as a count, because a teacher's window is one number that a single latent can carry, and because the fit to a teacher's rollouts is no evidence about a controller. Training: up to 40 iterations of 32 links, 30 s episodes, 100 updates per iteration over the last 16 iterations' rollouts, learning rate 0.001, stopping at 5 h. Every 10 iterations the controller itself runs in the closed loop on the 21 validation links under 6 conditions and is scored by log utility, paired by link and condition with the fixed rule on the estimator of the seven hand-picked LCFs (experiments/estimator-seven.json), which serves here only as a common reference and as the measurement scaler. The test links are not read.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "estimator": "release:exp-estimator-seven-20",
+    "rule": "release:exp-steps-behaviour-rule-8"
+  },
+  "matrix": {
+    "teacher": ["cubic", "bbr3"],
+    "k": [0, 1, 2, 4, 7, 10, 16, 64],
+    "seed": [1, 2, 3]
+  },
+  "prepare": "uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$IN/estimator/estimator/net1.pt\" --models \"$IN/rule/models\" --u 0.25 --paths net2-train-xl",
+  "run": "S=\"$OUT/spec-$TEACHER-k$K-s$SEED.json\"; jq --arg teacher \"$TEACHER\" --argjson k \"$K\" --argjson seed \"$SEED\" '.algo = \"clone\" | .teacher_cc = $teacher | .inputs = \"raw\" | (if $k > 0 then .latents = $k | .action_max = 8 else . end) | .share_k = 0 | .critic_warmup = 0 | .critic_flows = true | .lr = 0.001 | .updates_per_iteration = 100 | .replay_iterations = 16 | .tau_s = 1 | .group = 1 | .links_per_iteration = 32 | .copies = [2, 4] | .competition = \"diverse\" | .alone = 0.35 | .compete = 0.6 | .seed = $seed | .iterations = 40 | .eval_every = 10 | .time_budget_s = 18000' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/ctl-$TEACHER-k$K-s$SEED\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ctl-*",
+  "timeout_minutes": 360
+}

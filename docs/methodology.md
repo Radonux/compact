@@ -53,11 +53,26 @@ Nothing passes around the latents. A window aimed at a measured
 bandwidth-delay product would hand the decoder capacity and delay for
 free, so the base is a constant.
 
-Training has two stages, both in the emulator. DAgger from a fixed rule
-gives the controller a sane start. Reinforcement learning on the log
-utility follows, and the claims rest on that stage. The same controller
-with 64 latents, too wide to constrain anything, is the unconstrained
-teacher against which performance is measured.
+Training has two stages, both in the emulator.
+
+1. Bootstrap. The controller is cloned from a traditional congestion
+   controller, the teacher: Cubic or BBRv3. The teacher drives the
+   rollouts, and the controller learns the window that sends as the
+   teacher did. There is one start per teacher and never a mixture,
+   because the two set contradictory windows in the same state.
+2. Reinforcement learning on the log utility, with no teacher term. This
+   is where the controller can develop behaviour its teacher does not
+   have, and the claims rest on this stage.
+
+The bootstrap only makes reinforcement learning start from a controller
+that works. Two details keep it honest. While it learns, the controller
+reads its own previous decisions and never the teacher's, or it would fit
+the teacher by repeating the last window and ignore the measurements. And
+its fit to the teacher's rollouts is not evidence: a clone drifts once it
+drives, so only its closed-loop score says how good the start is.
+
+The same controller with 64 latents, too wide to constrain anything, is
+the wide controller against which performance is measured.
 
 ## How it can fail
 
@@ -66,7 +81,7 @@ These follow from the design, before any data. Each has a check.
 | Failure | Why it can happen | Check |
 |---|---|---|
 | Action collapse | A controller's output is one number. An encoder trained end to end can compute that number itself and send it through one latent. The width then counts nothing. expliCCit cannot collapse this way because net1 is trained on labels, never with net2. | Regress the decision on the latents in every run. Keep widths 1 and 2 in every curve. If one latent matches the wide controller, change the design before reading any count. |
-| The concepts follow the start | The taught start copies a rule that reads capacity and delay. | One run from a start that does not come from the rule. |
+| The concepts follow the teacher | Reinforcement learning may stay near the controller it started from. | Start from two teachers that work differently, Cubic (loss based) and BBRv3 (model based), and compare the concepts (C5). Measure how far each controller moved from its start. |
 | A weak learner looks like a need for width | Reinforcement learning may train a narrow controller worse for reasons of optimization alone. | Tune before any claim. Compare with the wide controller trained the same way. |
 | No knee | The controller may not compress into a few factors. | Report it. It bears on the two-net design itself. The comparison at seven concepts still stands. |
 | The latents fit no short formula | Latents are defined only up to mixing, and narrow layers pack several features into each unit (Locatello et al., ICML 2019). | Report it, and look at what the latents do encode. |
@@ -79,9 +94,9 @@ These follow from the design, before any data. Each has a check.
 |---|---|---|
 | C1 | Count. Closed-loop performance of the discovery controller stops improving at a small width k, the same across seeds, and at that width it matches the wide controller. | No width short of the wide one keeps the performance, or one latent already does (action collapse). |
 | C2 | Grounding. At that width each latent is a short closed-form formula over named variables (held-out R^2 of 0.9 or more at the knee of size against fit), and the same formulas recur in at least 3 of 5 seeds. | The latents fit no short formula, or differ between seeds. |
-| C3 | Retention. net1 + net2 trained on the fitted concepts retain more of the teacher's closed-loop performance than the same number of concepts chosen another way: the hand-picked LCFs, greedy subset search, SHAP-ranked inputs, a random subset. | A baseline ties or wins at the same budget. |
+| C3 | Retention. net1 + net2 trained on the fitted concepts retain more of the wide controller's closed-loop performance than the same number of concepts chosen another way: the hand-picked LCFs, greedy subset search, SHAP-ranked inputs, a random subset. | A baseline ties or wins at the same budget. |
 | C4 | Vocabulary. With one base variable or operator family removed from the library, the selected concepts change only when the removed item was one of them. | The selection follows whatever the library holds. |
-| C5 | Start. The discovery controller yields the same concepts from different starts. | The concepts describe one start. |
+| C5 | Start. The discovery controller yields the same concepts from different teachers. | The concepts describe one teacher. |
 
 Every threshold and choice rule a claim depends on is written down before
 the run that decides it.
@@ -110,17 +125,17 @@ run are fixed in its experiment file before it runs.
 ### Retained performance
 
 It is the closed-loop performance of net1 + net2 on the fitted concepts
-over the unconstrained teacher's, on the same links, conditions and
+over the wide controller's, on the same links, conditions and
 seeds. It is reported with every baseline at the same number of concepts,
 and with the oracle net2 beside it. The oracle splits the gap in two:
-teacher minus oracle is what the concept set lacks, and oracle minus
+wide controller minus oracle is what the concept set lacks, and oracle minus
 net1 + net2 is what net1's estimation costs.
 
 Log utility is at most about zero, so a plain ratio of two log utilities
 is not a fraction retained: a larger ratio would mean a worse controller.
 The scale must be fixed before step 4 runs. One candidate is the fraction
-of the teacher's lead over a fixed reference controller,
-(score - reference) / (teacher - reference), reported with the paired
+of the wide controller's lead over a fixed reference controller,
+(score - reference) / (wide - reference), reported with the paired
 difference and its interval.
 
 ## Plan
@@ -130,18 +145,20 @@ the evidence says so.
 
 1. Setup. Every input is a release of this repository.
 2. The controller in the closed loop.
-   - Teach each width a start by DAgger from a fixed rule
-     (`experiments/controller-clone.json`). The rule's window is one
+   - Bootstrap each width from each teacher, Cubic and BBRv3
+     (`experiments/controller-teachers.json`). A teacher's window is one
      number, so this stage is the easiest case for action collapse and
      its width curve is not read as a count.
    - Continue each by reinforcement learning on the log utility. Tune it
      and confirm over seeds.
    - Read the width curve: closed-loop log utility on validation links
-     against k, beside the wide controller and the fixed rule on the
-     seven hand-picked LCFs. Width 7 is always present, so the comparison
-     at expliCCit's budget exists whatever the curve looks like.
+     against k, beside the wide controller, the teachers themselves and
+     the fixed rule on the seven hand-picked LCFs. Width 7 is always
+     present, so the comparison at expliCCit's budget exists whatever the
+     curve looks like.
    - Check for action collapse at every width.
-   - Run one start that does not come from the rule (C5).
+   - Compare the two teachers' controllers (C5), and report how far
+     reinforcement learning moved each from its start.
 3. Grounding, on the trained controllers' latents and the steps of their
    own rollouts ([below](#grounding)).
 4. Retrain and compare. Compute labels from the frozen formulas, train
@@ -150,7 +167,7 @@ the evidence says so.
    - Plot retained performance against the number of concepts m, for
      m = 1, 2, 3, 5 and the full set.
    - Baselines at the same budget: the hand-picked LCFs, a greedy forward
-     subset search over the base variables, the teacher's inputs ranked
+     subset search over the base variables, the wide controller's inputs ranked
      by SHAP, and a random subset.
 
 A step is done when it has a release with the code, the configuration,
@@ -240,10 +257,11 @@ compact tests against.
 | net2 | The decision maker. It sets the window from net1's output alone. |
 | discovery controller | The encoder, k latents and decoder of [the design](#the-discovery-controller). Never shipped. |
 | latents, z, k | The narrow layer z, of k dimensions, between encoder and decoder. |
-| wide controller, teacher | The discovery controller with 64 latents: the unconstrained teacher of retained performance. In the taught start, "teacher" is the fixed rule whose window labels each decision. |
-| fixed rule | A window of 2^0.25 times the believed BDP of the estimator of the seven LCFs. |
+| wide controller | The discovery controller with 64 latents: the unconstrained reference of retained performance. |
+| teacher | The traditional congestion controller a discovery controller is bootstrapped from: Cubic or BBRv3, as Linux runs them. |
+| bootstrap | Cloning a teacher to give reinforcement learning a start: the teacher drives the rollouts and the controller learns the window that sends as it did (`PPOSpec.algo` `clone`). |
+| fixed rule | A window of 2^0.25 times the believed BDP of the estimator of the seven LCFs. A common reference in evaluations. |
 | believed BDP | net1's mean capacity times twice its mean one-way delay, in 1500-byte packets (`fit.window_target`). |
-| DAgger | Imitation in which the learner acts in every rollout and each decision is labelled with the teacher's action (Ross, Gordon and Bagnell, 2011). |
 | knee | The smallest width beyond which closed-loop performance stops improving, by a rule fixed before the run. |
 | action collapse | The latents carrying the decision itself and not the state behind it. |
 | grounding | Fitting each latent to a closed-form formula over the library, on held-out links. |

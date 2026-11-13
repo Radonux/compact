@@ -296,9 +296,10 @@ class TD3Learner:
 
 
 class DAggerLearner:
-    """algo "dagger" with the same interface as PPOLearner. Its value network
-    learns, as PPO's does, the return of the policy whose rollouts it sees
-    (the student's), so that PPO can continue from both (init_from)."""
+    """algos "dagger" and "clone" with the same interface as PPOLearner.
+    Its value network learns, as PPO's does, the return of the policy whose
+    rollouts it sees (the student's, or for "clone" the teacher's), so that
+    PPO can continue from both (init_from)."""
 
     def __init__(self, width: int, critic_width: int, spec: PPOSpec) -> None:
         self.spec = spec
@@ -310,6 +311,12 @@ class DAggerLearner:
         # it had a value network.
         self.value_rng = np.random.default_rng(spec.seed + 1)
         self.replay: list[list[Trajectory]] = []
+
+    def _pre(self, x: torch.Tensor) -> torch.Tensor:
+        """The actor's head outputs on recorded decisions: reading the
+        recorded previous u where the actor set it ("dagger"), its own where
+        a teacher did ("clone")."""
+        return self.actor.free(x) if self.spec.algo == "clone" else self.actor.pre(x)
 
     def _u(self, trs: list[Trajectory], pre: torch.Tensor) -> torch.Tensor:
         """The student's u as deployed, padded like ``pre`` (the actor's head
@@ -343,7 +350,7 @@ class DAggerLearner:
         share the link, and q elsewhere."""
         with torch.no_grad():
             x, mask = pad([tr.inp for tr in trs])
-            pre = self.actor.pre(x)
+            pre = self._pre(x)
             w = mask.bool()
             mu, pq = self._u(trs, pre)[w].numpy(), torch.sigmoid(2 * pre)[w].numpy()
         p = pq if pq.ndim == 1 else pq[:, 0]
@@ -395,7 +402,7 @@ class DAggerLearner:
             idx = rng.choice(len(pool), size=min(s.batch_trajectories, len(pool)), replace=False)
             batch = [pool[i] for i in idx]
             x, mask = pad([tr.inp for tr in batch])
-            loss = self._loss(batch, self.actor.pre(x), mask)
+            loss = self._loss(batch, self._pre(x), mask)
             self.opt_a.zero_grad()
             loss.backward()
             nn.utils.clip_grad_norm_(self.actor.parameters(), s.max_grad_norm)
@@ -404,7 +411,7 @@ class DAggerLearner:
         after = self._gaps(trs)
         with torch.no_grad():
             x, mask = pad([tr.inp for tr in trs])
-            mu_all = self._u(trs, self.actor.pre(x))[mask.bool()].numpy()
+            mu_all = self._u(trs, self._pre(x))[mask.bool()].numpy()
         return (
             {f"{k}_before": v for k, v in before.items()}
             | after
@@ -433,7 +440,12 @@ def field_of(x: F32 | None) -> F32:
     return x
 
 
-LEARNERS: Final = {"ppo": PPOLearner, "td3bc": TD3Learner, "dagger": DAggerLearner}
+LEARNERS: Final = {
+    "ppo": PPOLearner,
+    "td3bc": TD3Learner,
+    "dagger": DAggerLearner,
+    "clone": DAggerLearner,
+}
 
 
 def make_learner(

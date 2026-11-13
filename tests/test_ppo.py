@@ -1200,3 +1200,98 @@ def test_a_policy_teacher_labels_the_window_it_would_set_on_the_students_bdp(
     plain = ppo.PPOSpec.model_validate(common)
     with pytest.raises(ValueError, match="reads the truth"):
         handoff.PolicyTeacher.load(_save_run(tmp_path / "plain", plain, net1, actor), net1)
+
+
+def test_a_clone_spec_names_its_teacher() -> None:
+    assert _narrow_spec(algo="clone", teacher_cc="cubic").teacher_cc == "cubic"
+    with pytest.raises(ValueError, match="go together"):
+        _narrow_spec(algo="clone")
+    with pytest.raises(ValueError, match="go together"):
+        _narrow_spec(teacher_cc="bbr3")
+    with pytest.raises(ValueError, match='inputs "raw"'):
+        ppo.PPOSpec(paths_from=Path("u"), net1_from=Path("u"), algo="clone", teacher_cc="cubic")
+
+
+def test_the_paced_window_sends_as_the_teacher_did() -> None:
+    obs = np.zeros((3, OBS_DIM), np.float32)
+    obs[:, trajectories.OBS_SRTT] = 0.4  # 40 ms
+    # 12 Mbit/s over 40 ms is 60,000 bytes: 41.4 packets of 1448 bytes.
+    obs[:, trajectories.OBS_PACING] = [0.12, 0.12, 0.0]
+    w = trajectories.paced_window(obs, np.array([100.0, 30.0, 100.0], np.float32))
+    # Paced below its window (BBR), filling its window (Cubic), no RTT sample yet.
+    assert np.allclose(w, [60_000 / 1448, 30.0, 100.0], rtol=1e-5)
+
+
+def test_clone_rollouts_run_the_teacher_and_label_its_window() -> None:
+    steps, net1 = _bdp_net1()
+    table, obs = _flow_table(steps, net1)
+    spec = _narrow_spec(algo="clone", teacher_cc="bbr3")
+    tr = trajectories.trajectory(
+        table,
+        np.zeros(obs.shape[0], np.float32),
+        net1,
+        front=actors.front(net1, spec),
+        target=actors.target(net1, spec),
+        rules=actors.Rules(net1, spec),
+        spec=spec,
+        group=(0, 0),
+        rivals=np.zeros((0, 3)),
+    )
+    assert tr is not None and tr.teacher is not None
+    d = decision_steps(obs[:, OBS_MIN_RTT])
+    d = d[d + 1 < obs.shape[0]]
+    w = trajectories.paced_window(obs, np.full(obs.shape[0], 20, np.float32))
+    assert np.allclose(tr.teacher, np.log2(np.maximum(w[d + 1], 1.0)) - 7.0, atol=1e-5)
+    assert np.array_equal(tr.teacher, tr.u)
+
+    pol = Path(__file__)  # any file: the teacher runs in the policy's place
+    path = espec.PathSpec.model_validate(
+        {
+            "trace": {"kind": "periodic_levels", "levels_mbps": [10.0], "level_ms": 2000},
+            "delay": {"mahak_compat_mrtt_ms": 20},
+            "buffer": {"packets": 100},
+        }
+    )
+    cond = espec.Condition.model_validate({})
+    taught = _narrow_spec(
+        algo="clone", teacher_cc="bbr3", alone=0.0, compete=1.0, copies_share=1.0, copies=[2]
+    )
+    eps = mixture.group_episodes((path, cond), pol, taught, np.random.default_rng(0), 0.5)
+    assert all(e.cc == espec.StockCC(name="bbr3") for e in eps)
+    assert all(c.cc == "bbr3" for e in eps for c in e.cross if isinstance(c, TcpCross))
+    assert all(e.cross for e in eps)
+
+
+def test_a_clone_reads_its_own_previous_decision_while_it_learns() -> None:
+    torch.manual_seed(0)
+    actor = RecurrentActor(5, 8, latents=2, encoder_hidden=8)
+    x = torch.randn(3, 12, 6)
+    x[:, 0, -1] = 0.0
+    free = actor.free(x)
+    # Fed its own outputs as the previous u, the recorded pass agrees.
+    own = x.clone()
+    own[:, 1:, -1] = torch.tanh(free[:, :-1]).detach()
+    assert torch.allclose(actor.pre(own), free, atol=1e-6)
+
+    # The teacher's u follows input 0 and changes slowly, so repeating the
+    # previous u would fit it; the actor's own previous u cannot.
+    rng = np.random.default_rng(0)
+
+    def traj(k: int) -> trajectories.Trajectory:
+        n = 40
+        inp = rng.standard_normal((n, 6)).astype(np.float32)
+        inp[:, 0] = np.repeat(rng.standard_normal(4), 10)
+        u = (2.0 * inp[:, 0]).astype(np.float32)
+        inp[:, -1] = np.concatenate([[0.0], u[:-1]]) / 8.0
+        z = np.zeros(n, np.float32)
+        return trajectories.Trajectory((k, 0), inp, inp, u, z, z, teacher=u, tcp=z)
+
+    spec = _narrow_spec(
+        algo="clone", teacher_cc="cubic", updates_per_iteration=150, batch_trajectories=8, lr=3e-3
+    )
+    learner = learners.DAggerLearner(5, 6, spec)
+    first = learner.update([traj(k) for k in range(16)], rng)
+    logs = first
+    for _ in range(3):
+        logs = learner.update([traj(k) for k in range(16)], rng)
+    assert logs["teacher_gap_before"] < 0.5 * first["teacher_gap_before"]

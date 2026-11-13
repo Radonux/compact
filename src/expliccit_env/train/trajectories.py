@@ -22,7 +22,7 @@ import pyarrow.parquet as pq
 import torch
 from torch import nn
 
-from expliccit_env.policy import OBS_DIM
+from expliccit_env.policy import OBS_COLUMNS, OBS_DIM
 from expliccit_env.train import fit, score
 from expliccit_env.train.actors import Rules, front, target, teacher3_u, teacher_u
 from expliccit_env.train.graph import Front
@@ -37,6 +37,20 @@ type F32 = npt.NDArray[np.float32]
 REWARD: Net2Spec = Net2Spec(reward="log_utility")
 STEP_S: Final = 0.01  # the guest's step interval
 UTILITY_LABELS = ("receive_rate_bps", "capacity_bps", "queue_delay_mean_ns", "base_rtt_ns")
+OBS_SRTT: Final = OBS_COLUMNS.index("srtt_x100ms")
+OBS_PACING: Final = OBS_COLUMNS.index("pacing_rate_x100mbps")
+MSS: Final = 1448.0  # the emulated path's: MTU 1500, TCP timestamps on
+
+
+def paced_window(obs: F32, cwnd: F32) -> F32:
+    """The window that, under the agent controller, sends as a Linux
+    controller did at each step. The agent paces at cwnd mss / srtt, so a
+    controller that paces below its window (BBR) is matched by its pacing
+    rate times srtt, in packets, and one that fills its window (Cubic,
+    whose reported pacing rate is 1.2 to 2 times cwnd mss / srtt) by the
+    window itself. No RTT sample yet: the window."""
+    paced = obs[:, OBS_PACING] * np.float32(1e8 / 8) * obs[:, OBS_SRTT] * np.float32(0.1 / MSS)
+    return np.where(paced > 0, np.minimum(cwnd, paced), cwnd).astype(np.float32)
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +128,7 @@ def trajectory(
     flat = cast("pa.FixedSizeListArray[Any, Any]", t["obs"].combine_chunks()).flatten()
     obs = np.asarray(flat, np.float32).reshape(n, OBS_DIM)
     cwnd = np.asarray(t["cwnd"].to_numpy(zero_copy_only=False), np.float32)
+    cwnd = paced_window(obs, cwnd) if spec.algo == "clone" else cwnd
     t_s = np.asarray(t["t_ns"].to_numpy(zero_copy_only=False), np.float64) / 1e9
     labels = _labels(t)
     d = decision_steps(obs[:, OBS_MIN_RTT])
@@ -147,6 +162,10 @@ def trajectory(
     if spec.critic_flows:
         parts.append(counts)
     critic = np.concatenate(parts, axis=1).astype(np.float32)
+    if spec.algo == "clone":  # the teacher acted: its u is the label
+        return Trajectory(
+            group, inp, critic, u, reward, gamma, teacher=u, tcp=np.sign(counts[:, 1])
+        )
     if spec.algo != "dagger" and spec.student.kind == "u":
         return Trajectory(group, inp, critic, u, reward, gamma, base)
     # The teachers read net1's beliefs, also for the black box ("raw"), whose
@@ -183,7 +202,8 @@ def from_rollouts(
     *,
     teacher: PolicyTeacher | None = None,
 ) -> list[Trajectory]:
-    """Every agent flow of every ok rollout episode."""
+    """Every flow with recorded steps of every ok rollout episode: the
+    agent flows, or for algo "clone" the observed teacher flow."""
     fe, tgt, rules = front(net1, spec), target(net1, spec), Rules(net1, spec).eval()
     out: list[Trajectory] = []
     flows_of: dict[str, list[tuple[int, pa.Table]]] = {}

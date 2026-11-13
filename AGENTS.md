@@ -11,8 +11,10 @@ trained controller. Discovery is data driven. Deployment stays by design.
 
 1. Discover. Train a controller whose decision passes through k latents:
    an encoder in net1's place, a decoder in net2's place
-   (`PPOSpec.latents`), in the closed loop. The width at which closed-loop
-   performance stops improving counts the concepts.
+   (`PPOSpec.latents`), in the closed loop. Bootstrap it from a
+   traditional controller (Cubic, BBRv3), then continue by reinforcement
+   learning so it can go beyond its teacher. The width at which
+   closed-loop performance stops improving counts the concepts.
 2. Ground. Fit the latents to short closed-form formulas over emulator
    ground truth and sender metrics. Keep those that recur across seeds.
 3. Retrain. Train a normal net1 and net2 on the fitted formulas as LCF

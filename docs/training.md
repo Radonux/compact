@@ -96,7 +96,8 @@ min RTT (clamped to 10 to 50 ms) and holds its decision u in between.
 
 | Field | Default | Meaning |
 |---|---|---|
-| `algo` | `ppo` | `ppo` learns from the reward. `dagger` is imitation: the controller acts and a fixed rule labels each decision. `td3bc` learns from a replay of recent iterations |
+| `algo` | `ppo` | `ppo` learns from the reward. `clone` is the bootstrap: a Linux controller drives the rollouts and the controller learns the window that sends as it did. `dagger` is imitation in which the controller acts and a fixed rule labels each decision. `td3bc` learns from a replay of recent iterations |
+| `teacher_cc` | none | `clone` only: the Linux controller to clone, for example `cubic` or `bbr3` |
 | `inputs` | `net1` | what the actor reads: net1's beliefs, the `truth` (an oracle), or `raw` measurements through net1's input scaler |
 | `latents` | none | `raw` only. The discovery controller: an encoder maps each step's scaled measurements to this many latents, and the actor reads the latents and its previous u alone |
 | `encoder_hidden` | 256 | the width of the encoder's two hidden layers |
@@ -129,7 +130,15 @@ against the rule. Read the diagnostics before any closed-loop result.
 
 `experiments/net2_ppo_report.py` collects several runs into one summary:
 log utility against the rule, per run and evaluation.
-`experiments/controller-clone.json` is a full worked example.
+`experiments/controller-teachers.json` is a full worked example of the
+bootstrap.
+
+A `clone` run's training loss says how well the controller fits its
+teacher's rollouts, in which it never drove. Only the evaluations, where
+it drives, say how the start behaves. The label is the teacher's window,
+or its pacing rate times its smoothed RTT where it paces below its window
+as BBR does (`trajectories.paced_window`), because the `agent` controller
+paces at cwnd mss / srtt.
 
 ## Rules
 

@@ -146,6 +146,22 @@ class RecurrentActor(nn.Module):
         h, _ = self.gru(x)
         return self._out(self.head(h))
 
+    def free(self, x: torch.Tensor) -> torch.Tensor:
+        """``pre`` with each decision's previous u the actor's own previous
+        output, as it runs once deployed (the first decision's is x's);
+        no gradient passes through the fed-back u."""
+        lat = self._narrow(x)
+        prev, h = lat[:, 0, -1:], lat.new_zeros(1, lat.shape[0], self.hidden)
+        outs: list[torch.Tensor] = []
+        for t in range(lat.shape[1]):
+            if not self.memory:
+                h = torch.zeros_like(h)
+            _, h = self.gru(torch.cat([lat[:, t, :-1], prev], dim=-1).unsqueeze(1), h)
+            o = self.head(h[0])
+            outs.append(o)
+            prev = torch.tanh(o[:, :1]).detach()
+        return self._out(torch.stack(outs, dim=1))
+
     def cell(self, x: torch.Tensor, h: torch.Tensor) -> torch.Tensor:
         if not self.memory:
             h = torch.zeros_like(h)
