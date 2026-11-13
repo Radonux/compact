@@ -497,7 +497,7 @@ therefore start no shorter than the labels' own window.
 other concepts adds nothing net2 could not compute itself, and it puts an
 exact dependency among the set's coordinates. Any per-concept attribution
 then divides credit between them in a way set by the attribution method,
-not by the policy. The sparse basis of step 4 should be chosen with this
+not by the policy. The sparse basis of step 3 should be chosen with this
 in mind, and so should the hand-picked baseline.
 
 **Where an estimator can beat the published heuristics.** The

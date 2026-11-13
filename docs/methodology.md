@@ -68,6 +68,12 @@ free (`PPOSpec.latents`, `src/expliccit_env/train/recurrent.py`):
   learning from the log utility follows, and the claim rests on that
   stage. The start leans toward what the rule reads, so a run from
   another start is the check on it.
+- **The decision can hide in one latent.** The encoder is free to
+  compute a window itself and pass it through a single latent. A curve
+  that is flat from the smallest width is therefore the expected way
+  for this to fail, and is not a finding that the task has few
+  concepts. Every run regresses the controller's decision on its
+  latents, and the widths start at 1 so that this shows.
 - **Reference.** The same controller with a middle too wide to constrain
   (64 latents) is the unconstrained teacher of the retained-performance
   metric.
@@ -75,59 +81,6 @@ free (`PPOSpec.latents`, `src/expliccit_env/train/recurrent.py`):
 What it shows is read in the closed loop only: log utility on held-out
 links, at each width, against the wide controller and against the fixed
 rule on the seven hand-picked LCFs.
-
-## The codec
-
-The codec is a second route to the latents, with no controller in it.
-It ran first because it needs only logged steps; what it showed is in
-[log.md](log.md). It answers a different question (what predicts the
-flow's future), so it supports no claim about what a controller uses.
-
-What must a controller know at a step? It acts on a path it sees only
-through its own measurements. The state it needs is whatever, together
-with the actions it then takes, decides what happens to its flow next. A
-representation from which the future of the flow's measurements can be
-predicted under any actions is therefore sufficient for controlling
-anything defined on those measurements (predictive representations of
-state; Littman, Sutton and Singh, NIPS 2001). The codec
-(`experiments/codec.py`) is built on that:
-
-- **Encoder.** One step's message (net1's observation columns) to k
-  latents z, each normalized to unit variance.
-- **Decoder.** From z and the window's log2 change up to each horizon, it
-  predicts what the flow measures 60 ms to 960 ms later: smoothed RTT,
-  delivery rate and loss. It sees nothing of the step but z, and horizon
-  h sees only the actions up to h.
-- **Ordered latents.** Each training example keeps a random prefix of z
-  (nested dropout; Rippel, Gelbart and Adams, ICML 2014). One model then
-  gives a score at every width from 0 to k, and latent i matters more
-  than latent i + 1. Ordering costs skill, most at small widths, so the
-  count is read from models trained at one fixed width with every latent
-  kept; the ordered model ranks the latents.
-- **Scores.** R^2 on held-out links, and skill over persistence: 1 minus
-  the codec's squared error over that of predicting that nothing changes.
-  Smoothed RTT and delivery rate change slowly, so R^2 alone rewards a
-  codec that only copies the present; skill is 0 for such a codec.
-
-How it differs from a student that imitates a teacher through the same
-layer: a student's latents can collapse to the teacher's action, and the
-codec's cannot, because the decoder is given the actions; and the
-concepts of a student describe its teacher, while the codec has none.
-Agreement between the codec's concepts and the controller's is evidence
-for C5.
-
-What the codec does not cover:
-
-- **Utility.** The utility depends on the capacity, which no measurement
-  states. An optional group of targets adds the utility's terms; it uses
-  labels, so latents shaped by it are no longer label-free.
-- **Logged actions.** The actions in the data are those of the logging
-  controllers and follow from the path's state: a halved window reveals a
-  loss. The decoder can read state from the actions it is given, which
-  lowers what z must hold.
-- **Control.** Predictive skill is not closed-loop performance. That a
-  controller needs no more than the first k latents is shown only by a
-  controller that reads them, in the closed loop.
 
 ## Claims
 
@@ -137,7 +90,7 @@ What the codec does not cover:
 | C2 | Grounding: at that width each latent is a short closed-form formula over named variables (held-out R^2 of 0.9 or more at the knee of size against fit), and the same formulas recur in at least 3 of 5 seeds | the latents fit no short formula, or differ between seeds |
 | C3 | Retention: net1 + net2 trained on the fitted concepts retain more of the teacher's closed-loop performance than the same number of concepts chosen any other way (the hand-picked LCFs, greedy subset search, SHAP-ranked inputs, a random subset) | a baseline ties or wins at the same budget |
 | C4 | The vocabulary is not the choice: with one base variable or operator family removed from the library, the selected concepts change only when the removed item was one of them | the selection follows whatever the library holds, which is the objection that a person still chooses the candidates |
-| C5 | Independence of the route: the controller with a narrow middle, trained from different starts, and the codec yield the same concepts | the concepts describe one start or one objective, not the task |
+| C5 | Independence of the start: the controller with a narrow middle yields the same concepts when trained from different starts | the concepts describe one start, not the task |
 
 Every threshold and choice rule a claim depends on is written down
 before the run it decides.
@@ -153,11 +106,10 @@ before the run it decides.
   a mix: some concepts match familiar quantities, others are short but
   unfamiliar formulas. Unfamiliar ones are ranked by how much performance
   drops without them.
-- The controller with a narrow middle, the codec and the students are
-  never shipped. Its latents are not concepts: they are exact only after
-  grounding, and only the retrained net1 and net2 pass every decision
-  through checkable quantities. Claims about the shipped controller rest
-  on those two.
+- The controller with a narrow middle is never shipped. Its latents are
+  not concepts: they are exact only after grounding, and only the
+  retrained net1 and net2 pass every decision through checkable
+  quantities. Claims about the shipped controller rest on those two.
 
 ## Related work
 
@@ -182,24 +134,17 @@ fitted formulas, and the base variables of the library.
 | Term | Meaning |
 |---|---|
 | controller with a narrow middle | The discovery model: an encoder to k latents in net1's place and a recurrent decoder to the window in net2's place, trained in the closed loop ([above](#the-controller)). With 64 latents it is the wide controller, the unconstrained teacher. |
-| codec | A second route to latents, without a controller: an encoder to k latents and a decoder of the flow's future from the latents and its actions ([above](#the-codec)). |
-| anchor, horizon | An anchor is a step the encoder reads; a horizon is how far ahead of it the decoder predicts. |
-| persistence | The forecast that every target keeps its current value. |
-| skill | 1 minus the codec's mean squared error over persistence's, averaged over horizons and targets: 0 for copying the present, 1 for a perfect forecast. |
-| teacher | The controller whose behaviour is distilled. An unconstrained teacher reads raw measurements and does not pass through net1 (the black-box controller of step 5). The two Phase 0 teachers are not unconstrained: each acts through an estimator of the seven LCFs. |
-| student | A network trained to imitate the teacher, whose decision passes through the latents. It is a measuring device and is never deployed. |
-| latents, z, k | The narrow layer z, of k dimensions, of the codec or of a student. Everything after it reads z alone. In the codec the latents are ordered, and "width" means the number of leading latents kept. |
-| head | An output computed from z. The action head predicts the teacher's action; the next-state head predicts the next step's log sRTT and log delivery rate; the value head predicts the teacher's Q-values on a fixed grid of actions. |
-| knee | The smallest width beyond which performance stops improving. For the controller: the rule is fixed in the experiment file of the run that reads it, before that run. For the codec: the smallest fixed width whose skill on validation links is within 5% of the skill of the model with no narrow layer (64 latents), both at the tuned settings. |
+| teacher | The unconstrained teacher of the retained-performance metric is the wide controller. In the taught start, the teacher is the fixed rule whose window labels each decision. |
+| latents, z, k | The narrow layer z, of k dimensions, between the encoder and the decoder. The decoder reads z and its own previous decision, and nothing else. |
+| knee | The smallest width beyond which closed-loop performance stops improving. The rule is fixed in the experiment file of the run that reads it, before that run. |
 | grounding | Fitting each latent to a closed-form formula over the library, on held-out links. |
 | library | The candidate terms for grounding: base variables (hidden state from the `label_*` columns, and sender metrics) crossed with operators (windowed mean, min and max, first difference, pairwise ratio and product, log). |
 | concept | A grounded formula that is stable across seeds and has been named. The concepts become the LCF labels of the retrained net1. |
 | retained performance | Performance of net1 + net2 on the fitted concepts over the teacher's, in closed loop ([below](#retained-performance)). |
 | completeness curve | Retained performance against the number of concepts m. |
 | oracle net2 | net2 trained on and fed the true concept values. A diagnostic only: teacher minus oracle is what the concept set lacks, and oracle minus net1 + net2 is what net1's estimation costs. |
-| action collapse | z encoding the teacher's action itself and not the state behind it. Checked in every run by regressing the teacher's action on z. |
-| linear CKA | Centered kernel alignment with a linear kernel: a similarity of two sets of latents that ignores rotation and scale (Kornblith et al., ICML 2019). |
-| DAgger | Imitation in which the student acts in every rollout and each of its decisions is labelled with the teacher's action (Ross, Gordon and Bagnell, 2011). |
+| action collapse | z carrying the decision itself and not the state behind it. Checked in every run by regressing the controller's decision on z. |
+| DAgger | Imitation in which the learner acts in every rollout and each of its decisions is labelled with the teacher's action (Ross, Gordon and Bagnell, 2011). |
 | LCF | Latent congestion factor, expliCCit's term: a physical property of the path at one instant, with an exact value in emulation. |
 | the seven LCFs | expliCCit's hand-picked set: mean queueing delay, queue (packets), capacity, free buffer (packets), busy fraction (bytes sent over bytes the link offered), one-way delay, and the flow's receive rate, each over the trailing 100 ms. Definitions: [architecture.md](architecture.md#ground-truth-labels). |
 | net1 | The estimator. It reads the per-step state message (70 of its 78 values, `EXPLICCIT_OBS_COLS`) and outputs one belief per LCF. It is trained against ground truth and never with net2. |
@@ -239,8 +184,7 @@ needs them, before its run.
   or episode, so no test link is seen in training under any condition. A
   row split puts one path's steps in every split and overstates accuracy.
 - **Closed loop.** A claim about a controller rests on rollouts in the
-  emulator, not on fit to logged states. Fit to logged states (Phase 0)
-  is a feasibility signal.
+  emulator. Fit to logged states is not evidence about a controller.
 - **Score.** Log utility, with differences paired by link and 95%
   bootstrap intervals over links.
 - **Tune first.** No claim about a learned model before it is tuned:
@@ -265,7 +209,7 @@ baseline at the same number of concepts.
 Log utility is at most about zero (the log of a share of capacity, minus
 penalties), so a plain ratio of two log utilities is not a fraction
 retained: a larger ratio would mean a worse controller. The scale must
-therefore be fixed before step 6 runs. One candidate is the fraction of
+therefore be fixed before step 4 runs. One candidate is the fraction of
 the teacher's lead over a fixed reference controller, (score - reference)
 / (teacher - reference), reported with the paired difference in log
 utility and its interval.
@@ -275,58 +219,9 @@ utility and its interval.
 The plan is a starting point. A step changes order, is added or is dropped
 when the evidence points elsewhere, and the log entry for it says why.
 
-The goal is what a trained controller uses, so the controller with a
-narrow middle is the centre of the plan: steps 2 to 4 ran first on the
-codec and on logged steps because they needed no closed loop, and they
-built the tools (the link split, grounding, the offline checks) without
-answering the question. Step 5 now comes before any more work on them,
-and grounding (step 4) is applied again to the controller's latents.
-Grounding is meaningful only for latents that are stable across seeds.
-
 1. **Setup.** The documents state the idea, the claims and the plan, and
-   the logged step data is a release of this repository.
-2. **The codec on logged steps.** Search its settings on validation
-   links, confirm the winner over 5 seeds, and report the width curve
-   beside two references: models trained at one fixed width, and a model
-   with no narrow layer.
-3. **Strengthen the codec.** Try what could raise its skill and keep what
-   does on validation links: a history of messages as input, the
-   utility's terms as targets, an information bottleneck in place of a
-   hard width. Then run the test links once.
-4. **Grounding.** Build the library mechanically: base variables (hidden
-   state and sender metrics) crossed with operators (windowed mean, min
-   and max over 2 to 3 horizons, first difference, pairwise ratio and
-   product, log).
-   - First look, before any formula (`experiments/ground.py probe`):
-     linear fits between the latents and the base variables, in both
-     directions, and between the latents of two seeds. It says which
-     variables the latents carry, how much of a latent the vocabulary
-     can express at all, and whether seeds agree, each as a lower bound.
-   - Select (`experiments/ground.py select`): fit all k latents jointly
-     and linearly on the library, adding one feature at a time, the one
-     that most raises the fit. The variables are on logarithmic scales,
-     so a linear fit is a fit by products and ratios of powers, and the
-     selected features are themselves the candidate concepts. A greedy
-     path replaces the group lasso first planned: it gives fit against
-     size directly, and taking out a variable that was never picked
-     provably leaves it unchanged. The group lasso stays the fallback if
-     the picks differ between seeds.
-   - Report the path twice: on the whole library, and on ground truth
-     alone. The latents are computed from the sender's message, so on
-     the whole library they can be fitted by what the sender measured,
-     which names no state of the path. Only a feature of ground truth
-     is a candidate concept for net1 to estimate.
-   - Run PySR, with a parsimony penalty, only on the residual the linear
-     fit leaves, and only after the offline check of step 5 has shown
-     the selected concepts to be worth refining.
-   - For each latent, report formula size against held-out R^2 and pick
-     the knee. The target is R^2 of 0.9 or more.
-   - Keep the concepts that recur in at least 3 of 5 seeds, matching
-     formulas by a correlation above 0.9 on shared held-out traces.
-   - Vocabulary sensitivity (C4): refit with each base variable or
-     operator family removed, and report whether the selected concepts
-     change only when a removed item was one of them.
-5. **The controller in the closed loop.**
+   every input is a release of this repository.
+2. **The controller in the closed loop.**
    - Teach: give the controller with a narrow middle a start by DAgger
      from a fixed rule, at several widths and with a wide middle
      (`experiments/controller-clone.json`).
@@ -339,15 +234,43 @@ Grounding is meaningful only for latents that are stable across seeds.
      seven hand-picked LCFs. The width expliCCit uses (7) is always among
      the widths, so the comparison at equal budget exists whatever the
      curve looks like.
-   - Ground the latents of the trained controllers on the steps of their
-     own rollouts, as in step 4, with the vocabulary sensitivity check.
+   - Check for action collapse at every width.
    - Check the start: one run from a start that does not come from the
      rule, to see whether the concepts follow the start (C5).
-   - Done earlier on logged steps, as proxies that support no claim
-     about control: how well sets of concepts predict the logging
-     controllers' actions, and a student of those actions through k
-     latents ([log.md](log.md)).
-6. **Retrain and compare.** Compute labels from the frozen formulas, train
+3. **Grounding**, of the trained controllers' latents on the steps of
+   their own rollouts. It is meaningful only for latents that are stable
+   across seeds. The library is built mechanically: base variables
+   (hidden state and sender metrics) crossed with operators (windowed
+   mean, min and max over 2 to 3 horizons, first difference, pairwise
+   ratio and product, log).
+   - First look, before any formula (`experiments/ground.py probe`):
+     linear fits between the latents and the base variables, in both
+     directions, and between the latents of two seeds. It says which
+     variables the latents carry, how much of a latent the vocabulary
+     can express at all, and whether seeds agree, each as a lower bound.
+   - Select (`experiments/ground.py select`): fit all k latents jointly
+     and linearly on the library, adding one feature at a time, the one
+     that most raises the fit. The variables are on logarithmic scales,
+     so a linear fit is a fit by products and ratios of powers, and the
+     selected features are themselves the candidate concepts.
+   - Report the path twice: on the whole library, and on ground truth
+     alone. The latents are computed from the sender's message, so on
+     the whole library they can be fitted by what the sender measured,
+     which names no state of the path. Only a feature of ground truth
+     is a candidate concept for net1 to estimate.
+   - Run PySR, with a parsimony penalty, on the residual the linear fit
+     leaves.
+   - For each latent, report formula size against held-out R^2 and pick
+     the knee. The target is R^2 of 0.9 or more.
+   - Keep the concepts that recur in at least 3 of 5 seeds, matching
+     formulas by a correlation above 0.9 on shared held-out traces.
+   - Vocabulary sensitivity (C4): refit with each base variable or
+     operator family removed, and report whether the selected concepts
+     change only when a removed item was one of them.
+   - How much of the latents a feature spans is not its importance for
+     control. Importance is read in step 4, from closed-loop performance
+     with and without the concept.
+4. **Retrain and compare.** Compute labels from the frozen formulas, train
    net1 and net2 as usual, and measure retained performance in closed
    loop.
    - Train the oracle net2 on the true concept values, as a diagnostic.
@@ -361,13 +284,10 @@ Grounding is meaningful only for latents that are stable across seeds.
 | Risk | What to do |
 |---|---|
 | No knee | Report it and work out why: it bears on the two-net design itself. The comparison at the budget of seven still stands |
+| Action collapse: one latent carries the decision | Regress the decision on z in every run and keep widths 1 and 2 in the curve. If it happens, say so and change the design before reading any count |
 | Reinforcement learning does not train the narrow controller well | Read the diagnostics and tune before any claim; compare with the wide controller trained the same way, so a weak learner is not read as a need for width |
 | The concepts follow the start | A run from a start that does not come from the rule |
 | The latents fit no short formula | Report it, and look at what the latents do encode before choosing what to try next |
-| The codec copies the present | Report skill over persistence beside R^2, at every width |
-| Predictive is not decision-relevant | The closed-loop check of step 5; until then no claim about control |
-| Action collapse (students) | Check z against the teacher's action directly, in every run |
-| Dependence on the route | Compare the concepts of the codec and of students of different teachers (C5) |
 | Leakage | Compare net2 on net1's soft outputs with net2 on the exact concept values |
 
 ## Definition of done, for each step

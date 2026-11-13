@@ -58,13 +58,12 @@ status, dates and results out of the README and the other documents.
 - **Discover.** Train a controller whose decision passes through k
   latents: an encoder in net1's place, a decoder in net2's place
   (`PPOSpec.latents`), trained in the closed loop. The width at which
-  its closed-loop performance stops improving counts the concepts. The
-  codec (`experiments/codec.py`) is a second route on logged steps.
+  its closed-loop performance stops improving counts the concepts.
 - **Ground.** Fit the latents to short closed-form formulas over emulator
   ground truth and sender metrics. Keep those stable across seeds.
 - **Retrain.** Train a normal net1 and net2 on the fitted formulas as LCF
   labels, through the existing pipeline. Only this controller ships; the
-  student is thrown away. The metric is retained performance against the
+  discovery controller is thrown away. The metric is retained performance against the
   unconstrained teacher, in closed loop, compared with other ways of
   choosing concepts at the same budget.
 
@@ -81,8 +80,9 @@ Rules for this work:
 - A person still chooses the grounding library, which is the standing
   objection to the method. Every grounding result comes with its
   vocabulary sensitivity check.
-- Report the codec's skill over persistence beside its R^2. Check every
-  teacher's student for action collapse (z against the teacher's action).
+- Check every discovery controller for action collapse (its decision
+  regressed on z). Fit to logged steps is never evidence about a
+  controller.
 - A phase is done when it has a release with code, configuration, seeds
   and raw outputs, and an entry in `docs/log.md` saying what ran, what was searched,
   the held-out numbers and what remains UNRUN.
