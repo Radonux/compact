@@ -67,8 +67,8 @@ Smaller checks:
 
 The emulator runs four published controllers as their own code runs them.
 Each check below was made before compact existed, against a release that
-is not among compact's, and was not rerun here. They matter to compact
-only if one of these controllers becomes a teacher; rerun the check then.
+is not among compact's, and was not rerun here. compact's plan uses none
+of these controllers. Rerun the check before one is used as a baseline.
 
 | Controller | Check | Result |
 |---|---|---|

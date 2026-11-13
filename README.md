@@ -1,40 +1,37 @@
 # compact
 
-compact chooses the concepts of a concept-bottleneck congestion controller
-from what a trained controller actually uses, instead of picking them from
-a literature review.
+compact derives the concepts of a concept-bottleneck congestion
+controller from a trained controller. Today such concepts are picked by
+hand.
 
 ## The question
 
 expliCCit splits a learned congestion controller in two. net1, an
-estimator, maps end-host measurements to a few latent congestion factors
-(LCFs): physical path state such as capacity, queueing delay and base RTT,
-with exact ground truth in emulation. net2, the decision maker, sets the
-window from net1's estimates alone. Its LCF set was chosen by hand, and
-nothing says which LCFs to use or how many.
+estimator, maps the sender's measurements to a few latent congestion
+factors (LCFs): physical state of the path, such as capacity and queueing
+delay, with an exact value in emulation. net2, the decision maker, sets
+the window from net1's estimates alone. Its LCFs were chosen by hand, and
+nothing says which to use or how many.
 
-compact asks whether the set can be derived:
+compact trains the same shape with the middle left free, then names what
+the middle learned.
 
-1. **Discover.** Train a controller of the same shape with the middle
-   left free: an encoder in net1's place maps measurements to k latents,
+1. Discover. An encoder in net1's place maps measurements to k latents,
    and a decoder in net2's place sets the window from the latents alone.
-   Its closed-loop performance against k says how many latents a
-   controller needs, and the latents are what it uses.
-2. **Ground.** Fit the latents to short closed-form formulas over emulator
-   ground truth and basic sender metrics, and keep the formulas that are
-   stable across seeds. A person names each one.
-3. **Retrain.** Train a normal net1 and net2 on those formulas as the LCF
+   The controller is trained in the closed loop. Its performance against
+   k says how many latents it needs.
+2. Ground. Fit the latents to short closed-form formulas over emulator
+   ground truth and basic sender metrics. Keep the formulas that recur
+   across seeds.
+3. Retrain. Train a normal net1 and net2 on those formulas as the LCF
    labels. Only this controller ships, so every decision still passes
    through exact, checkable quantities.
 
 The measure is retained performance: how much of an unconstrained
-teacher's closed-loop performance the retrained controller keeps, against
-other ways of choosing the same number of concepts. The claim is not that
-a bottleneck makes a network explainable. The bottleneck counts the
-concepts; grounding against ground truth says which they are.
-[docs/methodology.md](docs/methodology.md) has the claims, the terms and
-the plan; [docs/log.md](docs/log.md) records what has run and what it
-showed.
+controller's closed-loop performance the retrained one keeps, against
+other ways of choosing the same number of concepts. A bottleneck does not
+make a network explainable. It counts the concepts, and grounding against
+ground truth names them.
 
 ## The emulator
 
@@ -59,19 +56,13 @@ root, including GitHub Actions.
   └────────────────────────────────────────────────────────────────────────┘
 ```
 
-It gives compact three things:
+compact needs three things from it.
 
-- **Ground truth.** Every arrival, drop and departure at the bottleneck is
-  recorded, so the path's hidden state is exact at every instant. These
-  labels supervise net1 and are the variables concepts are grounded in.
-- **A closed loop.** A policy is an ONNX graph that sets the window of a
-  real kernel TCP sender every 10 ms from the sender's own measurements,
-  beside any of Linux's 17 controllers as competitors.
-- **Step data.** Every step's measurements, labels and action are logged,
-  for distillation and for supervised training.
-
-[docs/architecture.md](docs/architecture.md) has the design and its
-reasons.
+| | |
+|---|---|
+| Ground truth | Every arrival, drop and departure at the bottleneck is recorded, so the path's hidden state is exact at every instant. These labels supervise net1, and concepts are grounded in them. |
+| A closed loop | A policy is an ONNX graph that sets the window of a real kernel TCP sender every 10 ms from the sender's own measurements, beside any of Linux's 17 controllers as competitors. |
+| Step data | Every step's measurements, labels and action are logged. |
 
 ## Quick start
 
@@ -90,13 +81,10 @@ musl-tools, perl, rustup and uv. Clone with `--recurse-submodules`.
     # an experiment in GitHub Actions; its result becomes release exp-NAME-RUN
     gh workflow run experiment.yml -f experiment=experiments/smoke.json
 
-    # training: net1 and an offline net2, then a net2 in the closed loop
+    # training: an estimator, then a controller in the closed loop
     uv sync --extra train
     uv run expliccit train run train.json out/model
     uv run expliccit train ppo ppo.json out/ppo --build build/uml --workers 4
-
-[docs/training.md](docs/training.md) covers data, training, running and
-scoring policies.
 
 ## Guarantees
 
@@ -116,38 +104,37 @@ checks need `EXPLICCIT_UML_DIR=build/uml`.
 
 Everything at once: `uv sync --extra train`, then
 `EXPLICCIT_UML_DIR=build/uml uv run pytest -q`. Some comparisons with
-outside code need a checkout of it and skip without one. What each check
-showed, and what was never run: [docs/validation.md](docs/validation.md).
-
-## Working conventions
-
-Commits go directly to `main` in Conventional Commits form, without pull
-requests; kernel changes are their own commits under `third_party/linux`.
-Results come only from experiments in GitHub Actions, published as
-releases of this repository. Agent instructions are in `AGENTS.md` (also
-`CLAUDE.md`); agent skills come from the
-[BTreeMap/SKILLs](https://github.com/BTreeMap/SKILLs) submodule at
-`.github/skills`.
+outside code need a checkout of it and skip without one.
 
 ## Documents
 
 | Document | Read it for |
 |---|---|
-| [docs/methodology.md](docs/methodology.md) | The idea, the claims, the terms, the evaluation protocol and the plan |
-| [docs/log.md](docs/log.md) | What has run, what it showed, the state of each step and the open items |
-| [docs/concepts.md](docs/concepts.md) | Candidate concepts from the literature: the baseline way of choosing them, names for fitted formulas, and the grounding vocabulary |
-| [docs/training.md](docs/training.md) | Producing data, training net1 and net2, running and scoring a policy |
+| [docs/methodology.md](docs/methodology.md) | The design, how it can fail, the claims, the rules of evidence, the plan and the terms |
+| [docs/status.md](docs/status.md) | What has run, what it showed and what is open |
 | [docs/architecture.md](docs/architecture.md) | How an episode runs: the link model, the labels, the policy contract, experiments, limits |
+| [docs/training.md](docs/training.md) | The commands: step data, the estimator, the closed-loop trainer, scoring |
 | [docs/validation.md](docs/validation.md) | What was checked about the emulator and the pipeline, and what was not |
+| [docs/concepts.md](docs/concepts.md) | Concepts the literature defines: the baseline way of choosing them, names for fitted formulas, and the grounding vocabulary |
 | [kernel/modules/README.md](kernel/modules/README.md) | The kernel modules and their ABIs |
 | [third_party/README.md](third_party/README.md) | Vendored sources and the kernel patches |
+
+## Working conventions
+
+Commits go directly to `main` in Conventional Commits form, without pull
+requests. Kernel changes are their own commits under `third_party/linux`.
+Results come only from experiments in GitHub Actions and are published as
+releases of this repository. Agent instructions are in `AGENTS.md`
+(`CLAUDE.md` links to it). Agent skills come from the
+[BTreeMap/SKILLs](https://github.com/BTreeMap/SKILLs) submodule at
+`.github/skills`.
 
 ## Origin
 
 compact began as a fork of
-[Radonux/palaestra](https://github.com/Radonux/palaestra), which built the
-emulator and the trainer; the history up to commit `4d576dfa7` is that
-project's. compact is independent of it: its question, documents, models
-and releases are its own, and the inputs it took from there are copied
-into its own releases with their source recorded
-(`experiments/phase0-teachers.json`, `experiments/phase0-steps.json`).
+[Radonux/palaestra](https://github.com/Radonux/palaestra), which built
+the emulator and the trainer. The history up to commit `4d576dfa7` is
+that project's. compact is independent of it: its question, documents,
+models and releases are its own, and each input taken from there is
+copied into a compact release by an experiment file that records the
+source.
