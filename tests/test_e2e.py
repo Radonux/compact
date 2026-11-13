@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Literal
 
@@ -324,7 +326,7 @@ def test_the_pipeline_runs_for_every_net1_in_uml(
     # The controller with a narrow middle: cloned from BBRv3, continued by PPO.
     narrow = base | {"inputs": "raw", "latents": 3, "encoder_hidden": 16, "action_max": 8.0}
     stages |= {
-        "clone": narrow | {"algo": "clone", "teacher_cc": "bbr3"},
+        "clone": narrow | {"algo": "clone", "teacher_cc": "bbr3", "group": 1},
         "clone-rl": narrow | {"algo": "ppo", "init_from": str(tmp_path / "clone")},
     }
     for name, spec in stages.items():
@@ -340,6 +342,30 @@ def test_the_pipeline_runs_for_every_net1_in_uml(
             "2",
         )
         history = json.loads((tmp_path / name / "history.json").read_text())
-        assert history[-1]["rollouts"]["ok"] == 2 and history[-1]["learner"]["decisions"] > 100
+        assert history[-1]["rollouts"]["ok"] == spec.get("group", 2)
+        assert history[-1]["learner"]["decisions"] > 100
     _guest_run(root, tmp_path / "rl" / "policy.onnx", tmp_path / "rl-run")
     _guest_run(root, tmp_path / "clone-rl" / "policy.onnx", tmp_path / "clone-rl-run")
+
+    # Grounding reads the cloned controller's latents on its own rollouts.
+    ground = Path(__file__).parents[1] / "experiments" / "ground.py"
+    paths, clone = tmp_path / "paths.json", tmp_path / "clone"
+    subprocess.run(
+        [
+            sys.executable,
+            ground,
+            "rollouts",
+            clone,
+            "--fit",
+            paths,
+            "--score",
+            paths,
+            "--build",
+            root,
+        ],
+        check=True,
+    )
+    for verb in ("probe", "select"):
+        subprocess.run([sys.executable, ground, verb, tmp_path / verb, "--runs", clone], check=True)
+    probe = json.loads((tmp_path / "probe" / "probe.json").read_text())
+    assert probe["runs"]["clone"]["score"] > 100

@@ -11,13 +11,14 @@ No claim has evidence yet. Nothing has finished in the closed loop.
 
 The discovery controller is built and unit-tested. Its bootstrap from
 Cubic and from BBRv3 is running (`experiments/controller-teachers.json`,
-dispatched 2026-11-13).
+dispatched 2026-11-13). Grounding of a controller's latents on its own
+rollouts is built and tested, and waits for that release.
 
 | Step | State | Built | Not built |
 |---|---|---|---|
 | 1 Setup | done | the documents; the estimator of the seven LCFs and the rule graph as releases | |
-| 2 The controller in the closed loop | the bootstrap is running | `PPOSpec.latents`; `train ppo` by cloning a Linux controller, PPO, DAgger or TD3+BC; closed-loop rollouts and scoring; `experiments/net2_ppo_setup.py`, `net2_ppo_report.py` | the reinforcement-learning stage; the collapse check on rollouts; the teachers' own scores on the validation links |
-| 3 Grounding | UNRUN | `experiments/ground.py probe` and `select`, with the sensitivity check; a library of every stored label (37 columns over 100 ms and 10 ms windows) and 12 composites in both windows | grounding on a controller's own rollouts; formulas beyond a linear fit; the operator-family sensitivity |
+| 2 The controller in the closed loop | the bootstrap is running | `PPOSpec.latents`; `train ppo` by cloning a Linux controller, PPO, DAgger or TD3+BC; closed-loop rollouts and scoring; `experiments/net2_ppo_setup.py`, `net2_ppo_report.py`; the collapse check on rollouts (`ground.py probe`) | the reinforcement-learning stage; the teachers' own scores on the validation links |
+| 3 Grounding | UNRUN | `experiments/ground.py`: `rollouts` of a controller in the closed loop, `probe` and `select` on its latents there, with the sensitivity check; a library of every stored label (37 columns over 100 ms and 10 ms windows) and 12 composites in both windows; `experiments/ground-teachers.json` | formulas beyond a linear fit; the operator-family sensitivity; matching concepts across seeds |
 | 4 Retrain and compare | UNRUN | `train run` for net1; `train ppo` for a closed-loop net2; net1 on any stored label or composite; the live truth for every label but `queue_delay_ns`, so oracles on them | labels from fitted formulas beyond the composites; net1 on them |
 
 ## The bootstrap
@@ -79,10 +80,35 @@ link tables, and the live truth were brought in from the project compact
 was forked from, as its commits, with compact's own changes kept.
 
 What this does not change: the bootstrap runs above started on the guest
-before this change, and their steps carry the earlier 19 labels. Step
-data for grounding has to come from rollouts on the current guest.
-Grounding itself is UNRUN, and `ground.py` still reads the latents of the
-withdrawn offline model, not a controller's.
+before this change, and their steps carry the earlier 19 labels. Their
+policies read only the measurements, so grounding runs them again on the
+current guest.
+
+## Grounding on a controller's own rollouts
+
+`experiments/ground.py` now reads a discovery controller, not logged
+steps of other controllers. `rollouts` runs the controller's exported
+policy in the closed loop, on a sample of the training links and on the
+validation links. `probe` and `select` compute the latents from those
+steps through the controller's own encoder. `probe` also regresses the
+decision on the latents, which is the action-collapse check. A controller
+without latents is refused.
+
+`experiments/ground-teachers.json` does this for the bootstrapped
+controllers: both teachers, widths 1 to 64, three seeds. It is UNRUN. It
+reads the bootstrap's release, which does not exist yet. It will test the
+pipeline on real controllers. It supports no claim about concepts,
+because those controllers are untuned starts.
+
+What has run: unit tests on synthetic controllers, and one end-to-end
+test in the guest, where a width-3 controller cloned from BBRv3 for one
+iteration drives its rollouts and both verbs read them. No number from
+either is a result.
+
+That end-to-end test also found a fault. A cloned controller with more
+than one rollout per link ran the same episode twice under one id, and
+one copy failed. The specification now refuses that. The bootstrap uses
+one rollout per link and is not affected.
 
 ## Releases
 
@@ -126,12 +152,11 @@ The releases remain, each with notes that say what it ran:
 `exp-codec-dropout-6`, `exp-codec-capacity-7`, `exp-codec-knee-11`,
 `exp-ground-probe-10`, `exp-ground-select-12`, `exp-ground-knee-13`,
 `exp-actions-knee-14`, `exp-student-search-16`, `exp-student-confirm-17`
-and `exp-student-ground-18`. So does their code (`experiments/codec.py`,
-`codec_report.py`, `actions.py`, `tests/test_codec.py`), as the record
-behind those releases.
+and `exp-student-ground-18`. Their code and experiment files are removed
+from the tree. Each release names the commit it ran at.
 
-What that work left that is still used: the split by link,
-and `experiments/ground.py`.
+What that work left that is still used: the split by link, and the
+selection method in `experiments/ground.py`.
 
 ## Open questions
 
@@ -147,9 +172,9 @@ and `experiments/ground.py`.
 
 ## Checks
 
-On the current code: ruff, pyright, `uv run pytest -q` (222 passed, 60
-skipped) and the guest's `cargo fmt` and clippy pass. With the guest
-booted locally, the tests of the live truth, the labels, the record
-layout, the stored-episode reader and the loss and cross-traffic episode
-pass (17 tests). UNRUN locally: the other tests that boot the guest. CI
-and every experiment run them.
+On the current code: ruff, pyright and `uv run pytest -q` (220 passed, 60
+skipped) pass. With the guest booted locally, the end-to-end pipeline
+test passes for every net1 kind and view (6 tests), grounding included.
+UNRUN locally on this commit: the other tests that boot the guest. CI and
+every experiment run them. CI has not yet finished on any commit since
+the bootstrap code.

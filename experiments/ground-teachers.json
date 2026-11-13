@@ -1,0 +1,32 @@
+{
+  "title": "Grounding the bootstrapped controllers' latents on their own rollouts",
+  "description": "Grounding (step 3) on the controllers of experiments/controller-teachers.json, read from its release: for each teacher (Cubic, BBRv3), the discovery controllers at widths 1, 2, 4, 7, 10, 16 and 64, seeds 1 to 3. Each cell runs one controller's exported policy in the closed loop, without exploration noise and with every step kept: on 96 (link, condition) pairs sampled from the training links (the same pairs and seeds for every controller), where the fits are made, and on all 21 validation links under 6 conditions, where they are scored. The guest is the current one, so the steps carry every stored label. Collect then runs, once per teacher, experiments/ground.py probe (per controller on its own rollouts: the decision regressed on the latents, which is the action-collapse check, each library variable read from the latents and each latent written from the variables, and the agreement between seeds of one width) and select (greedy selection of library features for all k latents jointly, with the sensitivity check that removes each label in turn). The library is every stored label in both windows, the twelve composites and four sender measurements, under eight operators, with a linear fit. These controllers are bootstrap starts that have not been continued by reinforcement learning or tuned, so this run tests the grounding pipeline on real controllers and says what a clone of a traditional controller carries in its latents. It supports no claim about concepts. The test links are not read.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "runs": "release:exp-controller-teachers-22"
+  },
+  "matrix": {
+    "teacher": [
+      "cubic",
+      "bbr3"
+    ],
+    "k": [
+      1,
+      2,
+      4,
+      7,
+      10,
+      16,
+      64
+    ],
+    "seed": [
+      1,
+      2,
+      3
+    ]
+  },
+  "run": "R=\"ctl-$TEACHER-k$K-s$SEED\"; mkdir -p \"$OUT/$R\"; cp \"$IN/runs/$R\"/{ppo_spec.json,net1.pt,actor.pt,policy.onnx} \"$OUT/$R/\"; uv run python experiments/ground.py rollouts \"$OUT/$R\" --fit \"$IN/runs/setup/paths/campaign.json\" --score \"$IN/runs/setup/eval/campaign.json\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "for T in cubic bbr3; do uv run python experiments/ground.py probe \"$OUT/probe-$T\" --runs \"$OUT\"/ctl-$T-k*; uv run python experiments/ground.py select \"$OUT/select-$T\" --runs \"$OUT\"/ctl-$T-k*; done",
+  "timeout_minutes": 360
+}

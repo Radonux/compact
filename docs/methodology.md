@@ -176,8 +176,19 @@ what was searched, the held-out numbers and what remains UNRUN.
 
 ## Grounding
 
-Grounding is meaningful only for latents that agree across seeds. The
-library is built mechanically: base variables crossed with operators. The
+Grounding is meaningful only for latents that agree across seeds.
+
+The data is the controller's own. Each controller drives the emulator
+without exploration noise, with every step kept
+(`experiments/ground.py rollouts`): on a sample of the training links,
+where the fits are made, and on the validation links, where they are
+scored. Every controller gets the same links and seeds. A row is one
+decision. Its latents are computed from the stored measurements through
+the controller's own encoder, so they are exactly what the decoder read.
+Results for one controller use its own rollouts. Comparisons between
+controllers use the rollouts of all of them.
+
+The library is built mechanically: base variables crossed with operators. The
 base variables are the hidden state of the path and the sender's
 metrics. The hidden state is every label the step data stores, in each
 window it is stored in, and every composite of them: a fixed formula over
@@ -188,11 +199,12 @@ there takes part in the fitting with no change here. The operators are a windowe
 maximum over 2 to 3 horizons, a first difference, pairwise ratios and
 products, and a log.
 
-1. Probe (`experiments/ground.py probe`). Linear fits between the latents
-   and the base variables, in both directions, and between the latents of
-   two seeds. It shows which variables the latents carry, how much of a
-   latent the vocabulary can express at all, and whether seeds agree.
-   Each is a lower bound.
+1. Probe (`experiments/ground.py probe`). The decision regressed on the
+   latents, which is the action-collapse check. Then linear fits between
+   the latents and the base variables, in both directions, and between
+   the latents of two seeds. They show which variables the latents carry,
+   how much of a latent the vocabulary can express at all, and whether
+   seeds agree. Each is a lower bound.
 2. Select (`experiments/ground.py select`). Fit all k latents jointly and
    linearly on the library, adding one feature at a time, the one that
    most raises the fit. The variables are on log scales, so a linear fit

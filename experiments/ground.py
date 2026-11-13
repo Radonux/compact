@@ -1,29 +1,52 @@
-"""Grounding: relate a trained codec's latents to ground-truth variables.
+"""Grounding: relate a trained controller's latents to ground truth.
 
-Usage: python experiments/ground.py probe OUT --data DIR... --runs RUN_DIR...
+The controllers are discovery controllers (`train ppo` with
+PPOSpec.latents: an encoder in net1's place, a decoder in net2's). Each
+is grounded on its own rollouts: the steps of episodes in which it drove.
 
-probe is the first, linear look, before any formula search. Each RUN_DIR is
-a codec run (experiments/codec.py: config.json and model.pt). For every
-run, on anchors of the validation links, with fits made on anchors of the
-training links:
+Usage: python experiments/ground.py rollouts RUN_DIR --fit CAMPAIGN.json
+           --score CAMPAIGN.json --build UML [--workers N] [--links N]
 
-  read    R^2 of each base variable predicted from the latents, by a
-          linear fit and by a quadratic one (the latents, their squares and
-          pairwise products): which variables the latents carry
-  write   R^2 of each latent predicted linearly from all base variables:
-          how much of a latent the vocabulary can express at all
-  seeds   for each pair of runs of one width, the mean R^2 of one run's
-          latents predicted from the other's, linear and quadratic: whether
-          the seeds found the same subspace
+rollouts runs RUN_DIR's policy.onnx in the closed loop, without
+exploration noise, and keeps every step with its labels: on N (path,
+condition) pairs of the --fit campaign (the training links; the same
+pairs and seeds for every run) into RUN_DIR/ground/fit, and on every pair
+of the --score campaign (the validation links) into RUN_DIR/ground/score.
+Fits are made on the first and scored on the second.
+
+Usage: python experiments/ground.py probe OUT --runs RUN_DIR...
+
+The rows are the controllers' decisions (one per clamp(min RTT, 10 ms,
+50 ms), as the policy graph counts them). A latent is the encoder's output
+on that step's measurements, so it is computed here exactly as the guest
+computed it. probe is the first, linear look, before any formula search.
+For every run, on its own rollouts:
+
+  decision  R^2 of the decision u (log2 of the window the controller set)
+            predicted from the latents alone, by a linear fit and by a
+            quadratic one. This is the check for action collapse: near 1
+            at width 1 or 2, the encoder computes the decision itself and
+            the width counts nothing.
+  read      R^2 of each base variable predicted from the latents, linear
+            and quadratic (the latents, their squares and pairwise
+            products): which variables the latents carry
+  write     R^2 of each latent predicted linearly from all base variables:
+            how much of a latent the vocabulary can express at all
+
+and for each pair of runs of one width, on the rollouts of every run given:
+
+  seeds     the mean R^2 of one run's latents predicted from the other's,
+            linear and quadratic: whether the seeds found the same subspace
 
 The base variables are the label columns of the step data and the
-composites of them, each on a logarithmic scale (signed log1p of megabits per second, milliseconds,
-kilobytes or packets). A linear probe is a lower bound: the decoder is not
-linear, so a latent may hold a variable in a form these fits miss.
+composites of them, each on a logarithmic scale (signed log1p of megabits
+per second, milliseconds or packets). A linear probe is a lower bound: the
+decoder is not linear, so a latent may hold a variable in a form these
+fits miss.
 
 Writes OUT/probe.json and OUT/summary.md.
 
-Usage: python experiments/ground.py select OUT --data DIR... --runs RUN_DIR...
+Usage: python experiments/ground.py select OUT --runs RUN_DIR...
 
 select names the few variables that span the latents. The base variables
 are every label the step data stores, in each window it is stored in
@@ -35,9 +58,10 @@ mean, minimum and maximum over the last 240 ms and 960 ms, and its change
 over 60 ms. Sums of logarithms are products and ratios, so a linear fit on
 this library is a fit by products of powers. Features are added one at a
 time, each the one that most raises the R^2 of a joint linear fit of all
-latents on the training anchors, and every size is scored on the
-validation anchors. Reported per run, and per width with the latents of
-its runs pooled:
+latents on the fit rollouts, and every size is scored on the score
+rollouts. Reported per run on its own rollouts, and per width with the
+latents of its runs pooled, on the rollouts of every run given (give the
+runs of one teacher together):
 
   path     the features in the order added, with the mean and the worst
            latent's R^2 at each size
@@ -47,7 +71,7 @@ its runs pooled:
            taken out, so only ground truth is left. The latents are
            computed from the sender's message, so they can repeat what it
            measured; this path asks what they hold of the path's state.
-  without  for each base variable among the first PICK features: the path
+  without  for each label behind the first PICK features: the path
            when that label is taken out of the library in every window,
            with every composite computed from it, which is the vocabulary
            sensitivity check. Taking out a label that no picked feature
@@ -58,12 +82,19 @@ its runs pooled:
 Writes OUT/select.json and OUT/summary.md.
 """
 
+# torch's own annotations leave many signatures partly unknown; every other
+# strict check stays on.
+# pyright: reportUnknownMemberType=false, reportUnknownArgumentType=false
+# pyright: reportUnknownVariableType=false
+
 from __future__ import annotations
 
 import argparse
+import hashlib
 import itertools
 import json
 import warnings
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -71,19 +102,43 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 import torch
-from codec import DELIVERY, LOST, SRTT, Codec, Config, Data, _batch, build
 
 from expliccit_env.labels import WINDOWS_MS
+from expliccit_env.policy import OBS_COLUMNS
+from expliccit_env.spec import AgentCC, EpisodeSpec, OnnxPolicy
+from expliccit_env.train import actors, fit, lcfs, rollouts
 from expliccit_env.train import data as steps_data
-from expliccit_env.train import lcfs
+from expliccit_env.train.graph import FixedWindow
+from expliccit_env.train.recurrent import OBS_MIN_RTT, decision_steps
+from expliccit_env.train.spec import PPOSpec
+from expliccit_env.uml import UmlBuild
 
+F32 = npt.NDArray[np.float32]
 F64 = npt.NDArray[np.float64]
+I64 = npt.NDArray[np.int64]
 
-# Rows used: fits on FIT anchors of the training links, scores on SCORE
-# anchors of the validation links. ponytail: a fixed subsample, all anchors
+# Decisions used, over all runs: fits on FIT of the fit rollouts, scores on
+# SCORE of the score rollouts. ponytail: a fixed subsample, every decision
 # if a fit ever needs them.
 FIT, SCORE = 300_000, 200_000
 _SCALE = {"_bps": 1e-6, "_ns": 1e-6, "_bytes": 1e-3}
+SRTT, DELIVERY, LOST = (
+    OBS_COLUMNS.index(c) for c in ("srtt_x100ms", "delivery_rate_x100mbps", "lost_x100mbps")
+)
+# The library's windows and its difference, in 10 ms steps.
+WINDOWS, CHANGE = (24, 96), 6
+# Features in a reported path, and the leading ones the checks are made on.
+STEPS, PICK = 16, 8
+EXPLICCIT_LCFS = (
+    "queue_delay_mean_ns",
+    "queue_pkts",
+    "capacity_bps",
+    "free_buffer_pkts",
+    "busy_fraction",
+    "one_way_delay_ns",
+    "receive_rate_bps",
+)
+SENDER = ("sender_cwnd", "sender_srtt", "sender_delivery_rate", "sender_loss_rate")
 
 
 def _label(name: str) -> str:
@@ -106,20 +161,211 @@ def _factor(name: str) -> float:
 
 
 def base_variables(s: steps_data.Steps) -> tuple[list[str], F64]:
-    """Every stored label and every composite the stored labels give, if it
-    is ever defined, on a logarithmic scale; NaN where it is undefined."""
+    """Every stored label and every composite the stored labels give, on a
+    logarithmic scale; NaN where it is undefined. The names depend on the
+    stored columns alone, so every rollout of one guest gives the same."""
     stored = set(s.labels)
     made = {n for n in lcfs.LCF_UNITS if n not in stored and lcfs.columns([n]) <= stored}
-    names, cols = [], []
+    names = sorted(stored | made)
+    cols = []
     with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
-        for n in sorted(stored | made):
+        for n in names:
             v = s.labels[n].astype(np.float64) * _factor(n)
             v = np.sign(v) * np.log1p(np.abs(v))
             v[~np.isfinite(v)] = np.nan
-            if np.isfinite(v).any():
-                names.append(n)
-                cols.append(v)
+            cols.append(v)
     return names, np.stack(cols, axis=1)
+
+
+def sender_variables(s: steps_data.Steps) -> F64:
+    """SENDER: four measurements the sender has, on logarithmic scales."""
+    o = s.obs.astype(np.float64)
+    cols = [
+        np.log2(np.maximum(s.cwnd.astype(np.float64), 1)),
+        np.log(np.maximum(o[:, SRTT], 1e-4)),
+        np.log1p(100 * np.maximum(o[:, DELIVERY], 0)),
+        np.log1p(100 * np.maximum(o[:, LOST], 0)),
+    ]
+    v = np.stack(cols, axis=1)
+    v[~np.isfinite(v)] = np.nan
+    return v
+
+
+def decisions(s: steps_data.Steps) -> I64:
+    """The rows at which the controller decided, as the policy graph counts
+    them; an episode's last step is left out, because a decision's window
+    is read from the step after it."""
+    starts = np.flatnonzero(np.r_[True, s.episode[1:] != s.episode[:-1]])
+    out = []
+    for a, b in zip(starts, np.r_[starts[1:], s.episode.size], strict=True):
+        d = decision_steps(s.obs[a:b, OBS_MIN_RTT])
+        out.append(a + d[d + 1 < b - a])
+    return np.concatenate(out)
+
+
+def _history(v: F64, s: steps_data.Steps, idx: I64) -> F64:
+    """[anchor, age in steps, variable]: the variables at the anchor and at
+    the steps before it in its own episode; NaN beyond the episode's start
+    and where a step is missing."""
+    age = np.arange(max(WINDOWS))
+    past = idx[:, None] - age[None]
+    row = np.maximum(past, 0)
+    ok = (past >= 0) & (s.episode[row] == s.episode[idx][:, None])
+    ok &= s.step[idx][:, None] - s.step[row] == age[None]
+    h = v[row]
+    h[~ok] = np.nan
+    return h
+
+
+def _operators(h: F64) -> list[tuple[str, F64]]:
+    out = [("", h[:, 0]), (f"change_{CHANGE * 10}ms", h[:, 0] - h[:, CHANGE])]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)  # a window with no defined row
+        for w in WINDOWS:
+            for op, f in (("mean", np.nanmean), ("min", np.nanmin), ("max", np.nanmax)):
+                out.append((f"{op}_{w * 10}ms", f(h[:, :w], axis=1)))
+    return out
+
+
+def features(names: list[str], v: F64, s: steps_data.Steps, idx: I64) -> tuple[list[str], F64]:
+    """Every variable under every operator at the anchors: the features'
+    names, operator by operator (the variables themselves first), and
+    their values [anchor, feature]."""
+    # A few thousand anchors at a time: the history is anchors x 96 x variables.
+    parts = [_operators(_history(v, s, i)) for i in np.array_split(idx, idx.size // 4096 + 1)]
+    ops = [op for op, _ in parts[0]]
+    x = np.concatenate([np.concatenate([a for _, a in part], axis=1) for part in parts])
+    return [f"{op}({n})" if op else n for op in ops for n in names], x
+
+
+@dataclass(frozen=True, slots=True)
+class Library:
+    """A design matrix whose columns are standardized on the fit rows.
+    Column 0 is the constant. A feature owns one or two columns: its value
+    (0, the fit mean, where undefined) and, if it is ever undefined, an
+    indicator of that."""
+
+    names: tuple[str, ...]  # feature -> "operator(variable)", or the variable
+    variable: tuple[str, ...]  # feature -> its base variable
+    columns: tuple[tuple[int, ...], ...]  # feature -> its columns
+    same_as: dict[str, str]  # a feature left out -> the kept one it repeats
+    fit: F64
+    score: F64
+
+    @staticmethod
+    def of(names: list[str], variables: int, fit: F64, score: F64) -> Library:
+        """The features (``features``: ``variables`` base variables under
+        each operator) less those that are constant, almost never defined,
+        or repeat an earlier one."""
+        kept: list[tuple[int, F64]] = []  # feature, its standardized fit values (0 undefined)
+        same_as: dict[str, str] = {}
+        cols_fit, cols_score, columns = [np.ones(len(fit))], [np.ones(len(score))], []
+        for j, name in enumerate(names):
+            x = fit[:, j]
+            if np.isfinite(x).mean() < 0.01 or np.nanstd(x) < 1e-9:
+                continue
+            mean, std = np.nanmean(x), np.nanstd(x)
+            xf = np.nan_to_num((x - mean) / std)
+            twin = next((i for i, y in kept if abs(np.mean(xf * y)) > 0.999), None)
+            if twin is not None:
+                same_as[name] = names[twin]
+                continue
+            kept.append((j, xf))
+            own = [len(cols_fit)]
+            cols_fit.append(xf)
+            cols_score.append(np.nan_to_num((score[:, j] - mean) / std))
+            gap = np.isnan(x)
+            if 0 < gap.mean() < 1:
+                m, sd = gap.mean(), gap.std()
+                own.append(len(cols_fit))
+                cols_fit.append((gap - m) / sd)
+                cols_score.append((np.isnan(score[:, j]) - m) / sd)
+            columns.append(tuple(own))
+        return Library(
+            names=tuple(names[j] for j, _ in kept),
+            variable=tuple(names[j % variables] for j, _ in kept),
+            columns=tuple(columns),
+            same_as=same_as,
+            fit=np.stack(cols_fit, axis=1),
+            score=np.stack(cols_score, axis=1),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class Controller:
+    """A trained discovery controller: its width and its encoder."""
+
+    name: str
+    k: int
+    encode: Callable[[F32], F64]  # [n, 78] step messages -> [n, k] latents
+
+    @staticmethod
+    def load(run: Path) -> Controller:
+        spec = PPOSpec.model_validate_json((run / "ppo_spec.json").read_text())
+        if spec.latents is None:
+            raise SystemExit(f"{run}: not a discovery controller (PPOSpec.latents is unset)")
+        net1, _ = fit.load_net1(run / "net1.pt")
+        front = actors.front(net1, spec)
+        actor = actors.new_actor(actors.width(net1, spec), spec)
+        actor.load_state_dict(torch.load(run / "actor.pt", weights_only=True))
+        actor.eval()
+
+        @torch.no_grad()
+        def encode(obs: F32) -> F64:
+            # The view the exported graph gives the encoder (graph.Front).
+            z = [actor.encode(front(o, None)[1]) for o in torch.from_numpy(obs).split(65_536)]
+            return torch.cat(z).numpy().astype(np.float64)
+
+        return Controller(run.name, spec.latents, encode)
+
+
+@dataclass(frozen=True, slots=True)
+class Rows:
+    """Decisions of every run's rollouts of one kind (fit or score)."""
+
+    owner: I64  # [a] the run (its index) whose controller drove
+    obs: F32  # [a, 78] the step message at the decision
+    u: F64  # [a] the decision: log2 of the window set, over FixedWindow's
+    x: F64  # [a, F] every feature of the library, unscaled
+
+    def own(self, run: int) -> npt.NDArray[np.bool_]:
+        return self.owner == run
+
+
+def _rows(runs: list[Path], kind: str, budget: int) -> tuple[list[str], int, Rows]:
+    """(feature names, base variables, the rows) of each run's ground/kind."""
+    rng = np.random.default_rng(0)
+    names: list[str] = []
+    variables = 0
+    parts: list[tuple[I64, F32, F64, F64]] = []
+    for r, run in enumerate(runs):
+        s = steps_data.load([run / "ground" / kind], seed=0, val=0.0, test=0.0)
+        labels, b = base_variables(s)
+        d = decisions(s)
+        d = np.sort(rng.choice(d, min(d.size, budget // len(runs)), replace=False))
+        base = [*labels, *SENDER]
+        own, x = features(base, np.concatenate([b, sender_variables(s)], axis=1), s, d)
+        if names and own != names:
+            raise SystemExit(f"{run}: its step data holds other labels than {runs[0]}'s")
+        names, variables = own, len(base)
+        u = np.log2(np.maximum(s.cwnd[d + 1].astype(np.float64), 1)) - FixedWindow.LOG2_PACKETS
+        parts.append((np.full(d.size, r), s.obs[d], u, x))
+    rows = Rows(
+        owner=np.concatenate([p[0] for p in parts]),
+        obs=np.concatenate([p[1] for p in parts]),
+        u=np.concatenate([p[2] for p in parts]),
+        x=np.concatenate([p[3] for p in parts]),
+    )
+    return names, variables, rows
+
+
+def _setup(runs: list[Path]) -> tuple[list[Controller], list[str], int, Rows, Rows]:
+    names_of = [r.name for r in runs]
+    if len(set(names_of)) != len(runs):
+        raise SystemExit(f"run directories must differ in name: {names_of}")
+    names, variables, fit_rows = _rows(runs, "fit", FIT)
+    _, _, score_rows = _rows(runs, "score", SCORE)
+    return [Controller.load(r) for r in runs], names, variables, fit_rows, score_rows
 
 
 def quadratic(z: F64) -> F64:
@@ -157,83 +403,52 @@ def filled(b_fit: F64, b: F64) -> tuple[F64, F64]:
     return fill(b_fit), fill(b)
 
 
-def latents(run: Path, d: Data, idx: torch.Tensor) -> tuple[Config, F64]:
-    cfg = Config.model_validate_json((run / "config.json").read_text())
-    model = Codec.of(d, cfg)
-    model.load_state_dict(torch.load(run / "model.pt", weights_only=True)["state"])
-    model.eval()
-    with torch.no_grad():
-        z = torch.cat([model.encode(_batch(d, i, cfg)[0]) for i in idx.split(65_536)])
-    return cfg, z.numpy().astype(np.float64)
-
-
-def _setup(
-    dirs: list[Path], runs: list[Path]
-) -> tuple[steps_data.Steps, Data, Config, torch.Tensor, torch.Tensor]:
-    """The data, and the anchors fits are made and scored on."""
-    first = Config.model_validate_json((runs[0] / "config.json").read_text())
-    s = steps_data.load(
-        dirs,
-        seed=first.split_seed,
-        val=first.val_fraction,
-        test=first.test_fraction,
-        split_by="link",
-    )
-    d, _ = build(s, first)
-    gen = torch.Generator().manual_seed(0)
-
-    def sample(split: str, n: int) -> torch.Tensor:
-        a = d.anchors[split]
-        return a[torch.randperm(a.numel(), generator=gen)[:n]].sort().values
-
-    return s, d, first, sample("train", FIT), sample("val", SCORE)
-
-
-def _latents_of(
-    runs: list[Path], d: Data, first: Config, fit: torch.Tensor, score: torch.Tensor
-) -> dict[str, tuple[int, F64, F64]]:
-    """Run name -> (width, latents on the fit anchors, on the score anchors)."""
-    out = {}
-    for run in runs:
-        cfg, z_fit = latents(run, d, fit)
-        if (cfg.frames, cfg.stride, cfg.horizons, cfg.split_seed) != (
-            first.frames,
-            first.stride,
-            first.horizons,
-            first.split_seed,
-        ):
-            raise SystemExit(f"{run}: its anchors differ from those of {runs[0]}")
-        out[run.name] = (cfg.k, z_fit, latents(run, d, score)[1])
-    return out
-
-
-def probe(out: Path, dirs: list[Path], runs: list[Path]) -> None:
+def probe(out: Path, runs: list[Path]) -> None:
     out.mkdir(parents=True, exist_ok=True)
-    s, d, first, fit, score = _setup(dirs, runs)
-    names, b = base_variables(s)
-    b_fit, b_score = b[fit.numpy()], b[score.numpy()]
+    ctls, names, variables, fr, sr = _setup(runs)
+    b_fit, b_score = fr.x[:, :variables], sr.x[:, :variables]  # the variables themselves
     bf_fit, bf_score = filled(b_fit, b_score)
-    result: dict[str, Any] = {"variables": names, "fit": int(fit.numel()), "runs": {}}
-    z_of = _latents_of(runs, d, first, fit, score)
-    for run, (k, z_fit, z_score) in z_of.items():
-        result["runs"][run] = {
-            "k": k,
-            "read_linear": r2(z_fit, b_fit, z_score, b_score).tolist(),
-            "read_quadratic": r2(quadratic(z_fit), b_fit, quadratic(z_score), b_score).tolist(),
-            "write_linear": r2(bf_fit, z_fit, bf_score, z_score).tolist(),
+    z_of = {c.name: (c.encode(fr.obs), c.encode(sr.obs)) for c in ctls}
+    result: dict[str, Any] = {"variables": names[:variables], "runs": {}}
+    for r, c in enumerate(ctls):
+        f, s = fr.own(r), sr.own(r)
+        z_fit, z_score = z_of[c.name][0][f], z_of[c.name][1][s]
+        u_fit, u_score = fr.u[f][:, None], sr.u[s][:, None]
+        result["runs"][c.name] = {
+            "k": c.k,
+            "fit": int(f.sum()),
+            "score": int(s.sum()),
+            "decision_linear": float(r2(z_fit, u_fit, z_score, u_score)[0]),
+            "decision_quadratic": float(
+                r2(quadratic(z_fit), u_fit, quadratic(z_score), u_score)[0]
+            ),
+            "read_linear": r2(z_fit, b_fit[f], z_score, b_score[s]).tolist(),
+            "read_quadratic": r2(
+                quadratic(z_fit), b_fit[f], quadratic(z_score), b_score[s]
+            ).tolist(),
+            "write_linear": r2(bf_fit[f], z_fit, bf_score[s], z_score).tolist(),
         }
     result["seeds"] = [
         {
-            "from": a,
-            "to": c,
-            "k": z_of[a][0],
-            "linear": float(np.mean(r2(z_of[a][1], z_of[c][1], z_of[a][2], z_of[c][2]))),
+            "from": a.name,
+            "to": c.name,
+            "k": a.k,
+            "linear": float(
+                np.mean(r2(z_of[a.name][0], z_of[c.name][0], z_of[a.name][1], z_of[c.name][1]))
+            ),
             "quadratic": float(
-                np.mean(r2(quadratic(z_of[a][1]), z_of[c][1], quadratic(z_of[a][2]), z_of[c][2]))
+                np.mean(
+                    r2(
+                        quadratic(z_of[a.name][0]),
+                        z_of[c.name][0],
+                        quadratic(z_of[a.name][1]),
+                        z_of[c.name][1],
+                    )
+                )
             ),
         }
-        for a, c in itertools.permutations(z_of, 2)
-        if z_of[a][0] == z_of[c][0]
+        for a, c in itertools.permutations(ctls, 2)
+        if a.k == c.k
     ]
     (out / "probe.json").write_text(json.dumps(result, indent=1) + "\n")
     (out / "summary.md").write_text(summary(result))
@@ -255,7 +470,15 @@ def summary(result: dict[str, Any]) -> str:
 
     head = " | ".join(f"{k} latents" for k in widths) + " |\n"
     rule = "|---" * (len(widths) + 1) + "|\n"
-    lines = ["R^2 on validation links, mean over runs.\n\n"]
+    lines = [
+        "R^2 on the validation links, each controller on its own rollouts, mean over runs.\n\n",
+        "The decision u from the latents alone. Near 1 at width 1 or 2 is action "
+        "collapse:\n\n| | " + head,
+        rule,
+    ]
+    for key in ("linear", "quadratic"):
+        lines.append(f"| {key} | " + cells(lambda r, key=key: r[f"decision_{key}"]))
+    lines.append("\n")
     for key, title in (("read_linear", "linear"), ("read_quadratic", "quadratic")):
         lines += [f"Base variable from the latents, {title}:\n\n| variable | " + head, rule]
         for i, name in enumerate(result["variables"]):
@@ -264,7 +487,11 @@ def summary(result: dict[str, Any]) -> str:
     lines += ["Latents from all base variables, linear:\n\n| | " + head, rule]
     lines.append("| mean over latents | " + cells(lambda r: np.mean(r["write_linear"])))
     lines.append("| worst latent | " + cells(lambda r: np.min(r["write_linear"])))
-    lines += ["\nOne run's latents from another's, mean over pairs:\n\n| | " + head, rule]
+    lines += [
+        "\nOne run's latents from another's, on every run's rollouts, mean over pairs:\n\n| | "
+        + head,
+        rule,
+    ]
     for key in ("linear", "quadratic"):
         row = []
         for k in widths:
@@ -272,127 +499,6 @@ def summary(result: dict[str, Any]) -> str:
             row.append(f"{np.mean(v):.3f}" if v else "n/a")
         lines.append(f"| {key} | " + " | ".join(row) + " |\n")
     return "".join(lines)
-
-
-# The library's windows, in rows of the data (one row is 60 ms at stride 6).
-WINDOWS = (4, 16)
-# Features in a reported path, and the leading ones the checks are made on.
-STEPS, PICK = 16, 8
-EXPLICCIT_LCFS = (
-    "queue_delay_mean_ns",
-    "queue_pkts",
-    "capacity_bps",
-    "free_buffer_pkts",
-    "busy_fraction",
-    "one_way_delay_ns",
-    "receive_rate_bps",
-)
-
-
-def sender_variables(s: steps_data.Steps) -> tuple[list[str], F64]:
-    """Four measurements the sender has, on the codec's own scales."""
-    o = s.obs.astype(np.float64)
-    cols = [
-        np.log2(np.maximum(s.cwnd.astype(np.float64), 1)),
-        np.log(np.maximum(o[:, SRTT], 1e-4)),
-        np.log1p(100 * np.maximum(o[:, DELIVERY], 0)),
-        np.log1p(100 * np.maximum(o[:, LOST], 0)),
-    ]
-    v = np.stack(cols, axis=1)
-    v[~np.isfinite(v)] = np.nan
-    return ["sender_cwnd", "sender_srtt", "sender_delivery_rate", "sender_loss_rate"], v
-
-
-@dataclass(frozen=True, slots=True)
-class Library:
-    """A design matrix whose columns are standardized on the fit rows.
-    Column 0 is the constant. A feature owns one or two columns: its value
-    (0, the fit mean, where undefined) and, if it is ever undefined, an
-    indicator of that."""
-
-    names: tuple[str, ...]  # feature -> "operator(variable)", or the variable
-    variable: tuple[str, ...]  # feature -> its base variable
-    columns: tuple[tuple[int, ...], ...]  # feature -> its columns
-    same_as: dict[str, str]  # a feature left out -> the kept one it repeats
-    fit: F64
-    score: F64
-
-
-def _history(v: F64, s: steps_data.Steps, idx: npt.NDArray[np.int64], stride: int) -> F64:
-    """[anchor, age in rows, variable]: the variables at the anchor and at
-    the rows before it in its own episode; NaN beyond the episode's start."""
-    age = np.arange(max(WINDOWS))
-    past = idx[:, None] - age[None]
-    row = np.maximum(past, 0)
-    ok = (past >= 0) & (s.episode[row] == s.episode[idx][:, None])
-    ok &= s.step[idx][:, None] - s.step[row] == age[None] * stride
-    h = v[row]
-    h[~ok] = np.nan
-    return h
-
-
-def _operators(h: F64, stride: int) -> list[tuple[str, F64]]:
-    out = [("", h[:, 0]), (f"change_{stride * 10}ms", h[:, 0] - h[:, 1])]
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)  # a window with no defined row
-        for w in WINDOWS:
-            for op, f in (("mean", np.nanmean), ("min", np.nanmin), ("max", np.nanmax)):
-                out.append((f"{op}_{w * stride * 10}ms", f(h[:, :w], axis=1)))
-    return out
-
-
-def library(
-    names: list[str],
-    v: F64,
-    s: steps_data.Steps,
-    fit: npt.NDArray[np.int64],
-    score: npt.NDArray[np.int64],
-    *,
-    stride: int,
-) -> Library:
-    """Every variable under every operator, less the features that are
-    constant, almost never defined, or repeat an earlier one."""
-    ops_fit, ops_score = (
-        _operators(_history(v, s, fit, stride), stride),
-        _operators(_history(v, s, score, stride), stride),
-    )
-    kept: list[tuple[str, str, F64, F64]] = []  # name, variable, fit value, score value
-    same_as: dict[str, str] = {}
-    for (op, a), (_, b) in zip(ops_fit, ops_score, strict=True):
-        for j, var in enumerate(names):
-            name = f"{op}({var})" if op else var
-            x = a[:, j]
-            if np.isfinite(x).mean() < 0.01 or np.nanstd(x) < 1e-9:
-                continue
-            mean, std = np.nanmean(x), np.nanstd(x)
-            xf = np.nan_to_num((x - mean) / std)
-            twin = next(
-                (n for n, _, y, _ in kept if abs(np.mean(xf * np.nan_to_num(y))) > 0.999), None
-            )
-            if twin is not None:
-                same_as[name] = twin
-            else:
-                kept.append((name, var, (x - mean) / std, (b[:, j] - mean) / std))
-    cols_fit, cols_score, columns = [np.ones(fit.size)], [np.ones(score.size)], []
-    for _, _, x, y in kept:
-        own = [len(cols_fit)]
-        cols_fit.append(np.nan_to_num(x))
-        cols_score.append(np.nan_to_num(y))
-        gap = np.isnan(x)
-        if 0 < gap.mean() < 1:
-            m, sd = gap.mean(), gap.std()
-            own.append(len(cols_fit))
-            cols_fit.append((gap - m) / sd)
-            cols_score.append((np.isnan(y) - m) / sd)
-        columns.append(tuple(own))
-    return Library(
-        names=tuple(k[0] for k in kept),
-        variable=tuple(k[1] for k in kept),
-        columns=tuple(columns),
-        same_as=same_as,
-        fit=np.stack(cols_fit, axis=1),
-        score=np.stack(cols_score, axis=1),
-    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -407,14 +513,24 @@ class Moments:
     var_score: F64  # per latent, its variance on the score rows
 
     @staticmethod
-    def of(lib: Library, z_fit: F64, z_score: F64) -> Moments:
+    def of(
+        lib: Library,
+        z_fit: F64,
+        z_score: F64,
+        fit: npt.NDArray[np.bool_] | None = None,
+        score: npt.NDArray[np.bool_] | None = None,
+    ) -> Moments:
+        """On the library's rows, or on those ``fit`` and ``score`` keep
+        (z_fit and z_score hold these rows alone)."""
+        x = lib.fit if fit is None else lib.fit[fit]
+        y = lib.score if score is None else lib.score[score]
         mean, std = z_fit.mean(0), z_fit.std(0) + 1e-12
         a, b = (z_fit - mean) / std, (z_score - mean) / std
         return Moments(
-            g_fit=lib.fit.T @ lib.fit / len(a),
-            c_fit=lib.fit.T @ a / len(a),
-            g_score=lib.score.T @ lib.score / len(b),
-            c_score=lib.score.T @ b / len(b),
+            g_fit=x.T @ x / len(a),
+            c_fit=x.T @ a / len(a),
+            g_score=y.T @ y / len(b),
+            c_score=y.T @ b / len(b),
             zz_score=(b**2).mean(0),
             var_score=b.var(0),
         )
@@ -481,40 +597,36 @@ def _selection(lib: Library, m: Moments) -> dict[str, Any]:
     }
 
 
-def select(out: Path, dirs: list[Path], runs: list[Path]) -> None:
+def select(out: Path, runs: list[Path]) -> None:
     out.mkdir(parents=True, exist_ok=True)
-    s, d, first, fit, score = _setup(dirs, runs)
-    labels, b = base_variables(s)
-    sender, m = sender_variables(s)
-    lib = library(
-        [*labels, *sender],
-        np.concatenate([b, m], 1),
-        s,
-        fit.numpy(),
-        score.numpy(),
-        stride=first.stride,
-    )
-    z_of = _latents_of(runs, d, first, fit, score)
-    moments = {run: Moments.of(lib, zf, zs) for run, (_, zf, zs) in z_of.items()}
+    ctls, names, variables, fr, sr = _setup(runs)
+    lib = Library.of(names, variables, fr.x, sr.x)
+    z_of = {c.name: (c.encode(fr.obs), c.encode(sr.obs)) for c in ctls}
+    moments = {
+        c.name: Moments.of(
+            lib, z_of[c.name][0][fr.own(r)], z_of[c.name][1][sr.own(r)], fr.own(r), sr.own(r)
+        )
+        for r, c in enumerate(ctls)
+    }
     index = {n: i for i, n in enumerate(lib.names)}
     result: dict[str, Any] = {
         "features": lib.names,
         "same_as": lib.same_as,
-        "runs": {run: {"k": z_of[run][0]} | _selection(lib, moments[run]) for run in z_of},
+        "runs": {c.name: {"k": c.k} | _selection(lib, moments[c.name]) for c in ctls},
         "pooled": {},
         "transfer": [],
     }
-    for k in sorted({k for k, _, _ in z_of.values()}):
-        same = [v for v in z_of.values() if v[0] == k]
+    for k in sorted({c.k for c in ctls}):
+        same = [z_of[c.name] for c in ctls if c.k == k]
         pooled = Moments.of(
-            lib, np.concatenate([v[1] for v in same], 1), np.concatenate([v[2] for v in same], 1)
+            lib, np.concatenate([v[0] for v in same], 1), np.concatenate([v[1] for v in same], 1)
         )
         result["pooled"][str(k)] = {"runs": len(same)} | _selection(lib, pooled)
-    for a, c in itertools.permutations(z_of, 2):
-        if z_of[a][0] == z_of[c][0]:
-            picks = [index[p["feature"]] for p in result["runs"][a]["path"][:PICK]]
-            r = float(moments[c].r2(_columns(lib, picks)).mean())
-            result["transfer"].append({"from": a, "to": c, "k": z_of[a][0], "mean": r})
+    for a, c in itertools.permutations(ctls, 2):
+        if a.k == c.k:
+            picks = [index[p["feature"]] for p in result["runs"][a.name]["path"][:PICK]]
+            r = float(moments[c.name].r2(_columns(lib, picks)).mean())
+            result["transfer"].append({"from": a.name, "to": c.name, "k": a.k, "mean": r})
     (out / "select.json").write_text(json.dumps(result, indent=1) + "\n")
     (out / "summary.md").write_text(select_summary(result))
 
@@ -572,17 +684,55 @@ def select_summary(result: dict[str, Any]) -> str:
     return "".join(lines)
 
 
+def drive(
+    run: Path, fit_from: Path, score_from: Path, build: UmlBuild, *, workers: int, links: int
+) -> None:
+    """The run's controller in the closed loop, every step kept."""
+    spec = PPOSpec.model_validate_json((run / "ppo_spec.json").read_text())
+    policy = run / "policy.onnx"
+    cc = AgentCC(
+        policy=OnnxPolicy(path=policy, sha256=hashlib.sha256(policy.read_bytes()).hexdigest())
+    )
+    for kind, source, n in (("fit", fit_from, links), ("score", score_from, None)):
+        # The same pairs and seeds for every run: both generators start alike.
+        arms = rollouts.arms(source, np.random.default_rng(0))
+        if n is not None and n < len(arms):
+            pick = np.random.default_rng(0).choice(len(arms), n, replace=False)
+            arms = [arms[i] for i in sorted(pick.tolist())]
+        episodes = [
+            EpisodeSpec(
+                path=p.model_copy(update={"loss": c.loss}),
+                cross=c.flows(p.trace),
+                cc=cc,
+                duration_ms=spec.duration_ms,
+                seed=7 + i,
+                steps=True,
+            )
+            for i, (p, c) in enumerate(arms)
+        ]
+        done = rollouts.run(run / "ground" / kind, episodes, build, workers, None)
+        print(f"{run.name} {kind}: {json.dumps(done, default=float)}")
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     sub = p.add_subparsers(dest="verb", required=True)
-    pr = sub.add_parser("probe")
-    se = sub.add_parser("select")
-    for q in (pr, se):
+    ro = sub.add_parser("rollouts")
+    ro.add_argument("run", type=Path)
+    ro.add_argument("--fit", type=Path, required=True)
+    ro.add_argument("--score", type=Path, required=True)
+    ro.add_argument("--build", type=Path, required=True)
+    ro.add_argument("--workers", type=int, default=1)
+    ro.add_argument("--links", type=int, default=96)
+    for verb in ("probe", "select"):
+        q = sub.add_parser(verb)
         q.add_argument("out", type=Path)
-        q.add_argument("--data", type=Path, nargs="+", required=True)
         q.add_argument("--runs", type=Path, nargs="+", required=True)
     a = p.parse_args()
-    (probe if a.verb == "probe" else select)(a.out, a.data, a.runs)
+    if a.verb == "rollouts":
+        drive(a.run, a.fit, a.score, UmlBuild.at(a.build), workers=a.workers, links=a.links)
+    else:
+        (probe if a.verb == "probe" else select)(a.out, a.runs)
 
 
 if __name__ == "__main__":

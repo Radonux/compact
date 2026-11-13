@@ -454,6 +454,10 @@ class PPOSpec(BaseModel):
             # ponytail: the measurements alone, upgrade when a split
             # controller needs a Linux teacher.
             raise ValueError('algo "clone" teaches u to an actor on inputs "raw", base "fixed"')
+        if self.algo == "clone" and self.group != 1:
+            # A teacher's rollouts carry no exploration noise, so a group's
+            # members would be one episode run again under one id.
+            raise ValueError('algo "clone" takes group 1: a teacher\'s rollouts do not differ')
         return self
 
     @model_validator(mode="after")

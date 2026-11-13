@@ -12,7 +12,7 @@ Which command serves which step of the [plan](methodology.md#plan):
 |---|---|
 | The discovery controller, and the retrained net2 | `train ppo` |
 | The retrained net1 | `train run` |
-| Grounding | `experiments/ground.py` on step data from the controllers' own rollouts; its library holds every stored label and composite |
+| Grounding | `experiments/ground.py`: `rollouts` runs a controller's `policy.onnx` in the closed loop into `RUN/ground`, then `probe` and `select` read the latents on those steps; the library holds every stored label and composite |
 
 ## Step data
 

@@ -1203,13 +1203,15 @@ def test_a_policy_teacher_labels_the_window_it_would_set_on_the_students_bdp(
 
 
 def test_a_clone_spec_names_its_teacher() -> None:
-    assert _narrow_spec(algo="clone", teacher_cc="cubic").teacher_cc == "cubic"
+    assert _narrow_spec(algo="clone", teacher_cc="cubic", group=1).teacher_cc == "cubic"
     with pytest.raises(ValueError, match="go together"):
         _narrow_spec(algo="clone")
     with pytest.raises(ValueError, match="go together"):
         _narrow_spec(teacher_cc="bbr3")
     with pytest.raises(ValueError, match='inputs "raw"'):
         ppo.PPOSpec(paths_from=Path("u"), net1_from=Path("u"), algo="clone", teacher_cc="cubic")
+    with pytest.raises(ValueError, match="group 1"):
+        _narrow_spec(algo="clone", teacher_cc="cubic", group=2)
 
 
 def test_the_paced_window_sends_as_the_teacher_did() -> None:
@@ -1225,7 +1227,7 @@ def test_the_paced_window_sends_as_the_teacher_did() -> None:
 def test_clone_rollouts_run_the_teacher_and_label_its_window() -> None:
     steps, net1 = _bdp_net1()
     table, obs = _flow_table(steps, net1)
-    spec = _narrow_spec(algo="clone", teacher_cc="bbr3")
+    spec = _narrow_spec(algo="clone", teacher_cc="bbr3", group=1)
     tr = trajectories.trajectory(
         table,
         np.zeros(obs.shape[0], np.float32),
@@ -1254,7 +1256,13 @@ def test_clone_rollouts_run_the_teacher_and_label_its_window() -> None:
     )
     cond = espec.Condition.model_validate({})
     taught = _narrow_spec(
-        algo="clone", teacher_cc="bbr3", alone=0.0, compete=1.0, copies_share=1.0, copies=[2]
+        algo="clone",
+        teacher_cc="bbr3",
+        group=1,
+        alone=0.0,
+        compete=1.0,
+        copies_share=1.0,
+        copies=[2],
     )
     eps = mixture.group_episodes((path, cond), pol, taught, np.random.default_rng(0), 0.5)
     assert all(e.cc == espec.StockCC(name="bbr3") for e in eps)
@@ -1287,7 +1295,12 @@ def test_a_clone_reads_its_own_previous_decision_while_it_learns() -> None:
         return trajectories.Trajectory((k, 0), inp, inp, u, z, z, teacher=u, tcp=z)
 
     spec = _narrow_spec(
-        algo="clone", teacher_cc="cubic", updates_per_iteration=150, batch_trajectories=8, lr=3e-3
+        algo="clone",
+        teacher_cc="cubic",
+        group=1,
+        updates_per_iteration=150,
+        batch_trajectories=8,
+        lr=3e-3,
     )
     learner = learners.DAggerLearner(5, 6, spec)
     first = learner.update([traj(k) for k in range(16)], rng)
