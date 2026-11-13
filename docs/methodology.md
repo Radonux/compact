@@ -293,8 +293,12 @@ whether they are worth refining.
    from the selected ground-truth features, from the hand-picked LCFs
    and from the raw message, at the same number of inputs. It is a
    proxy: it shows whether a set of concepts holds what known
-   controllers act on, and it supports no claim about control. Then
-   check the count in the closed loop: controllers that read
+   controllers act on, and it supports no claim about control. Next,
+   still on logged steps: a student that predicts the logged actions
+   through k latents, whose width curve counts the concepts the actions
+   need and whose latents are grounded as the codec's are, with the
+   selection scored on the action and not only on the fit of the
+   latents. Then check the count in the closed loop: controllers that read
    the first k latents, or the grounded concepts, against one that reads
    raw measurements. This needs a tuned black-box controller, which also
    serves as a teacher: distill students from it with DAgger through a

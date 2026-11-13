@@ -17,7 +17,7 @@ Updated with each entry. The steps are those of the
 | 2 The codec on logged steps | done (2026-11-12): search `exp-codec-search-3`, confirmation `exp-codec-confirm-4` | `experiments/codec.py`, its positive control (`tests/test_codec.py`), the link split; the trained weights in `exp-codec-confirm-4` | |
 | 3 Strengthen the codec | dropout 0.3 chosen and the width curve rerun with it (2026-11-12, `exp-codec-dropout-6`); knee rule fixed, 6 latents; longer training and a deeper encoder tried and not adopted (2026-11-13, `exp-codec-capacity-7`) | the `dropout` option of the codec; the trained weights in `exp-codec-dropout-6` | the information-bottleneck term; the run on the test links |
 | 4 Grounding | linear grounding done on the knee codecs (2026-11-13, `exp-ground-knee-13`), after a first look (`exp-ground-probe-10`, `exp-ground-select-12`); the latents mostly repeat three sender readings, so the formula search waits for step 5 | the labels and the step message in `steps.parquet`; `experiments/ground.py probe` and `select`; the trained weights in `exp-codec-knee-11` | formulas beyond a linear fit (PySR on the residual); the operator-family sensitivity |
-| 5 Control | next (moved ahead of the formula search, 2026-11-13); UNRUN | a recurrent actor on raw measurements (`train ppo`, `inputs: "raw"`), trained by PPO, TD3+BC or DAgger; closed-loop rollouts and scoring | a controller that reads the codec's latents or fitted concepts; DAgger from a teacher given as a graph; the bottlenecked student in the closed loop |
+| 5 Control | offline action check done (2026-11-13, `exp-actions-knee-14`, a proxy); next a bottlenecked student of the logged actions; the closed loop is UNRUN | `experiments/actions.py`; a recurrent actor on raw measurements (`train ppo`, `inputs: "raw"`), trained by PPO, TD3+BC or DAgger; closed-loop rollouts and scoring | a controller that reads the codec's latents or fitted concepts; DAgger from a teacher given as a graph; the bottlenecked student in the closed loop |
 | 6 Retrain and compare | UNRUN | `train run` for net1 and an offline net2; `train ppo` for a closed-loop net2; oracles on the seven LCFs | labels from fitted formulas; net1 on them; the live truth for them |
 
 C1 has first evidence from a release, on validation links only (entry of
@@ -43,6 +43,99 @@ C3 and C5 have none.
   is processed ([architecture.md](architecture.md#known-limits)). The
   oracle net2 of step 6 and labels for fitted formulas need both
   extended.
+
+## 2026-11-13: an offline check of what the logging controllers act on
+
+- **Release.**
+  [`exp-actions-knee-14`](https://github.com/Radonux/compact/releases/tag/exp-actions-knee-14)
+  (`experiments/actions-knee.json`, `experiments/actions.py`). One small
+  network per set of inputs predicts, from the inputs at one step and
+  the identity of the controller that logged it, the change of that
+  controller's window (log2) over the next 60, 240 and 960 ms. Steps and
+  labels of `exp-steps-broad-30s-9`, codecs of `exp-codec-knee-11`,
+  ground-truth paths of `exp-ground-knee-13`. Fits on 300,000 anchors of
+  the training links, scores on 200,000 anchors of the validation links,
+  as R^2 per controller around its own mean change, then averaged over
+  the 22 controllers (17 kernel algorithms and 5 learned policies). No
+  cell failed. The test links were not read.
+- **Searched.** Nothing. One network (2 hidden layers of 256, 20 epochs,
+  the epoch chosen on a tenth of the training episodes) serves every
+  set, with 3 model seeds per set and one fit per codec run (5 seeds).
+  No set was tuned, so differences of a few hundredths between sets are
+  not a ranking.
+- **It is a proxy.** The controllers have memory and the predictor sees
+  one step; the whole message at one step reaches only 0.50. Predicting
+  logged actions is not control, and this entry makes no claim about
+  control.
+- **Mean over controllers** (mean and standard deviation over the fits;
+  "columns" counts the inputs, where a feature that is sometimes
+  undefined has a second column saying so):
+
+  | Inputs | Columns | 60 ms | 240 ms | 960 ms |
+  |---|---|---|---|---|
+  | controller's identity (floor) | 0 | 0.000 | 0.000 | 0.000 |
+  | sender's srtt, delivery rate, loss rate | 3 | 0.225 ± 0.003 | 0.200 ± 0.004 | 0.147 ± 0.001 |
+  | 4 latents | 4 | 0.314 ± 0.004 | 0.312 ± 0.003 | 0.234 ± 0.003 |
+  | 6 latents (the knee) | 6 | 0.383 ± 0.005 | 0.404 ± 0.004 | 0.314 ± 0.003 |
+  | 8 latents | 8 | 0.417 ± 0.004 | 0.441 ± 0.005 | 0.353 ± 0.005 |
+  | first 4 ground-truth picks | 6 | 0.295 ± 0.002 | 0.287 ± 0.001 | 0.229 ± 0.003 |
+  | first 6 ground-truth picks | 9 | 0.304 ± 0.005 | 0.305 ± 0.004 | 0.252 ± 0.004 |
+  | first 8 ground-truth picks | 12 | 0.389 ± 0.006 | 0.406 ± 0.003 | 0.317 ± 0.005 |
+  | expliCCit's seven concepts | 7 | 0.407 ± 0.004 | 0.425 ± 0.003 | 0.326 ± 0.004 |
+  | whole step message (ceiling for one step) | 70 | 0.501 ± 0.007 | 0.488 ± 0.003 | 0.395 ± 0.005 |
+
+  With the sender's own window added as one more column: seven concepts
+  0.479 / 0.510 / 0.408, first 8 picks 0.473 / 0.504 / 0.403, 8 latents
+  0.437 / 0.464 / 0.374, 6 latents 0.410 / 0.430 / 0.336, sender
+  readings 0.354 / 0.331 / 0.244. The seven concepts with the window
+  match the whole message.
+- **Kernel algorithms and learned policies apart** (60 ms; means of the
+  per-controller table of the release, computed here):
+
+  | Inputs | 17 kernel algorithms | 5 learned policies |
+  |---|---|---|
+  | sender readings | 0.231 | 0.204 |
+  | 6 latents | 0.381 | 0.390 |
+  | 8 latents | 0.405 | 0.456 |
+  | first 6 ground-truth picks | 0.252 | 0.484 |
+  | first 8 ground-truth picks | 0.353 | 0.513 |
+  | seven concepts | 0.359 | 0.571 |
+  | whole message | 0.462 | 0.633 |
+
+- **What it shows.**
+  1. The latents hold more of the actions than the three sender
+     readings that span 85% of them (0.383 against 0.225 at the knee).
+     The part of the latents that the linear grounding left unnamed is
+     not noise for this purpose.
+  2. Grounding by how well features span the latents picks the wrong
+     features for actions. The first 6 picks score 0.304, below the 6
+     latents they were picked to span (0.383) and below the seven
+     hand-picked concepts (0.407). The seventh and eighth picks,
+     `change_60ms(queue_delay_mean_ns)` and `capacity_bps`, each add
+     only 0.002 to the fit of the latents and together add 0.085 here.
+     Explained variance of the latents is therefore a poor order of
+     importance for control.
+  3. At the same number of inputs the codec's latents and the seven
+     hand-picked concepts are close on average (6 latents 0.383, seven
+     concepts 0.407, 8 latents 0.417), and they differ by controller.
+     For the kernel algorithms the latents are at least as good as the
+     seven concepts. For the five learned policies the seven concepts
+     are far ahead (0.571 against 0.390). What those policies read is
+     not recorded in compact's documents, so the gap may only say that
+     they were given such quantities.
+  4. The local dry run on the older codecs gave the same picture (seven
+     concepts 0.41, 6 latents 0.39, first 6 picks 0.31, sender 0.23).
+- **Consequence for the plan.** The count and the names should come
+  from a model whose loss is the action, not the sender's future. The
+  next part of step 5 is a student of the logged actions with k latents
+  between its encoder and its action head: its width curve on this same
+  score gives the count for actions (to set beside the codec's 6), and
+  its latents are grounded with `ground.py` as the codec's were. The
+  selection should then be scored on the action and not on the fit of
+  the latents. The formula search still waits.
+- **UNRUN.** The bottlenecked student of the actions; a predictor with
+  history; any tuning per set; what the five learned policies read; the
+  closed loop; anything on the test links.
 
 ## 2026-11-13: grounding the knee codecs, and what it changes
 
