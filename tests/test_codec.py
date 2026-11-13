@@ -214,3 +214,11 @@ def test_a_student_of_the_actions_needs_what_its_controllers_act_on() -> None:
         score[k] = float(codec.r2(model, d, d.anchors["val"], cfg, k).mean())
     assert score[2] > 0.9
     assert score[1] < 0.7
+
+
+def test_one_latent_has_no_other_to_correlate_with() -> None:
+    cfg = codec.Config(k=1, nested=False, width=16, depth=1, dec_width=16, dec_depth=1)
+    cfg = cfg.model_copy(update={"horizons": (1, 2, 4)})
+    d = _synthetic(cfg, episodes=20)
+    stats = codec._latents(codec.Codec.of(d, cfg), d, d.anchors["val"], cfg)
+    assert stats["max_abs_corr"] == [0.0]

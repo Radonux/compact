@@ -427,7 +427,8 @@ def _latents(model: Codec, d: Data, idx: Tensor, cfg: Config) -> dict[str, Any]:
     with torch.no_grad():
         model.eval()
         z = model.encode(_batch(d, idx[:200_000], cfg)[0])
-    c = torch.corrcoef(z.T).nan_to_num()
+    k = z.shape[1]
+    c = torch.corrcoef(z.T).nan_to_num().reshape(k, k)  # corrcoef gives a scalar at k = 1
     off = c - torch.diag(torch.diag(c))
     return {"std": z.std(0).tolist(), "max_abs_corr": off.abs().max(0).values.tolist()}
 
