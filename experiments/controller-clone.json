@@ -1,0 +1,29 @@
+{
+  "title": "A controller with a narrow middle, taught a rule's window in the closed loop",
+  "description": "The first closed-loop stage of compact's controller: an encoder in net1's place maps each step's measurements to k latents, and a recurrent decoder in net2's place sets the window from the latents and its own previous decision alone (PPOSpec.latents). Nothing measured passes around the latents: the decoder's output is log2 of the window over a fixed 2^7 packets. Widths 4, 7, 10, 16 and 64 (64 stands for no constraint), seeds 1 to 3. This stage only gives each controller a sane start for reinforcement learning: DAgger, in which the controller acts in every rollout and each decision is labelled with the window of a fixed rule on the estimator of the seven hand-picked LCFs (2^0.25 times its believed bandwidth-delay product; experiments/estimator-seven.json). The start therefore leans toward what that rule reads, capacity and delay; the stage after it learns from the reward alone. k 0 is a reference without an encoder: the recurrent network on the measurements, its window on a measured bandwidth-delay product (maximum delivery rate over 2 s times minimum RTT). Training: 40 iterations of 32 links, 30 s episodes, the flow alone on 35% of the links and against competitors or copies of itself on 60%, exploration sigma 0.05, learning rate 0.001, 200 updates per iteration over the last 16 iterations' rollouts. Every 10 iterations the noise-free controller runs on the 21 validation links under 6 conditions and is scored by log utility, paired by link and condition with the fixed rule. Nothing is chosen from this run: every width goes on to the next stage, and the report says how far each start is from the rule. The test links are not read.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "estimator": "release:exp-estimator-seven-19",
+    "rule": "release:exp-steps-behaviour-rule-8"
+  },
+  "matrix": {
+    "k": [
+      0,
+      4,
+      7,
+      10,
+      16,
+      64
+    ],
+    "seed": [
+      1,
+      2,
+      3
+    ]
+  },
+  "prepare": "uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$IN/estimator/estimator/net1.pt\" --models \"$IN/rule/models\" --u 0.25 --paths net2-train-xl",
+  "run": "S=\"$OUT/spec-k$K-s$SEED.json\"; jq --argjson k \"$K\" --argjson seed \"$SEED\" '.algo = \"dagger\" | .inputs = \"raw\" | (if $k > 0 then .latents = $k | .action_max = 8 else . end) | .share_k = 0 | .critic_warmup = 0 | .critic_flows = true | .lr = 0.001 | .updates_per_iteration = 200 | .replay_iterations = 16 | .tau_s = 1 | .noise_sigma = 0.05 | .group = 1 | .links_per_iteration = 32 | .copies = [2, 4] | .competition = \"diverse\" | .alone = 0.35 | .compete = 0.6 | .seed = $seed | .iterations = 40 | .eval_every = 10' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/ctl-k$K-s$SEED\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ctl-*",
+  "timeout_minutes": 360
+}

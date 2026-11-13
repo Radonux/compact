@@ -312,6 +312,79 @@ def test_the_black_box_aims_at_the_measured_bdp_and_reads_no_belief() -> None:
         )
 
 
+def _narrow_spec(**kw: object) -> ppo.PPOSpec:
+    return ppo.PPOSpec.model_validate(
+        {
+            "paths_from": "unused",
+            "net1_from": "unused",
+            "u_rule": 0.25,
+            "hidden": 8,
+            "inputs": "raw",
+            "latents": 3,
+            "encoder_hidden": 16,
+            "action_max": 8.0,
+            **kw,
+        }
+    )
+
+
+def test_a_narrow_controller_sets_its_window_from_the_latents_alone() -> None:
+    steps, net1 = _bdp_net1()
+    spec = _narrow_spec()
+    width = actors.width(net1, spec)
+    actor = actors.new_actor(width, spec)
+    assert actor.gru.input_size == 3 + 1  # the latents and the previous u
+    graph = ppo.policy_graph(net1, actor, spec)
+    obs = torch.from_numpy(steps.obs[steps.episode == 0][:6].copy())
+    state, cwnd = torch.zeros(1, graph.state_dim), torch.tensor([[10.0]])
+    with torch.no_grad():
+        # It starts as a fixed window, 2^(7 + u_rule) packets, whatever BDP
+        # the measurements suggest: nothing measured passes around the latents.
+        a, _ = graph.step(obs[:1], state, cwnd=cwnd)
+        assert float(a) + np.log2(10.0) == pytest.approx(7.25, abs=1e-4)
+        torch.nn.init.normal_(actor.head.weight)
+        x = torch.cat([net1.scaler(obs), torch.zeros(6, 1)], dim=1)
+        z = actor.encode(x[:, :-1])
+        assert z.shape == (6, 3)
+        # One step of the exported cell is the trained sequence's first step.
+        first = actor.mean(actor.cell(x[:1], torch.zeros(1, spec.hidden)))
+        assert float(first) == pytest.approx(float(actor.sequence(x[:1].unsqueeze(0))), abs=1e-6)
+        # With the encoder's output fixed, the measurements change nothing.
+        last = actor.encoder[-1]
+        last.weight.zero_()
+        outs = actor.sequence(x.unsqueeze(1))
+        assert torch.allclose(outs, outs[0].expand_as(outs))
+    m = onnx.load_from_string(to_onnx(graph))
+    assert [i.name for i in m.graph.input] == ["obs", "state", "cwnd"]
+    with pytest.raises(ValueError, match="narrow middle"):
+        ppo.PPOSpec(paths_from=Path("u"), net1_from=Path("u"), latents=3)
+    assert handoff.mismatch(spec, _narrow_spec(latents=4), handoff.ACTOR_FIELDS) == ["latents"]
+
+
+def test_a_narrow_controller_learns_the_teachers_window_itself() -> None:
+    steps, net1 = _bdp_net1()
+    table, obs = _flow_table(steps, net1)
+    spec = _narrow_spec(algo="dagger", share_k=0.0)
+    tr = trajectories.trajectory(
+        table,
+        np.zeros(obs.shape[0], np.float32),
+        net1,
+        front=actors.front(net1, spec),
+        target=actors.target(net1, spec),
+        rules=actors.Rules(net1, spec),
+        spec=spec,
+        group=(0, 0),
+        rivals=np.zeros((0, 3)),
+    )
+    assert tr is not None and tr.teacher is not None
+    d = decision_steps(obs[:, OBS_MIN_RTT])
+    d = d[d + 1 < obs.shape[0]]
+    lb_net1 = fit.window_target(net1).bdp(torch.from_numpy(net1.beliefs(obs[d]))).numpy()
+    # The label is log2 of the rule's window over the fixed 2^7 packets.
+    assert np.allclose(tr.teacher, 0.25 + lb_net1 - 7.0, atol=1e-5)
+    assert np.allclose(tr.u, np.log2(20.0) - 7.0, atol=1e-5)
+
+
 def test_the_oracle_reads_the_live_truth_as_its_trajectories_do() -> None:
     steps, net1 = _bdp_net1()
     spec = ppo.PPOSpec(

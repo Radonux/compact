@@ -442,6 +442,15 @@ class PPOSpec(BaseModel):
     # only as that scaler and the evaluation's rule. "net1+raw": both, net1's
     # view first, the window on net1's believed BDP (what the LCFs leave out).
     inputs: Inputs = "net1"
+    # The controller with a narrow middle (inputs "raw" only): an encoder,
+    # in net1's place, maps each step's scaled measurements to this many
+    # latents (two hidden layers of encoder_hidden), and the recurrent
+    # actor, in net2's place, reads the latents and its previous u alone.
+    # No measured BDP passes around the latents: u is log2 of the window
+    # over a fixed 2^7 packets (graph.FixedWindow), so everything the
+    # window depends on goes through them. None: no encoder.
+    latents: PositiveInt | None = None
+    encoder_hidden: PositiveInt = 256
     share_k: Annotated[float, Field(ge=0)] = 0.5
     alpha: Annotated[float, Field(gt=0)] = 20.0
     updates_per_iteration: PositiveInt = 200
@@ -479,6 +488,8 @@ class PPOSpec(BaseModel):
             raise ValueError(
                 'an actor on the truth ("truth") has nothing to learn from the teacher'
             )
+        if self.latents is not None and self.inputs != "raw":
+            raise ValueError('latents are the narrow middle of the controller on inputs "raw"')
         if self.inputs == "raw" and self.student.kind != "u":
             raise ValueError('a gate student mixes rules on net1\'s beliefs: not for "raw"')
         return self

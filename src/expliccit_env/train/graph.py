@@ -266,6 +266,19 @@ class MeasuredBdp(nn.Module):
         return torch.log2(torch.clamp(bits / PACKET_BITS, min=1.0))
 
 
+class FixedWindow(nn.Module):
+    """The target of the controller with a narrow middle: a fixed window of
+    2^7 packets, so u is log2 of the window itself (2^-1 to 2^15 packets
+    at action_max 8) and nothing measured passes around the latents."""
+
+    LOG2_PACKETS: Final = 7.0
+
+    def forward(
+        self, obs: torch.Tensor, z: torch.Tensor, traffic: torch.Tensor | None = None
+    ) -> torch.Tensor:
+        return torch.zeros_like(obs[:, 0]) + self.LOG2_PACKETS
+
+
 class EveryStep(nn.Module):
     """net2 asked at every step: a = net2(x) * action_max, or with a target
     the window log2 BDP + u, as a = that - log2 cwnd within the contract's

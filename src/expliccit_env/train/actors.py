@@ -22,7 +22,7 @@ import torch
 from torch import nn
 
 from expliccit_env.train import fit
-from expliccit_env.train.graph import Front, MeasuredBdp, PolicyGraph
+from expliccit_env.train.graph import FixedWindow, Front, MeasuredBdp, PolicyGraph
 from expliccit_env.train.recurrent import ConcatActor, EnsembleActor, Held, RecurrentActor
 from expliccit_env.train.share import ACTION_MAX as SHARE_ACTION_MAX
 from expliccit_env.train.share import CoopRule, ShareRule
@@ -177,7 +177,9 @@ def front(net1: fit.Net1, spec: PPOSpec, *, traffic: nn.Module | None = None) ->
 
 def target(net1: fit.Net1, spec: PPOSpec) -> nn.Module:
     """The BDP the window is aimed at: net1's belief, or BBR's estimate for
-    the black box."""
+    the black box; a fixed window for the controller with a narrow middle."""
+    if spec.latents is not None:
+        return FixedWindow()
     return MeasuredBdp() if spec.inputs == "raw" else fit.window_target(net1)
 
 
@@ -189,7 +191,12 @@ def new_actor(width: int, spec: PPOSpec) -> RecurrentActor:
     """The spec's actor as it starts: the fixed rule (or, on base "share",
     the share rule), or a gate student believing P0 everywhere."""
     actor = RecurrentActor(
-        width, spec.hidden, memory=spec.memory, outputs=2 if spec.student.kind == "gate3" else 1
+        width,
+        spec.hidden,
+        memory=spec.memory,
+        outputs=2 if spec.student.kind == "gate3" else 1,
+        latents=spec.latents,
+        encoder_hidden=spec.encoder_hidden,
     )
     if spec.student.kind != "u":  # p = (tanh(head) + 1) / 2 = P0 everywhere
         actor.clone_rule(2 * P0 - 1, 1.0)

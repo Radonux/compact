@@ -79,15 +79,49 @@ class RecurrentActor(nn.Module):
     matrix products and activations."""
 
     def __init__(
-        self, width: int, hidden: int = 64, *, memory: bool = True, outputs: int = 1
+        self,
+        width: int,
+        hidden: int = 64,
+        *,
+        memory: bool = True,
+        outputs: int = 1,
+        latents: int | None = None,
+        encoder_hidden: int = 256,
     ) -> None:
         super().__init__()
         # memory False: every decision starts from a zero hidden state, the
         # same network without memory (an ablation). outputs > 1: a vector
         # per decision (a "gate3" student's two beliefs), [..., outputs].
+        # latents: an encoder in net1's place maps the view to that many
+        # latents, and the GRU, in net2's place, reads them and the
+        # previous u alone (PPOSpec.latents).
         self.width, self.hidden, self.memory, self.outputs = width, hidden, memory, outputs
-        self.gru = nn.GRU(width + 1, hidden, batch_first=True)
+        self.encoder = (
+            None
+            if latents is None
+            else nn.Sequential(
+                nn.Linear(width, encoder_hidden),
+                nn.ReLU(),
+                nn.Linear(encoder_hidden, encoder_hidden),
+                nn.ReLU(),
+                nn.Linear(encoder_hidden, latents),
+            )
+        )
+        self.gru = nn.GRU((width if latents is None else latents) + 1, hidden, batch_first=True)
         self.head = nn.Linear(hidden, outputs)
+
+    def encode(self, view: torch.Tensor) -> torch.Tensor:
+        """[..., width] the view -> [..., k] the latents the GRU reads."""
+        if self.encoder is None:
+            raise ValueError("this actor has no narrow middle")
+        return self.encoder(view)
+
+    def _narrow(self, x: torch.Tensor) -> torch.Tensor:
+        """[..., width + 1] the actor's input -> the GRU's: the view through
+        the encoder where there is one, the previous u beside it."""
+        if self.encoder is None:
+            return x
+        return torch.cat([self.encoder(x[..., :-1]), x[..., -1:]], dim=-1)
 
     def clone_rule(self, u: float, action_max: float) -> None:
         """Answer u whatever the input: a zero head with bias atanh(u / max),
@@ -104,6 +138,7 @@ class RecurrentActor(nn.Module):
 
     def pre(self, x: torch.Tensor) -> torch.Tensor:
         """``sequence`` before its tanh: [B, T] head outputs ([B, T, outputs])."""
+        x = self._narrow(x)
         if not self.memory:
             b, t, f = x.shape
             h, _ = self.gru(x.reshape(b * t, 1, f))
@@ -118,7 +153,7 @@ class RecurrentActor(nn.Module):
             cast(torch.Tensor, getattr(self.gru, n))
             for n in ("weight_ih_l0", "weight_hh_l0", "bias_ih_l0", "bias_hh_l0")
         )
-        gi = x @ w_ih.t() + b_ih
+        gi = self._narrow(x) @ w_ih.t() + b_ih
         gh = h @ w_hh.t() + b_hh
         i_r, i_z, i_n = gi.chunk(3, dim=1)
         h_r, h_z, h_n = gh.chunk(3, dim=1)
