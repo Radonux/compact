@@ -17,7 +17,7 @@ Updated with each entry. The steps are those of the
 | 2 The codec on logged steps | done (2026-11-12): search `exp-codec-search-3`, confirmation `exp-codec-confirm-4` | `experiments/codec.py`, its positive control (`tests/test_codec.py`), the link split; the trained weights in `exp-codec-confirm-4` | |
 | 3 Strengthen the codec | dropout 0.3 chosen and the width curve rerun with it (2026-11-12, `exp-codec-dropout-6`); knee rule fixed, 6 latents; longer training and a deeper encoder tried and not adopted (2026-11-13, `exp-codec-capacity-7`) | the `dropout` option of the codec; the trained weights in `exp-codec-dropout-6` | the information-bottleneck term; the run on the test links |
 | 4 Grounding | linear grounding done on the knee codecs (2026-11-13, `exp-ground-knee-13`), after a first look (`exp-ground-probe-10`, `exp-ground-select-12`); the latents mostly repeat three sender readings, so the formula search waits for step 5 | the labels and the step message in `steps.parquet`; `experiments/ground.py probe` and `select`; the trained weights in `exp-codec-knee-11` | formulas beyond a linear fit (PySR on the residual); the operator-family sensitivity |
-| 5 Control | offline action check done (2026-11-13, `exp-actions-knee-14`, a proxy); a bottlenecked student of the logged actions searched on one seed (2026-11-13, `exp-student-search-16`), its confirmation over seeds and its grounding are UNRUN; the closed loop is UNRUN | `experiments/actions.py`; the student (`experiments/codec.py` with `targets=action`) and its trained weights in `exp-student-search-16`; a recurrent actor on raw measurements (`train ppo`, `inputs: "raw"`), trained by PPO, TD3+BC or DAgger; closed-loop rollouts and scoring | a controller that reads the codec's latents or fitted concepts; DAgger from a teacher given as a graph; the bottlenecked student in the closed loop |
+| 5 Control | offline action check done (2026-11-13, `exp-actions-knee-14`, a proxy); a bottlenecked student of the logged actions searched (`exp-student-search-16`) and confirmed over five seeds (2026-11-13, `exp-student-confirm-17`): no sharp knee, 3 latents by the 5% rule and 6 within 1% of the wide model; its grounding is UNRUN; the closed loop is UNRUN | `experiments/actions.py`; the student (`experiments/codec.py` with `targets=action`) and its trained weights in `exp-student-confirm-17`; a recurrent actor on raw measurements (`train ppo`, `inputs: "raw"`), trained by PPO, TD3+BC or DAgger; closed-loop rollouts and scoring | a controller that reads the codec's latents or fitted concepts; DAgger from a teacher given as a graph; the bottlenecked student in the closed loop |
 | 6 Retrain and compare | UNRUN | `train run` for net1 and an offline net2; `train ppo` for a closed-loop net2; oracles on the seven LCFs | labels from fitted formulas; net1 on them; the live truth for them |
 
 C1 has first evidence from a release, on validation links only (entry of
@@ -43,6 +43,65 @@ C3 and C5 have none.
   is processed ([architecture.md](architecture.md#known-limits)). The
   oracle net2 of step 6 and labels for fitted formulas need both
   extended.
+
+## 2026-11-13: the student of the actions over seeds, and a curve with no sharp knee
+
+- **Release.**
+  [`exp-student-confirm-17`](https://github.com/Radonux/compact/releases/tag/exp-student-confirm-17)
+  (`experiments/student-confirm.json`). The student of the entry below
+  with the settings chosen there (dropout 0.3, learning rate 3e-4), seeds
+  0 to 4 at 2, 3, 4, 6, 8 and 64 latents. All 30 cells succeeded and ran
+  their 10 epochs; the validation loss was best in the last epoch in
+  every run, and no latent collapsed (standard deviations from 0.99).
+  The test links were not read.
+- **Searched.** Nothing new; this confirms the choice of
+  `exp-student-search-16`.
+- **Validation R^2 and skill** (mean and standard deviation over the 5
+  seeds; R^2 over all validation anchors in the scaled units, mean of
+  the three horizons; skill against a window that does not change):
+
+  | Latents | R^2 | 60 ms | 240 ms | 960 ms | Skill | Share of the skill at 64 | Gain in R^2 over the row above |
+  |---|---|---|---|---|---|---|---|
+  | 2 | 0.5101 ± 0.0010 | 0.527 | 0.547 | 0.456 | 0.5193 | 94.0% | |
+  | 3 | 0.5262 ± 0.0013 | 0.546 | 0.562 | 0.470 | 0.5351 | 96.8% | 0.0160 ± 0.0020 |
+  | 4 | 0.5324 ± 0.0007 | 0.552 | 0.569 | 0.476 | 0.5412 | 98.0% | 0.0063 ± 0.0015 |
+  | 6 | 0.5399 ± 0.0009 | 0.562 | 0.576 | 0.482 | 0.5486 | 99.3% | 0.0075 ± 0.0010 |
+  | 8 | 0.5426 ± 0.0005 | 0.566 | 0.578 | 0.484 | 0.5512 | 99.8% | 0.0027 ± 0.0010 |
+  | 64 | 0.5439 ± 0.0003 | 0.573 | 0.580 | 0.479 | 0.5525 | 100% | 0.0013 ± 0.0003 |
+
+  The gains are differences within a seed. One latent was not rerun; on
+  one seed it had 83% of the skill (entry below).
+- **What it shows.**
+  1. Seeds agree to about 0.001 in R^2, so the curve of the search was
+     not noise. Every step of the table is positive in every seed, down
+     to the 0.0013 from 8 to 64 latents.
+  2. By the rule fixed for the codec (the smallest width within 5% of
+     the skill at 64 latents) the knee is 3 in every seed: 3 latents
+     hold 96.6% to 97.0%, 2 hold 93.8% to 94.2%.
+  3. The curve has no sharp knee, so the count depends on the
+     threshold and the rule decides little. Within 5%: 3 latents.
+     Within 2%: 6 (4 latents reach 97.96% on average and miss it by a
+     hair). Within 1%: 6. Within 0.5%: 8. The codec's curve was steeper
+     at the same widths (6 latents held about 95% of its skill and 8 about
+     97%), so the actions do need less width than the sender's future
+     at any of these thresholds.
+  4. What a threshold on this score means for control is not known.
+     The score is offline, and 1% of skill here may or may not be 1% of
+     anything in the closed loop. That is the reason to carry several
+     widths (3, 4, 6 and 8) through grounding and into the closed loop,
+     and not to fix the count here.
+- **It is offline.** One step of input, logged actions, no claim about
+  control.
+- **Next.** `experiments/student-ground.json` grounds the students of 3,
+  4, 6 and 8 latents with `experiments/ground.py` (`probe` and
+  `select`, with the vocabulary sensitivity check). Then
+  `experiments/actions.py` puts the students' latents and the selected
+  features on the per-controller scale of `exp-actions-knee-14`, which
+  scores the selection on the action.
+- **UNRUN.** The grounding and its sensitivity check; the per-controller
+  scores and action collapse per controller; one latent over seeds; more
+  than 10 epochs; a wider or deeper student; a student with history; the
+  closed loop; anything on the test links.
 
 ## 2026-11-13: a student of the logged actions, its search and a first width curve
 
