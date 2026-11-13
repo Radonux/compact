@@ -4,7 +4,7 @@
   "uml": true,
   "train": true,
   "inputs": {
-    "estimator": "release:exp-estimator-seven-19",
+    "estimator": "release:exp-estimator-seven-20",
     "rule": "release:exp-steps-behaviour-rule-8"
   },
   "matrix": {

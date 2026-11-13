@@ -45,6 +45,38 @@ none.
   oracle net2 of step 6 and labels for fitted formulas need both
   extended.
 
+## 2026-11-13: the guest let a stopped cross flow keep sending
+
+Not a result: a fault in the emulator, found before the first
+closed-loop run and fixed first.
+
+- **The fault.** A TCP cross flow was told to stop at its planned time,
+  but the bytes its sender had already queued kept going out, and a
+  connection whose handshake waited behind a queue started later than
+  planned. So the number of flows that the labels and the scores call
+  active was not the number really sending. The fix (commit
+  "fix(guest): keep a cross flow inside its planned window") closes both
+  ends at the stop, refuses a connection that arrives after it, and
+  reports when each cross flow really connected
+  (`cross_connected_ms`); the result version is now 6. The commit
+  message has the measurements that found it.
+- **What it touches here.** Every episode run before this commit:
+  `exp-steps-broad-30s-9` and `exp-phase0-steps-2`, and so every codec,
+  student and grounding release above, in the episodes that have cross
+  flows. Those releases are proxies on logged steps since the entry
+  below; none of them is rerun for this alone. Any of their numbers that
+  is used again is used with this caveat, and data for a claim is
+  generated again with the fixed guest.
+- **The start of the closed-loop run.** The seven-LCF estimator and the
+  rule built on it were fitted on episodes of the old guest. They serve
+  only as the teacher of the taught start (`experiments/controller-clone.json`);
+  every rollout and every score of that run comes from the fixed guest,
+  the rule included, so the comparison with the rule is fair, but the
+  rule may be weaker than one fitted on clean episodes.
+- **Checked.** Format, lint, types, the unit tests (213 passed, 58
+  skipped) and the guest's clippy. UNRUN here: the tests that boot the
+  guest; the experiment workflow runs the guest itself.
+
 ## 2026-11-13: the plan changed: the discovery model is a controller
 
 - **What changed.** Discovery (step 1 of the idea, step 5 of the plan)
