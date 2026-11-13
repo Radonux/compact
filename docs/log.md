@@ -15,13 +15,14 @@ Updated with each entry. The steps are those of the
 |---|---|---|---|
 | 1 Setup | done (2026-11-11) | | |
 | 2 The codec on logged steps | done (2026-11-12): search `exp-codec-search-3`, confirmation `exp-codec-confirm-4` | `experiments/codec.py`, its positive control (`tests/test_codec.py`), the link split; the trained weights in `exp-codec-confirm-4` | |
-| 3 Strengthen the codec | dropout 0.3 chosen and the width curve rerun with it (2026-11-12, `exp-codec-dropout-6`); knee rule fixed, 6 latents; longer training and a deeper encoder dispatched (`experiments/codec-capacity.json`), no result yet | the `dropout` option of the codec; the trained weights in `exp-codec-dropout-6` | the information-bottleneck term; the run on the test links |
-| 4 Grounding | started (2026-11-12): the three missing labels added and the step data run again with them (`exp-steps-broad-30s-9`); a linear probe (`experiments/ground-probe.json`) and codecs trained on that data (`experiments/codec-knee.json`) dispatched, no result yet | the labels and the step message in `steps.parquet`; `experiments/ground.py probe` | the library, the fits, the stability and sensitivity checks |
+| 3 Strengthen the codec | dropout 0.3 chosen and the width curve rerun with it (2026-11-12, `exp-codec-dropout-6`); knee rule fixed, 6 latents; longer training and a deeper encoder tried and not adopted (2026-11-13, `exp-codec-capacity-7`) | the `dropout` option of the codec; the trained weights in `exp-codec-dropout-6` | the information-bottleneck term; the run on the test links |
+| 4 Grounding | first look done (2026-11-13) on codecs trained on the first copy of the data: probe `exp-ground-probe-10`, selection `exp-ground-select-12`; codecs trained on the new data (`experiments/codec-knee.json`) dispatched, no result yet | the labels and the step message in `steps.parquet`; `experiments/ground.py probe` and `select` | the same on the knee codecs over five seeds; formulas beyond a linear fit (PySR on the residual); the operator-family sensitivity |
 | 5 Control | UNRUN | a recurrent actor on raw measurements (`train ppo`, `inputs: "raw"`), trained by PPO, TD3+BC or DAgger; closed-loop rollouts and scoring | a controller that reads the codec's latents or fitted concepts; DAgger from a teacher given as a graph; the bottlenecked student in the closed loop |
 | 6 Retrain and compare | UNRUN | `train run` for net1 and an offline net2; `train ppo` for a closed-loop net2; oracles on the seven LCFs | labels from fitted formulas; net1 on them; the live truth for them |
 
 C1 has first evidence from a release, on validation links only (entry of
-2026-11-12). C2 to C5 have none.
+2026-11-12). C2 has a first look at the level of the latent space (entry
+of 2026-11-13). C3 to C5 have none.
 
 ## Open items
 
@@ -40,6 +41,160 @@ C1 has first evidence from a release, on validation links only (entry of
   is processed ([architecture.md](architecture.md#known-limits)). The
   oracle net2 of step 6 and labels for fitted formulas need both
   extended.
+
+## 2026-11-13: grounding, a first look
+
+Both runs use the codecs of `exp-codec-dropout-6` (dropout 0.3, seeds 0 to
+2), which were trained on the first copy of the step data, with the
+messages and labels of `exp-steps-broad-30s-9`. Fits are made on 300,000
+anchors of the training links and scored on 200,000 anchors of the
+validation links. Every number is an R^2 of a linear fit. The test links
+were not read. It is a first look: the same two runs are to be repeated on
+the codecs trained on the new data, over five seeds.
+
+- **Releases.**
+  [`exp-ground-probe-10`](https://github.com/Radonux/compact/releases/tag/exp-ground-probe-10)
+  (`experiments/ground-probe.json`; widths 2, 3, 4, 6, 12 and 16) and
+  [`exp-ground-select-12`](https://github.com/Radonux/compact/releases/tag/exp-ground-select-12)
+  (`experiments/ground-select.json`; widths 3, 4, 6 and 12). No cell
+  failed. The probe ran from the commit before never-defined labels were
+  dropped, so its tables carry an empty `buffer_bytes` row.
+- **Searched.** Nothing was tuned. The library is the one in
+  `experiments/ground.py`: 18 ground-truth labels and 4 sender readings
+  on a log scale, each as it is now, its change over 60 ms, and its mean,
+  minimum and maximum over 240 ms and 960 ms; 32 features were left out
+  as repeats of another (correlation above 0.999), among them
+  `one_way_delay_ns` for `base_rtt_ns` and `queue_pkts` for `queue_bytes`.
+- **Seeds find the same latent space** (probe; one seed's latents from
+  another's, mean over pairs):
+
+  | Latents | 2 | 3 | 4 | 6 | 12 | 16 |
+  |---|---|---|---|---|---|---|
+  | linear | 0.574 | 0.994 | 0.992 | 0.980 | 0.950 | 0.955 |
+  | quadratic | 0.724 | 0.995 | 0.996 | 0.989 | 0.977 | 0.977 |
+
+  From 3 latents on, the seeds differ by little more than a linear map.
+  This is the first evidence for C2, and only at the level of the space:
+  C2 is about the fitted concepts.
+- **What a linear read of the latents gives back** (probe; a selection of
+  the labels, the release has all of them):
+
+  | Label | 3 | 4 | 6 | 12 | 16 |
+  |---|---|---|---|---|---|
+  | `receive_rate_bps` | 0.966 | 0.979 | 0.978 | 0.974 | 0.975 |
+  | `flow_arrival_rate_bps` | 0.878 | 0.885 | 0.881 | 0.897 | 0.900 |
+  | `arrival_rate_bps` | 0.673 | 0.677 | 0.706 | 0.702 | 0.717 |
+  | `base_rtt_ns` | 0.532 | 0.570 | 0.694 | 0.879 | 0.929 |
+  | `queue_delay_mean_ns` | 0.557 | 0.583 | 0.694 | 0.871 | 0.909 |
+  | `capacity_bps` | 0.597 | 0.611 | 0.683 | 0.742 | 0.771 |
+  | `drop_fraction` | 0.695 | 0.630 | 0.637 | 0.726 | 0.739 |
+  | `buffer_pkts` | 0.498 | 0.530 | 0.591 | 0.638 | 0.679 |
+  | `busy_fraction` | 0.084 | 0.111 | 0.202 | 0.409 | 0.465 |
+  | `cross_traffic_share` | 0.116 | 0.121 | 0.125 | 0.202 | 0.284 |
+  | `active_flows` | 0.034 | 0.037 | 0.043 | 0.105 | 0.171 |
+  | `random_loss_rate` | 0.055 | 0.060 | 0.072 | 0.123 | 0.144 |
+
+  A quadratic read raises most rows by 0.03 to 0.10 at 6 latents and
+  leaves the same labels at the bottom. The flow's own rate is there from 3 latents.
+  Base RTT and queue delay are told apart only as the layer widens. How
+  many flows share the link, how much of the traffic is theirs, and the
+  random loss rate are barely there at any width.
+- **What spans the latents** (selection; pooled over the 3 seeds of a
+  width; the path adds, one at a time, the feature that most raises the
+  joint fit of all latents):
+
+  | | 3 latents | 4 | 6 | 12 |
+  |---|---|---|---|---|
+  | The sender's srtt, delivery rate and loss rate (the first three picks at every width) | 0.944 | 0.926 | 0.854 | 0.708 |
+  | First 6 picks, whole library | 0.964 | 0.945 | 0.884 | 0.778 |
+  | Whole library | 0.977 | 0.959 | 0.928 | 0.860 |
+  | Ground truth only: first 4 picks | 0.913 | 0.874 | 0.829 | 0.728 |
+  | Ground truth only: all of it | 0.944 | 0.912 | 0.885 | 0.814 |
+  | expliCCit's seven concepts | 0.734 | 0.700 | 0.690 | 0.590 |
+
+  - At 6 latents the whole-library path is sender delivery rate, sender
+    srtt, sender loss rate, `base_rtt_ns`, `max_240ms(drop_fraction)`,
+    `capacity_bps`. After the three sender readings each pick adds 0.013
+    or less.
+  - The ground-truth path opens the same way at every width:
+    `receive_rate_bps`, `base_rtt_ns`, `mean_240ms(queue_delay_ns)`, then
+    a windowed `drop_fraction`. These are the twins of the three sender
+    readings, with srtt split into its two parts. At 6 latents
+    `buffer_pkts` is fifth and `capacity_bps` tenth, and after the fourth
+    pick each adds 0.009 or less.
+  - The seven hand-picked concepts span the latents worse than the first
+    three picks of the ground-truth path (0.771 at 6 latents). They hold
+    no loss, and their values are of one moment.
+- **Vocabulary sensitivity** (selection; one base variable taken out, the
+  first 8 picks again; 6 latents, 0.893 with nothing taken out). Taking
+  out a sender reading costs the most and its twin takes its place:
+  without `sender_srtt`, 0.874, with `base_rtt_ns` and
+  `mean_240ms(queue_delay_ns)` picked; without `sender_loss_rate`, 0.883,
+  with two windows of `drop_fraction`; without `sender_delivery_rate`,
+  0.892, with `receive_rate_bps`. Taking out any other variable costs
+  0.003 or less. The fit therefore does not hang on one name in the
+  library, and the names it returns do: the same latent reads as a sender
+  measurement or as a path quantity depending on which the library holds.
+- **Stability between seeds** (selection; 6 latents). Each seed alone
+  picks the same first six features, in slightly different orders.
+  One seed's first 8 features fitted to another seed's latents give 0.893
+  on average and 0.887 at the lowest, against 0.887 to 0.900 on its own.
+- **What it shows.**
+  1. A codec that reads one step's message and predicts the sender's own
+     next second mostly passes on three of the message's fields. Its
+     ground-truth concepts are the path quantities those fields measure:
+     the flow's rate, the base RTT, the queue delay and the drop
+     fraction. That list has loss, which expliCCit's seven lack, and has
+     capacity, the buffer and the busy fraction only weakly.
+  2. This is what the codec's task asks for, so it is weak evidence
+     about which concepts a controller needs. Nothing in the task
+     rewards holding what the sender has not measured yet (the flows it
+     shares with, the capacity before it fills the link). The count at
+     the knee counts what in one message helps predict the sender's
+     future, and that is not yet shown to be the count of concepts a
+     controller uses.
+  3. The latents are far from fully named: at the knee a linear fit on
+     the whole library leaves 7%, and on ground truth alone 11.5%.
+- **Consequence for the plan.** No step changes on a first look on
+  codecs from the other copy of the data. Step 5 gains weight: the
+  question of point 2 is settled only by a model whose loss is control
+  (a bottlenecked student of a teacher's action), grounded the same way
+  and compared with this list. If the knee codecs repeat this result,
+  step 5 is moved ahead of the formula search of step 4, because a
+  formula for a latent that repeats a sender reading names nothing new.
+- **UNRUN.** Probe and selection on the codecs trained on
+  `exp-steps-broad-30s-9`, over five seeds; formulas beyond a linear fit;
+  the operator-family sensitivity; a codec with message history; a model
+  bottlenecked on a teacher's action; anything on the test links.
+
+## 2026-11-13: longer training and a deeper encoder do not pay
+
+- **Release.**
+  [`exp-codec-capacity-7`](https://github.com/Radonux/compact/releases/tag/exp-codec-capacity-7)
+  (`experiments/codec-capacity.json`), 12 models: 13 epochs in place of
+  10, and encoder depth 6 in place of 4, each at 6 and 64 latents,
+  dropout 0.3, seeds 0 to 2, on the first copy of the step data. No cell
+  failed.
+- **Validation links** (skill over persistence, mean and standard
+  deviation over 3 seeds; the baselines are `drop0.3-fixed6` of
+  `exp-codec-dropout-6` and `drop0.3-wide64` of `exp-codec-variants-5`):
+
+  | | 6 latents | 64 latents | Share |
+  |---|---|---|---|
+  | 10 epochs, depth 4 (baseline) | 0.643 ± 0.001 | 0.674 ± 0.001 | 95.4% |
+  | 13 epochs | 0.647 ± 0.002 | 0.676 ± 0.001 | 95.7% |
+  | depth 6 | 0.643 ± 0.001 | 0.674 ± 0.001 | 95.5% |
+
+- **What it shows.** Three more epochs raise the skill by 0.004 at 6
+  latents and 0.002 at 64, for 30% more training. Two more encoder
+  blocks change nothing. The settings stay at 10 epochs and depth 4, and
+  the knee rule gives 6 latents under either variant. Within what a
+  runner's 6 hours allows, the codec's skill is now limited by something
+  other than its training length, depth or regularization.
+- **Searched in step 3 so far.** Dropout 0, 0.1, 0.3 and 0.5; ordered
+  latents; message history; 13 epochs; depth 6.
+- **UNRUN.** A wider network; the information bottleneck; anything on
+  the test links.
 
 ## 2026-11-12: three more labels, and the step data run again
 
