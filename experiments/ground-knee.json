@@ -1,0 +1,18 @@
+{
+  "title": "Grounding the knee codecs: probe and selection over five seeds",
+  "description": "Step 4 of the plan (docs/methodology.md), on codecs trained on the data they are grounded on. Codecs: fixed widths 4, 6 (the knee) and 8 at dropout 0.3, seeds 0 to 4, of release exp-codec-knee-11. Messages and labels: release exp-steps-broad-30s-9, the release those codecs were trained on. Two cells. probe: experiments/ground.py probe, how well each ground-truth label is predicted from the latents (linear, and quadratic in the latents), how much of each latent a linear fit on all labels explains, and how well one seed's latents predict another's. select: experiments/ground.py select, which builds the library (every label and four sender measurements, each now, as mean, minimum and maximum over 240 ms and 960 ms, and as its change over 60 ms) and adds features one at a time to a joint linear fit of the latents; reported per run and per width with its runs pooled: the path on the whole library and on ground truth alone, the fit with the whole library and with expliCCit's seven concepts, the path with each picked base variable taken out (vocabulary sensitivity), and one run's picks fitted to another run's latents. Fits are made on anchors of the training links and scored on anchors of the validation links. This repeats the first look of releases exp-ground-probe-10 and exp-ground-select-12, which used codecs trained on another copy of the campaign. The test links are not read.",
+  "train": true,
+  "inputs": {
+    "steps": "release:exp-steps-broad-30s-9",
+    "codecs": "release:exp-codec-knee-11"
+  },
+  "matrix": {
+    "job": [
+      "probe",
+      "select"
+    ]
+  },
+  "run": "uv run python experiments/ground.py \"$JOB\" \"$OUT/$JOB\" --data \"$IN/steps\" --runs \"$IN\"/codecs/runs/fixed4-s* \"$IN\"/codecs/runs/fixed6-s* \"$IN\"/codecs/runs/fixed8-s*",
+  "collect": "test -s \"$OUT/probe/summary.md\" && test -s \"$OUT/select/summary.md\" && { echo '# Probe'; echo; cat \"$OUT/probe/summary.md\"; echo; echo '# Selection'; echo; cat \"$OUT/select/summary.md\"; } > \"$OUT/summary.md\"",
+  "timeout_minutes": 180
+}

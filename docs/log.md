@@ -16,7 +16,7 @@ Updated with each entry. The steps are those of the
 | 1 Setup | done (2026-11-11) | | |
 | 2 The codec on logged steps | done (2026-11-12): search `exp-codec-search-3`, confirmation `exp-codec-confirm-4` | `experiments/codec.py`, its positive control (`tests/test_codec.py`), the link split; the trained weights in `exp-codec-confirm-4` | |
 | 3 Strengthen the codec | dropout 0.3 chosen and the width curve rerun with it (2026-11-12, `exp-codec-dropout-6`); knee rule fixed, 6 latents; longer training and a deeper encoder tried and not adopted (2026-11-13, `exp-codec-capacity-7`) | the `dropout` option of the codec; the trained weights in `exp-codec-dropout-6` | the information-bottleneck term; the run on the test links |
-| 4 Grounding | first look done (2026-11-13) on codecs trained on the first copy of the data: probe `exp-ground-probe-10`, selection `exp-ground-select-12`; codecs trained on the new data (`experiments/codec-knee.json`) dispatched, no result yet | the labels and the step message in `steps.parquet`; `experiments/ground.py probe` and `select` | the same on the knee codecs over five seeds; formulas beyond a linear fit (PySR on the residual); the operator-family sensitivity |
+| 4 Grounding | first look done (2026-11-13) on codecs trained on the first copy of the data: probe `exp-ground-probe-10`, selection `exp-ground-select-12`; codecs trained on the new data are in `exp-codec-knee-11` (2026-11-13); probe and selection over them (`experiments/ground-knee.json`) dispatched, no result yet | the labels and the step message in `steps.parquet`; `experiments/ground.py probe` and `select`; the trained weights in `exp-codec-knee-11` | formulas beyond a linear fit (PySR on the residual); the operator-family sensitivity |
 | 5 Control | UNRUN | a recurrent actor on raw measurements (`train ppo`, `inputs: "raw"`), trained by PPO, TD3+BC or DAgger; closed-loop rollouts and scoring | a controller that reads the codec's latents or fitted concepts; DAgger from a teacher given as a graph; the bottlenecked student in the closed loop |
 | 6 Retrain and compare | UNRUN | `train run` for net1 and an offline net2; `train ppo` for a closed-loop net2; oracles on the seven LCFs | labels from fitted formulas; net1 on them; the live truth for them |
 
@@ -41,6 +41,38 @@ of 2026-11-13). C3 to C5 have none.
   is processed ([architecture.md](architecture.md#known-limits)). The
   oracle net2 of step 6 and labels for fitted formulas need both
   extended.
+
+## 2026-11-13: the knee codecs on the new copy of the data
+
+- **Release.**
+  [`exp-codec-knee-11`](https://github.com/Radonux/compact/releases/tag/exp-codec-knee-11)
+  (`experiments/codec-knee.json`), with the trained weights of its 18
+  models: fixed widths 4, 6 and 8 over seeds 0 to 4 and 64 latents over
+  seeds 0 to 2, dropout 0.3, the settled settings, trained on
+  `exp-steps-broad-30s-9`. No cell failed and no run stopped early.
+  Nothing was searched.
+- **Validation links** (skill over persistence, mean and standard
+  deviation over seeds; the first copy is `exp-codec-dropout-6` and
+  `exp-codec-variants-5`, 3 seeds):
+
+  | Latents | First copy | New copy | Share of 64 latents, new copy |
+  |---|---|---|---|
+  | 4 | 0.607 ± 0.001 | 0.604 ± 0.002 | 89.7% |
+  | 6 | 0.643 ± 0.001 | 0.641 ± 0.002 | 95.2% |
+  | 8 | 0.657 ± 0.001 | 0.655 ± 0.001 | 97.4% |
+  | 64 | 0.674 ± 0.001 | 0.673 ± 0.001 | 100% |
+
+- **What it shows.** The two copies of the campaign train the same
+  codec: every width is within 0.003 of its first-copy skill. The knee
+  rule gives 6 latents again, but narrowly: the mean is 95.2% of the
+  64-latent skill against a threshold of 95%, and one of the five seeds
+  (0.638) falls below it. The count is therefore 6 with 4 and 8 as its
+  sensitivity, as planned, and not a sharp number.
+- **Dispatched.** `experiments/ground-knee.json`: the probe and the
+  selection of the first look, over these codecs at 4, 6 and 8 latents
+  with five seeds each. No result yet.
+- **UNRUN.** Grounding these codecs (dispatched); anything on the test
+  links.
 
 ## 2026-11-13: grounding, a first look
 
