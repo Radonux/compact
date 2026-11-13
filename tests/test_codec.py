@@ -137,3 +137,36 @@ def test_ground_selection_finds_the_features_that_span_the_latents() -> None:
     sel = ground._selection(lib, m)
     assert sel["library"] > 0.999 and set(sel["without"]) >= {"v0", "v2"}
     assert sel["without"]["v0"][-1]["mean"] < 0.9  # no substitute for feature 1
+
+
+def test_action_check_scores_a_controller_only_on_what_its_inputs_hold() -> None:
+    """Controller 0 acts on variable a and controller 1 on variable b.
+    Inputs that hold only a must predict the first and not the second."""
+    if "ground" not in sys.modules:
+        _load_ground()
+    spec = importlib.util.spec_from_file_location("actions", _PATH.with_name("actions.py"))
+    assert spec is not None and spec.loader is not None
+    actions = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(actions)
+
+    rng = np.random.default_rng(0)
+
+    def rows(n: int) -> tuple[Any, Any, Any]:
+        v = rng.normal(size=(n, 2))
+        ctl = rng.integers(0, 2, size=n)
+        move = np.tanh(np.where(ctl == 0, v[:, 0], v[:, 1]))
+        y = np.stack([move * h for h in actions.HORIZONS], axis=1)
+        return v, y + 0.05 * rng.normal(size=y.shape), ctl
+
+    (v_fit, y_fit, c_fit), (v, y, c) = rows(6000), rows(3000)
+    group = np.arange(6000) // 20
+
+    def score(cols: list[int]) -> Any:
+        return actions.fit_scores(
+            (v_fit[:, cols], v[:, cols]), (y_fit, y), (c_fit, c), group=group, n_ctl=2, seed=0
+        )
+
+    only_a, both, neither = score([0]), score([0, 1]), score([])
+    assert only_a[0].min() > 0.9 and only_a[1].max() < 0.1
+    assert both.min() > 0.9
+    assert abs(neither).max() < 0.05

@@ -1,0 +1,14 @@
+{
+  "title": "Which concepts hold what the logging controllers act on: an offline check",
+  "description": "Step 5 of the plan (docs/methodology.md), its offline part. experiments/actions.py fits one small network per set of inputs to predict, from the inputs at a step and the identity of the controller that logged it, how that controller changes its window over the next 60, 240 and 960 ms. The same network (2 hidden layers of 256), schedule (20 epochs, the epoch chosen on a tenth of the training episodes) and rows serve every set; nothing is tuned. Fits are made on 300,000 anchors of the training links and scored on 200,000 anchors of the validation links, as R^2 per controller around its own mean change. Sets, each alone and with the sender's own window added: the controller's identity alone (floor); the latents of each knee codec (4, 6 and 8 latents, seeds 0 to 4, release exp-codec-knee-11); the first k features of the ground-truth path found for those codecs (select.json of release exp-ground-knee-13); expliCCit's seven concepts; the sender's smoothed RTT, delivery rate and loss rate; the whole step message (ceiling for one step). Three model seeds per set, one per codec run. Steps and labels: release exp-steps-broad-30s-9. It is a proxy: the controllers have memory and the predictor sees one step, and predicting logged actions is not control. The test links are not read.",
+  "train": true,
+  "inputs": {
+    "steps": "release:exp-steps-broad-30s-9",
+    "codecs": "release:exp-codec-knee-11",
+    "ground": "release:exp-ground-knee-13"
+  },
+  "shards": 1,
+  "run": "uv run python experiments/actions.py \"$OUT\" --data \"$IN/steps\" --runs \"$IN\"/codecs/runs/fixed4-s* \"$IN\"/codecs/runs/fixed6-s* \"$IN\"/codecs/runs/fixed8-s* --select \"$IN/ground/select/select.json\"",
+  "collect": "test -s \"$OUT/summary.md\"",
+  "timeout_minutes": 300
+}
