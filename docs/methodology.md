@@ -178,8 +178,13 @@ what was searched, the held-out numbers and what remains UNRUN.
 
 Grounding is meaningful only for latents that agree across seeds. The
 library is built mechanically: base variables crossed with operators. The
-base variables are the hidden state of the path (the `label_*` columns)
-and the sender's metrics. The operators are a windowed mean, minimum and
+base variables are the hidden state of the path and the sender's
+metrics. The hidden state is every label the step data stores, in each
+window it is stored in, and every composite of them: a fixed formula over
+a few labels that the literature defines, such as the load factor or the
+fair share ([architecture.md](architecture.md#ground-truth-labels)). The
+library reads both lists from the code, so a label or composite added
+there takes part in the fitting with no change here. The operators are a windowed mean, minimum and
 maximum over 2 to 3 horizons, a first difference, pairwise ratios and
 products, and a log.
 

@@ -17,8 +17,8 @@ dispatched 2026-11-13).
 |---|---|---|---|
 | 1 Setup | done | the documents; the estimator of the seven LCFs and the rule graph as releases | |
 | 2 The controller in the closed loop | the bootstrap is running | `PPOSpec.latents`; `train ppo` by cloning a Linux controller, PPO, DAgger or TD3+BC; closed-loop rollouts and scoring; `experiments/net2_ppo_setup.py`, `net2_ppo_report.py` | the reinforcement-learning stage; the collapse check on rollouts; the teachers' own scores on the validation links |
-| 3 Grounding | UNRUN | `experiments/ground.py probe` and `select`, with the sensitivity check; 19 ground-truth labels in the step tables | grounding on a controller's own rollouts; formulas beyond a linear fit; the operator-family sensitivity |
-| 4 Retrain and compare | UNRUN | `train run` for net1; `train ppo` for a closed-loop net2; oracles on the seven LCFs | labels from fitted formulas; net1 on them; the live truth for them |
+| 3 Grounding | UNRUN | `experiments/ground.py probe` and `select`, with the sensitivity check; a library of every stored label (37 columns over 100 ms and 10 ms windows) and 12 composites in both windows | grounding on a controller's own rollouts; formulas beyond a linear fit; the operator-family sensitivity |
+| 4 Retrain and compare | UNRUN | `train run` for net1; `train ppo` for a closed-loop net2; net1 on any stored label or composite; the live truth for every label but `queue_delay_ns`, so oracles on them | labels from fitted formulas beyond the composites; net1 on them |
 
 ## The bootstrap
 
@@ -61,6 +61,28 @@ the fixed rule (`experiments/controller-clone.json`, workflow run 21). It
 leans toward the seven hand-picked LCFs, which is why the teachers above
 replaced it. It stays as a check that the narrow graph runs in the guest
 and as a third start for C5.
+
+## The grounding library
+
+Every basic concept the emulator knows now takes part in the fitting. The
+step tables store 37 label columns: 24 labels, 13 of them over both a
+100 ms and a 10 ms window. Twelve composites from the literature are
+computed from them in both windows. `experiments/ground.py` reads both
+lists from the code, so its library is all of them and the four sender
+measurements, each under the eight operators. Its sensitivity check takes
+a label out in both windows together with every composite computed from
+it. The guest gives a policy the same values live, all but
+`queue_delay_ns`, so an oracle on any of them is possible.
+
+The labels, the composites, the reader that recomputes labels from stored
+link tables, and the live truth were brought in from the project compact
+was forked from, as its commits, with compact's own changes kept.
+
+What this does not change: the bootstrap runs above started on the guest
+before this change, and their steps carry the earlier 19 labels. Step
+data for grounding has to come from rollouts on the current guest.
+Grounding itself is UNRUN, and `ground.py` still reads the latents of the
+withdrawn offline model, not a controller's.
 
 ## Releases
 
@@ -109,8 +131,7 @@ and `exp-student-ground-18`. So does their code (`experiments/codec.py`,
 behind those releases.
 
 What that work left that is still used: the split by link,
-`experiments/ground.py`, and three ground-truth labels
-(`arrival_rate_bps`, `flow_arrival_rate_bps`, `active_flows`).
+and `experiments/ground.py`.
 
 ## Open questions
 
@@ -122,10 +143,13 @@ What that work left that is still used: the split by link,
 | The scale of retained performance | [methodology.md](methodology.md#retained-performance). |
 | The threshold for C3 | |
 | The kind of output the retrained net1 states | A value, an interval or a distribution. |
-| Live truth for new concepts | The guest gives a policy the true values of the seven LCFs only, and labels are computed when an episode is processed ([architecture.md](architecture.md#known-limits)). The oracle net2 and labels for fitted formulas need both extended. |
+| Labels for fitted formulas | A formula over stored labels can be added as a composite with no new data and no guest change ([architecture.md](architecture.md#composites)). A formula that uses a windowed operator over past steps, as the library's features do, has no such path yet. |
 
 ## Checks
 
-On the current code: ruff, pyright, `uv run pytest -q` (213 passed, 58
-skipped) and the guest's `cargo fmt` and clippy pass. UNRUN locally: the
-tests that boot the guest. CI and every experiment run them.
+On the current code: ruff, pyright, `uv run pytest -q` (222 passed, 60
+skipped) and the guest's `cargo fmt` and clippy pass. With the guest
+booted locally, the tests of the live truth, the labels, the record
+layout, the stored-episode reader and the loss and cross-traffic episode
+pass (17 tests). UNRUN locally: the other tests that boot the guest. CI
+and every experiment run them.

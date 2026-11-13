@@ -131,34 +131,87 @@ and they are the base variables of the grounding library
 ([methodology.md](methodology.md#terms)).
 
 `labels.py` computes them as pure functions of an episode's records, for
-the data direction. Windowed labels cover the trailing 100 trace ms.
-`labels_at` gives them at any instants: at every sender observation
-(`labels.parquet`) and at every step (the `label_*` columns of
-`steps.parquet`).
+the data direction. `labels_at` gives them at any instants: at every
+sender observation (`labels.parquet`) and at every step (the `label_*`
+columns of `steps.parquet`).
+
+A windowed label covers the whole trace ms just before the sample. The
+steps store each one twice: over 100 ms under its own name, and over
+10 ms as `<name>_10ms`. `labels.parquet` has a row per ACK and keeps the
+100 ms window only. With both windows the steps hold 37 label columns.
+
+Labels of the instant:
 
 | Label | Definition |
 |---|---|
-| `capacity_bps` | the trace's delivery opportunities in the window, in bit/s |
-| `receive_rate_bps` | the observed flow's bits leaving the bottleneck per second, over the window |
-| `busy_fraction` | bytes sent over bytes the trace offered in the window; NaN at zero capacity |
 | `queue_pkts`, `queue_bytes` | the queue after the last link event, without the packet in transit |
-| `queue_delay_mean_ns` | mean queueing delay of the packets (all flows) that left the bottleneck in the window; NaN if none did |
+| `flow_queue_pkts` | the observed flow's packets in `queue_pkts`; over all flows they add up to it |
 | `queue_delay_ns` | the latest data packet's exact queueing delay |
 | `free_buffer_pkts` | the packet limit minus the queue; NaN without a limit |
 | `buffer_pkts`, `buffer_bytes`, `buffer_fill` | the buffer's limits, and the queue as a fraction of the limit |
 | `one_way_delay_ns`, `base_rtt_ns` | one delay line, and twice it |
-| `drop_fraction` | the flow's packets dropped by the full queue over those that reached it, in the window |
-| `random_loss_rate` | the configured random loss on the data direction |
-| `cross_traffic_share` | the share of the bottleneck's capacity that every other flow used in the window |
-| `arrival_rate_bps` | bits of every flow's packets that reached the bottleneck queue per second, over the window, counting those the full queue then dropped |
+| `random_loss_rate` | the probability of random loss the link applies on the data direction |
+
+Windowed labels:
+
+| Label | Definition |
+|---|---|
+| `capacity_bps` | the trace's delivery opportunities in the window, in bit/s |
+| `capacity_ahead_bps` | `capacity_bps` of the window that starts with the sample's ms; the one label that looks forward |
+| `receive_rate_bps` | the observed flow's bits leaving the bottleneck per second |
+| `busy_fraction` | bytes sent over bytes the trace offered; NaN at zero capacity |
+| `queue_delay_mean_ns` | mean queueing delay of the packets (all flows) that left the bottleneck; NaN if none did |
+| `ack_queue_delay_mean_ns` | the same on the ACK direction's link: delay the sender sees that the bottleneck queue did not cause |
+| `queue_min_pkts` | the smallest queue at any instant of the window (the standing queue); NaN for an empty window |
+| `drop_fraction` | the flow's packets dropped by the full queue over those that reached it |
+| `random_drop_fraction` | the flow's packets the random loss dropped before the bottleneck, over those it sent toward it; NaN if none |
+| `cross_traffic_share` | the share of the bottleneck's capacity that every other flow used |
+| `arrival_rate_bps` | bits of every flow reaching the bottleneck queue per second, those the full queue then dropped included |
 | `flow_arrival_rate_bps` | the same for the observed flow alone |
-| `active_flows` | flows (protocol and sender port) with at least one packet reaching the bottleneck in the window, the observed flow included |
+| `active_flows` | flows with a packet reaching the bottleneck in the window |
 
 The seven LCFs of expliCCit are `queue_delay_mean_ns`, `queue_pkts`,
 `capacity_bps`, `free_buffer_pkts`, `busy_fraction`, `one_way_delay_ns`
-and `receive_rate_bps`. The arrival rates and the flow count are there
-because many published concepts are closed forms over them
-([concepts.md](concepts.md#what-this-means-for-compact)).
+and `receive_rate_bps`, over 100 ms.
+
+A label added later needs no rerun where the link tables were kept:
+`dataset.read_episode` turns a shard's `obs`, `link_events` and
+`link_opp` back into the records, and `labels_at` computes the label from
+them. A shard written with `--tables steps` holds no link tables and must
+be rerun.
+
+### Composites
+
+A composite is a fixed formula over the label columns of one window
+(`train/lcfs.py`). It is not stored. It is computed from the stored
+columns when it is asked for, so a new composite needs no new data. Each
+comes in both windows. A set that holds a composite beside the columns it
+is made of is redundant by construction.
+
+With C the capacity, U the busy fraction, y the arrival rate, q the queue
+in bytes, R the base RTT and N the active flows:
+
+| Composite | Formula | Source ([concepts.md](concepts.md)) |
+|---|---|---|
+| `departure_rate_bps` | C U | RFC 5136 (usage), HPCC |
+| `available_capacity_bps` | C (1 - U) | RFC 5136 |
+| `excess_demand_bps` | y - C | XCP |
+| `load_factor` | y / C; TIMELY's queue growth rate is this less 1 | the OSU scheme, with the target at capacity |
+| `bdp_pkts` | C R, in 1504-byte packets | CCmatic |
+| `littles_delay_ns` | q / (C U) | PIE |
+| `normalized_inflight` | q / (C R) + U | HPCC |
+| `normalized_power` | (1 + q / (C R)) y / C | PowerTCP |
+| `cross_arrival_rate_bps` | y less the observed flow's arrival rate | Dovrolis 2001 |
+| `fair_share_bps` | C / N | RCP |
+| `sending_ratio` | the flow's arrival rate over its receive rate | Aurora, measured at the link |
+| `rtt_ratio` | (R + mean queueing delay) / R | Aurora, Remy, on the true delays |
+
+A ratio is NaN where its denominator is 0.
+
+Every stored label and every composite, in each window, is a name net1
+can be trained on (`net1.lcfs`) and a base variable of the grounding
+library (`experiments/ground.py`). Neither place lists them: a label
+added to `labels.py` or a formula added to `lcfs.COMPOSITES` joins both.
 
 ## The step and the policy contract (`sage-v1`)
 
@@ -178,7 +231,7 @@ A policy is an ONNX graph (`policy.py`) with inputs matched by name.
 |---|---|---|
 | `obs` | [1, 78] | the message; the graph selects and scales its own columns |
 | `state` | optional | a recurrent state fed back from the graph's second output |
-| `truth` | [1, 7], optional | the true values of the seven LCFs at this step (an oracle) |
+| `truth` | [1, W], optional | the path's true state at this step (an oracle): the first W of `policy.TRUTH_COLUMNS` |
 | `cwnd` | optional | the current window, so a graph can answer a = log2(target) - log2(cwnd) |
 
 The graph returns a, the log2 window multiplier. The window starts from
@@ -187,9 +240,17 @@ The graph returns a, the log2 window multiplier. The window starts from
 a, or |a| > 8, fails the episode. `noise_sigma` adds seeded Gaussian
 noise to a. Graphs are exported with a batch dimension of 1.
 
-`guest/src/truth.rs` computes the truth live from the downlink's records
+`guest/src/truth.rs` computes the truth live from the links' records
 with the labels' definitions, so it equals the labels stored with the
-step bit for bit (D23). It covers the seven LCFs only.
+step bit for bit (D23). The truth is `policy.TRUTH_COLUMNS`, 36 values:
+every stored label, over both windows, except `queue_delay_ns`, the delay
+of a packet that may not have left yet. `capacity_ahead_bps` looks
+forward but is in the truth, because it reads the trace, which the guest
+holds. A composite is not a column of the truth. An exported policy
+computes it from the columns with the labels' own formula (`lcfs.value`,
+`graph.TruthColumns`). expliCCit's seven come first and a policy declares
+the width it reads, so a policy exported with `truth` [1, 7] still runs
+and reads the same values.
 
 `steps.parquet` holds per step the time, the raw `TCP_INFO`, the message,
 the labels, the action applied and the window set. A policy cross flow
@@ -258,9 +319,8 @@ Limits marked `ponytail` in the code name their upgrade path there.
 
 | Limit | Consequence |
 |---|---|
-| The live `truth` carries the seven LCFs only | an oracle on any other concept needs `truth.rs` and `policy.TRUTH_COLUMNS` extended |
-| net1 can be trained only on the named labels (`Lcf` in `train/spec.py`) | a label defined by a fitted formula needs that type and `labels.py` extended |
-| Labels are computed when an episode is processed | no code recomputes them from stored link tables; a new label means rerunning the episodes |
+| The live `truth` leaves out `queue_delay_ns` | an oracle or a patched belief cannot use that one label; the window's mean queueing delay is there |
+| Labels are stored when an episode is processed | a label added later is computed from the stored link tables; a shard written with `--tables steps` has none and must be rerun |
 | Inference and decisions cost no virtual time | the effect of decision latency is not measured |
 | One bottleneck: droptail, fixed delay, i.i.d. loss | no AQM, ECN, jitter, bursty loss or multiple bottlenecks |
 | One decision per 10 ms step | pacing is refreshed per step, not per ACK |
@@ -291,7 +351,8 @@ the ones the code's comments use.
 
 | To add | Change |
 |---|---|
-| A label | `labels_at` in `labels.py` (it feeds `labels.parquet` and the step columns), then rerun the episodes. For net1 to predict it, add it to `Lcf` in `train/spec.py`. For a policy to read it live, add it to `guest/src/truth.rs` and `policy.TRUTH_COLUMNS`; `tests/test_records_abi.py` and `tests/test_truth.py` then check the step record and that guest and host agree. |
+| A label | `labels_at` in `labels.py` (it feeds `labels.parquet` and the step columns). If it is known at the step, add it to `guest/src/truth.rs` and at the end of `policy.TRUTH_COLUMNS` (released policies read a prefix); `tests/test_records_abi.py` and `tests/test_truth.py` then check the step record and that guest and host agree. |
+| A composite | a formula in `lcfs.COMPOSITES` over label columns. It needs no new data and no guest change. |
 | A kind of belief for net1, beside a value, an interval and a distribution | A subclass of `beliefs.Beliefs` and the net1 module that states it. `tests/test_e2e.py` then trains, exports and runs it with every net2. |
 | A net2 input or window target | A `Front` option or a target module in `train/graph.py`. Training reads net2's inputs through the same front end the exported graph runs, so the two cannot drift apart. |
 | A learned controller | An ONNX graph under `sage-v1`, used as `{"kind": "agent", "mode": "hold", "policy": {"path": ..., "sha256": ...}}` for the observed flow or a TCP cross flow. |

@@ -467,23 +467,23 @@ Nearly every compositional concept
 above is a closed form over a few basic ones: capacity, arrival rate,
 departure rate, queue, sojourn time, base RTT, buffer, active flows and
 the cause of each drop. The emulator labels these
-([architecture.md](architecture.md#ground-truth-labels)), including the
-three that expliCCit's seven concepts do not need: the arrival rate of
-all flows (`arrival_rate_bps`), the observed flow's own arrival rate at
-the bottleneck (`flow_arrival_rate_bps`) and the number of active flows
-(`active_flows`).
+([architecture.md](architecture.md#ground-truth-labels)), including those
+that expliCCit's seven concepts do not need: the arrival rate of all
+flows and of the observed flow, the number of active flows, the standing
+queue, the flow's own part of the queue, drops by random loss apart from
+drops by the full queue, queueing on the ACK path, and the capacity of
+the window ahead.
 
 Most concepts in the busy-link, queue and other-flow sections are then
 one ratio or product of base variables, which is exactly what the
-library's operators generate. For example:
+library's operators generate. Twelve of them are sums or differences
+too, which a fit by products of powers cannot form, so the library holds
+them as composites, each computed from the stored labels by the formula
+its source gives ([architecture.md](architecture.md#composites)): among
+them the available capacity, the load factor, the fair share, HPCC's
+normalized inflight and PowerTCP's normalized power.
 
-- available capacity is capacity times (1 minus busy fraction);
-- the load factor is arrival rate over capacity;
-- the fair share is capacity over active flows;
-- the flow's position relative to its fair share is receive rate over
-  fair share.
-
-Without those three, grounding could not return any concept that
+Without the labels of demand and of the other flows, grounding could not return any concept that
 depends on demand or on the number of flows, whatever the latents
 encode. This is the
 vocabulary objection in concrete form, and the sensitivity check (C4) can
@@ -493,10 +493,12 @@ only test variables that are in the library to begin with.
 
 Each definition should name its window, as RFC 5136 does
 [32]: these values change with it [23]. The emulator's labels use a
-trailing 100 ms. At 10 ms a 12 Mbit/s link offers about ten 1500-byte
-delivery opportunities, so utilization moves in steps of 0.1, and at 1.2
-Mbit/s it offers about one. The library's windowed operators should
-therefore start no shorter than the labels' own window.
+trailing 100 ms, and a trailing 10 ms beside it, near the timescale a
+controller reacts on. At 10 ms a 12 Mbit/s link offers about ten
+1500-byte delivery opportunities, so utilization moves in steps of 0.1,
+and at 1.2 Mbit/s it offers about one. A 10 ms label on a slow link is
+therefore coarse, and a concept grounded in one should be checked against
+its 100 ms form.
 
 ### A composite or its bases, not both
 

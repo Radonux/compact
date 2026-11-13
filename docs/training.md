@@ -12,7 +12,7 @@ Which command serves which step of the [plan](methodology.md#plan):
 |---|---|
 | The discovery controller, and the retrained net2 | `train ppo` |
 | The retrained net1 | `train run` |
-| Grounding | `experiments/ground.py` on step data from the controllers' own rollouts |
+| Grounding | `experiments/ground.py` on step data from the controllers' own rollouts; its library holds every stored label and composite |
 
 ## Step data
 
@@ -62,7 +62,7 @@ trains such a net1 and scores it on held-out families.
 | `controllers` | all | train only on these controllers' episodes |
 | `step_stride` | 1 | keep every n-th step and the step after it |
 | `net1_from` | none | reuse a trained `net1.pt` |
-| `net1.lcfs` | expliCCit's 7 | the labels net1 predicts, from the names in `Lcf` |
+| `net1.lcfs` | expliCCit's 7 | what net1 predicts: any stored label or composite, in either window (`lcfs.LCF_UNITS`; [architecture.md](architecture.md#ground-truth-labels)) |
 | `net1.obs_cols` | expliCCit's 70 | the message columns net1 reads |
 | `net1.output` | `{"kind": "point"}` | what net1 states per label: one value (`point`), a centre and an interval holding `coverage` (`interval`), or a distribution over `bins` fixed bins, trained with the log score and averaged over `members` net1s (`bins`) |
 | `net1.width`, `dropout`, `lr`, `epochs`, `patience` | 512, 0.3, 1e-3, 50, 5 | the network and its training |
@@ -171,9 +171,10 @@ shards.
 
 ## Oracles
 
-A policy can read the true values of the seven LCFs at each step through
-the contract's `truth` input. They equal the labels stored with that
-step. An oracle reads all of them (`inputs: "truth"`, or `--oracle`). A
+A policy can read the path's true state at each step through the
+contract's `truth` input: every stored label but `queue_delay_ns`, in
+both windows, and any composite of them. The values equal the labels
+stored with that step. An oracle reads all of its LCFs from it (`inputs: "truth"`, or `--oracle`). A
 patched policy takes some from the truth and the rest from net1
 (`fit.policy_graph(..., truth=frozenset({"busy_fraction"}))`), which
 isolates what one estimate costs.

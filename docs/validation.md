@@ -25,7 +25,7 @@ skip. The UML tests run in CI ([below](#ci)).
 | The delay line is exact | each ACK reaches the sender after its departure plus the configured delay | within 0 to 1.3 us (the 256 ns tick) | `pytest tests/test_uml.py -k ack_delay` |
 | Random loss is Bernoulli per packet | 1% on data and 0.5% on ACKs, with UDP and Cubic cross traffic | 1.04% and 0.51%, within 5 sigma | `pytest tests/test_uml.py -k loss_and_cross` |
 | Records are decoded as written | numpy offsets against the C structs; sequence gaps and truncated files | equal; rejected | `pytest tests/test_records_abi.py` |
-| The live truth equals the labels | a 14 s BBRv1 episode with a capacity step, loss both ways, UDP and TCP cross traffic | all seven LCFs equal at all 1,378 steps, bit for bit and NaN for NaN | `pytest tests/test_truth.py` |
+| The live truth equals the labels | a 14 s BBRv1 episode with a capacity step, loss both ways, UDP and TCP cross traffic | all 36 truth values (every stored label but `queue_delay_ns`, in both windows) equal at every one of more than 1,300 steps, bit for bit and NaN for NaN | `pytest tests/test_truth.py` |
 | Bad data never becomes labels or metrics | an out-of-range policy action; a failed query; an incomplete shard | a `failed` row; never a label; an error | `pytest tests/test_agent.py tests/test_mahak.py tests/test_score.py -k "bad_policy or failed_queries or incomplete_shard"` |
 | Trace generation and link metrics equal Mahak's code | traces against Mahak's `helper.py`; metrics against its Perl `mm-th-delay` on 250 logs | bit for bit; exact strings | `pytest tests/test_mahimahi.py tests/test_mahak.py` (Mahak) |
 
