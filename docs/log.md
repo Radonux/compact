@@ -17,7 +17,7 @@ Updated with each entry. The steps are those of the
 | 2 The codec on logged steps | done (2026-11-12): search `exp-codec-search-3`, confirmation `exp-codec-confirm-4` | `experiments/codec.py`, its positive control (`tests/test_codec.py`), the link split; the trained weights in `exp-codec-confirm-4` | |
 | 3 Strengthen the codec | dropout 0.3 chosen and the width curve rerun with it (2026-11-12, `exp-codec-dropout-6`); knee rule fixed, 6 latents; longer training and a deeper encoder tried and not adopted (2026-11-13, `exp-codec-capacity-7`) | the `dropout` option of the codec; the trained weights in `exp-codec-dropout-6` | the information-bottleneck term; the run on the test links |
 | 4 Grounding | linear grounding done on the knee codecs (2026-11-13, `exp-ground-knee-13`), after a first look (`exp-ground-probe-10`, `exp-ground-select-12`); the latents mostly repeat three sender readings, so the formula search waits for step 5 | the labels and the step message in `steps.parquet`; `experiments/ground.py probe` and `select`; the trained weights in `exp-codec-knee-11` | formulas beyond a linear fit (PySR on the residual); the operator-family sensitivity |
-| 5 The controller in the closed loop | the controller with a narrow middle is built and unit-tested (2026-11-13); its first closed-loop stage (`experiments/controller-clone.json`) is UNRUN. Done earlier on logged steps, as proxies: the offline action check (`exp-actions-knee-14`) and a student of the logged actions (`exp-student-search-16`, `exp-student-confirm-17`, grounded in `exp-student-ground-18`, not yet read) | `PPOSpec.latents` (`train/recurrent.py`); `train ppo` by DAgger, PPO or TD3+BC; closed-loop rollouts and scoring; `experiments/net2_ppo_setup.py` and `net2_ppo_report.py` | reinforcement learning after the taught start; the width curve in the closed loop; grounding on a controller's own rollouts; a start that does not come from the rule |
+| 5 The controller in the closed loop | the controller with a narrow middle is built and unit-tested (2026-11-13); its first closed-loop stage (`experiments/controller-clone.json`) is UNRUN. Done earlier on logged steps, as proxies: the offline action check (`exp-actions-knee-14`) and a student of the logged actions (`exp-student-search-16`, `exp-student-confirm-17`, grounded in `exp-student-ground-18`) | `PPOSpec.latents` (`train/recurrent.py`); `train ppo` by DAgger, PPO or TD3+BC; closed-loop rollouts and scoring; `experiments/net2_ppo_setup.py` and `net2_ppo_report.py` | reinforcement learning after the taught start; the width curve in the closed loop; grounding on a controller's own rollouts; a start that does not come from the rule |
 | 6 Retrain and compare | UNRUN | `train run` for net1 and an offline net2; `train ppo` for a closed-loop net2; oracles on the seven LCFs | labels from fitted formulas; net1 on them; the live truth for them |
 
 C1 is now stated on the controller with a narrow middle (entry of
@@ -44,6 +44,37 @@ none.
   is processed ([architecture.md](architecture.md#known-limits)). The
   oracle net2 of step 6 and labels for fitted formulas need both
   extended.
+
+## 2026-11-13: grounding the students of the logged actions (a proxy)
+
+Release `exp-student-ground-18`. It measures no part of the goal
+directly: these students predict logged actions from one step and were
+never run as controllers, and their episodes come from the guest before
+the fix in the entry below. Read once, for what it suggests the
+controller's latents may look like. Validation links only; nothing was
+searched; the test links are not read.
+
+- **What the latents hold** (linear probe, R^2, mean of 5 seeds, at 6
+  latents): queue delay 0.84, queue length 0.68, drop fraction 0.61,
+  base RTT 0.57; capacity 0.23, the number of active flows 0.07. So a
+  model that predicts what Reno, Cubic and BBR do next keeps the queue
+  and the losses and almost nothing of capacity or competition, the two
+  things expliCCit's rule is built on.
+- **What spans the latents** (joint linear fit, 6 latents, 5 runs
+  pooled): the whole library 0.785, expliCCit's seven concepts 0.442.
+  The path starts with mean queue delay, drop fraction over 960 ms, the
+  sender's window and base RTT (0.630 at 4 features, 0.690 at 8).
+- **Vocabulary sensitivity.** Taking any one picked base variable out of
+  the library moves the fit at 8 features from 0.690 to between 0.676
+  and 0.695: another feature stands in for it each time. Without the
+  sender's measurements the whole library gives 0.741. One run's first 8
+  features fit another run's latents at 0.689 (lowest 0.656). The picks
+  are stable as a set and not as individual names.
+- **Seeds agree** on the latent space at 6 latents: one run's latents
+  from another's, 0.87 linear and 0.94 quadratic.
+- **UNRUN:** scoring the selected features on the action; anything on
+  3, 4 and 8 latents beyond the release's tables; all of it on a
+  controller's own rollouts, which is the run that counts.
 
 ## 2026-11-13: the guest let a stopped cross flow keep sending
 
