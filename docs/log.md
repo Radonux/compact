@@ -16,13 +16,15 @@ Updated with each entry. The steps are those of the
 | 1 Setup | done (2026-11-11) | | |
 | 2 The codec on logged steps | done (2026-11-12): search `exp-codec-search-3`, confirmation `exp-codec-confirm-4` | `experiments/codec.py`, its positive control (`tests/test_codec.py`), the link split; the trained weights in `exp-codec-confirm-4` | |
 | 3 Strengthen the codec | dropout 0.3 chosen and the width curve rerun with it (2026-11-12, `exp-codec-dropout-6`); knee rule fixed, 6 latents; longer training and a deeper encoder tried and not adopted (2026-11-13, `exp-codec-capacity-7`) | the `dropout` option of the codec; the trained weights in `exp-codec-dropout-6` | the information-bottleneck term; the run on the test links |
-| 4 Grounding | first look done (2026-11-13) on codecs trained on the first copy of the data: probe `exp-ground-probe-10`, selection `exp-ground-select-12`; codecs trained on the new data are in `exp-codec-knee-11` (2026-11-13); probe and selection over them (`experiments/ground-knee.json`) dispatched, no result yet | the labels and the step message in `steps.parquet`; `experiments/ground.py probe` and `select`; the trained weights in `exp-codec-knee-11` | formulas beyond a linear fit (PySR on the residual); the operator-family sensitivity |
-| 5 Control | UNRUN | a recurrent actor on raw measurements (`train ppo`, `inputs: "raw"`), trained by PPO, TD3+BC or DAgger; closed-loop rollouts and scoring | a controller that reads the codec's latents or fitted concepts; DAgger from a teacher given as a graph; the bottlenecked student in the closed loop |
+| 4 Grounding | linear grounding done on the knee codecs (2026-11-13, `exp-ground-knee-13`), after a first look (`exp-ground-probe-10`, `exp-ground-select-12`); the latents mostly repeat three sender readings, so the formula search waits for step 5 | the labels and the step message in `steps.parquet`; `experiments/ground.py probe` and `select`; the trained weights in `exp-codec-knee-11` | formulas beyond a linear fit (PySR on the residual); the operator-family sensitivity |
+| 5 Control | next (moved ahead of the formula search, 2026-11-13); UNRUN | a recurrent actor on raw measurements (`train ppo`, `inputs: "raw"`), trained by PPO, TD3+BC or DAgger; closed-loop rollouts and scoring | a controller that reads the codec's latents or fitted concepts; DAgger from a teacher given as a graph; the bottlenecked student in the closed loop |
 | 6 Retrain and compare | UNRUN | `train run` for net1 and an offline net2; `train ppo` for a closed-loop net2; oracles on the seven LCFs | labels from fitted formulas; net1 on them; the live truth for them |
 
 C1 has first evidence from a release, on validation links only (entry of
-2026-11-12). C2 has a first look at the level of the latent space (entry
-of 2026-11-13). C3 to C5 have none.
+2026-11-12). C2 is not met at the knee by linear fits: seeds agree on the
+latent space and on the first five features, but the fit stays below 0.9
+(entries of 2026-11-13). C4 has its first check for base variables.
+C3 and C5 have none.
 
 ## Open items
 
@@ -41,6 +43,96 @@ of 2026-11-13). C3 to C5 have none.
   is processed ([architecture.md](architecture.md#known-limits)). The
   oracle net2 of step 6 and labels for fitted formulas need both
   extended.
+
+## 2026-11-13: grounding the knee codecs, and what it changes
+
+- **Release.**
+  [`exp-ground-knee-13`](https://github.com/Radonux/compact/releases/tag/exp-ground-knee-13)
+  (`experiments/ground-knee.json`): `ground.py probe` and `select` over
+  the codecs of `exp-codec-knee-11` (4, 6 and 8 latents, seeds 0 to 4),
+  with the messages and labels they were trained on
+  (`exp-steps-broad-30s-9`). Fits on 300,000 anchors of the training
+  links, scores on 200,000 anchors of the validation links, all linear
+  R^2 unless said. Nothing was tuned; the library is that of the first
+  look. No cell failed. The test links were not read. The probe's table
+  still carries an empty `buffer_bytes` row.
+- **It repeats the first look**, to within 0.01 in every number both
+  hold:
+
+  | | 4 latents | 6 | 8 |
+  |---|---|---|---|
+  | One seed's latents from another's (quadratic) | 0.993 (0.996) | 0.981 (0.988) | 0.964 (0.980) |
+  | The sender's srtt, delivery rate and loss rate | 0.925 | 0.855 | 0.792 |
+  | First 8 picks, whole library | 0.947 | 0.894 | 0.856 |
+  | Whole library | 0.959 | 0.929 | 0.902 |
+  | Ground truth only: first 4 picks | 0.875 | 0.830 | 0.788 |
+  | Ground truth only: all of it | 0.913 | 0.886 | 0.855 |
+  | expliCCit's seven concepts | 0.703 | 0.691 | 0.637 |
+
+  - The three sender readings are the first three picks of all 15 runs.
+  - The ground-truth path is the same at the three widths for its first
+    five picks: `receive_rate_bps`, `base_rtt_ns`,
+    `mean_240ms(queue_delay_ns)`, `max_960ms(drop_fraction)`,
+    `buffer_pkts`.
+  - Read back from 6 latents: receive rate 0.977, the flow's arrival
+    rate 0.880, base RTT, queue delay and total arrival rate 0.70,
+    capacity 0.680, drop fraction 0.631, buffer size 0.593, busy
+    fraction 0.197, cross-traffic share 0.126, random loss rate 0.072,
+    active flows 0.043.
+- **Stability over five seeds** (6 latents, each seed's first 8 picks).
+  In all five: the three sender readings, `base_rtt_ns` and
+  `max_240ms(drop_fraction)`. In three: `change_60ms(sender_cwnd)`. In
+  two each: `capacity_bps`, `queue_delay_ns`, `sender_cwnd`,
+  `min_960ms(sender_cwnd)` and a window of `arrival_rate_bps`. One
+  seed's 8 picks fitted to another seed's latents give 0.893 on average
+  (lowest 0.885), the same as on its own (0.888 to 0.902), so the later
+  picks stand in for each other.
+- **Vocabulary sensitivity** (6 latents, first 8 picks, 0.894 with
+  nothing taken out). Without `sender_srtt`: 0.875, with `base_rtt_ns`
+  and `mean_240ms(queue_delay_ns)` in its place. Without
+  `sender_loss_rate`: 0.884, with two windows of `drop_fraction`.
+  Without `sender_delivery_rate`: 0.893, with `receive_rate_bps`. Any
+  other picked variable: within 0.005, and the other picks stay. This is
+  the first check for C4 and it holds for base variables: the selection
+  changes only where the removed variable was picked. Operator families
+  are UNRUN.
+- **Against the claims.**
+  - C1: the knee is at 6 latents on both copies of the data. Its
+    closed-loop half is UNRUN.
+  - C2 is not met at the knee by linear fits. Seeds agree on the space
+    and on five features, but the joint fit is 0.894 at 8 features and
+    0.929 with the whole library, and ground truth alone stops at 0.886,
+    below the 0.9 the claim asks for. It is met at 4 latents on the
+    whole library (0.947 at 8 features) and by ground truth alone only
+    with all of it (0.913). Fits beyond linear are UNRUN.
+- **What it shows.** The codec's concepts are what the sender already
+  measures: the three sender readings, or on the path's side the flow's
+  rate, the base RTT, the queue delay and the drop fraction, then the
+  buffer size and the capacity weakly. Sharing (flows, cross traffic)
+  and random loss are absent. The encoder reads one message, so it can
+  only hold what one message determines, and its task is to predict
+  those same readings one second ahead; that this needs little beyond
+  the readings is the plain reading of the result. It says the task of
+  self-prediction is easy to summarize. It does not say a controller
+  needs no more.
+- **The plan changes** ([methodology.md](methodology.md#plan)). The
+  formula search of step 4 (PySR on the residual) is put after step 5.
+  Reasons: the linear picks are base variables under a window, so there
+  is no formula to find for most of the latents; the 7% the library
+  leaves at the knee may well be message fields the library does not
+  hold (it has 4 of them), which a formula over path state would not
+  name either; and whether these concepts are the ones control needs is
+  now the question that decides everything downstream. Step 5 starts
+  with what needs no closed loop: how well each logging controller's
+  next action is predicted on held-out links from the codec's latents,
+  from the picked ground-truth features, from expliCCit's seven
+  concepts, and from the raw message, at the same budget. That is a
+  proxy and no claim about control; the closed-loop comparison follows
+  it.
+- **UNRUN.** The offline action check and the closed-loop comparison of
+  step 5; formulas beyond a linear fit; the operator-family sensitivity;
+  a codec with message history on matched anchors; the message's own
+  fields as library variables; anything on the test links.
 
 ## 2026-11-13: the knee codecs on the new copy of the data
 

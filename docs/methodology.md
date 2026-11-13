@@ -239,9 +239,11 @@ when the evidence points elsewhere, and the log entry for it says why.
 The order follows from what each step can show. The codec needs only
 logged steps, so it comes first and is trained as well as we can train
 it. Grounding is meaningful only for latents that are stable across
-seeds. Control comes after grounding because it needs the closed loop and
-a tuned controller, and because its question (does a controller need more
-than these concepts?) can be asked of concepts directly.
+seeds. Control needs the closed loop and a tuned controller, so its
+closed-loop part comes late; its question (does a controller need more
+than these concepts?) is asked as soon as grounding has named concepts,
+and before a formula search refines them, because the answer decides
+whether they are worth refining.
 
 1. **Setup.** The documents state the idea, the claims and the plan, and
    the logged step data is a release of this repository.
@@ -277,7 +279,8 @@ than these concepts?) can be asked of concepts directly.
      which names no state of the path. Only a feature of ground truth
      is a candidate concept for net1 to estimate.
    - Run PySR, with a parsimony penalty, only on the residual the linear
-     fit leaves.
+     fit leaves, and only after the offline check of step 5 has shown
+     the selected concepts to be worth refining.
    - For each latent, report formula size against held-out R^2 and pick
      the knee. The target is R^2 of 0.9 or more.
    - Keep the concepts that recur in at least 3 of 5 seeds, matching
@@ -285,7 +288,13 @@ than these concepts?) can be asked of concepts directly.
    - Vocabulary sensitivity (C4): refit with each base variable or
      operator family removed, and report whether the selected concepts
      change only when a removed item was one of them.
-5. **Control.** Check the count in the closed loop: controllers that read
+5. **Control.** First, offline and on logged steps: predict each logging
+   controller's next action on held-out links from the codec's latents,
+   from the selected ground-truth features, from the hand-picked LCFs
+   and from the raw message, at the same number of inputs. It is a
+   proxy: it shows whether a set of concepts holds what known
+   controllers act on, and it supports no claim about control. Then
+   check the count in the closed loop: controllers that read
    the first k latents, or the grounded concepts, against one that reads
    raw measurements. This needs a tuned black-box controller, which also
    serves as a teacher: distill students from it with DAgger through a
