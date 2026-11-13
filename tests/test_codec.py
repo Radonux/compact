@@ -44,6 +44,8 @@ def _synthetic(cfg: codec.Config, episodes: int = 600, length: int = 40) -> code
         x=torch.from_numpy(x.astype(np.float32)),
         tgt=torch.from_numpy(((tgt - tgt.mean(0)) / tgt.std(0)).astype(np.float32)),
         lc=torch.from_numpy(lc.astype(np.float32)),
+        ctl=torch.from_numpy(episode % 2),
+        a_scale=torch.tensor([[[0.0] * len(cfg.horizons), [1.0] * len(cfg.horizons)]] * 2),
         anchors={
             "train": torch.from_numpy(rows[split == "train"]),
             "val": torch.from_numpy(rows[split == "val"]),
@@ -170,3 +172,45 @@ def test_action_check_scores_a_controller_only_on_what_its_inputs_hold() -> None
     assert only_a[0].min() > 0.9 and only_a[1].max() < 0.1
     assert both.min() > 0.9
     assert abs(neither).max() < 0.05
+
+
+def test_a_student_of_the_actions_needs_what_its_controllers_act_on() -> None:
+    """Two controllers move their windows by different hidden factors.
+    Two latents predict both; one latent cannot."""
+    base = codec.Config(
+        targets="action", nested=False, width=64, depth=2, dec_width=64, dec_depth=1
+    )
+    base = base.model_copy(update={"horizons": (1, 2), "epochs": 12, "batch": 256, "lr": 3e-3})
+    rng = np.random.default_rng(0)
+    episodes, length = 600, 12
+    n = episodes * length
+    s = np.repeat(rng.normal(size=(episodes, 2)), length, axis=0)
+    episode = np.repeat(np.arange(episodes), length)
+    ctl = episode % 2
+    step = s[np.arange(n), ctl]  # controller c moves by factor c each row
+    lc = np.concatenate([[0.0], step[:-1]]).cumsum()
+    x = np.tanh(s @ rng.normal(size=(2, 10))) + 0.05 * rng.normal(size=(n, 10))
+    rows = np.arange(n - 2)
+    rows = rows[episode[rows + 2] == episode[rows]]
+    val = (episode[rows] // 2) % 5 == 0
+    change = lc[rows[:, None] + np.array([1, 2])] - lc[rows][:, None]
+    scale = [[change[ctl[rows] == c].mean(0), change[ctl[rows] == c].std(0)] for c in (0, 1)]
+    d = codec.Data(
+        x=torch.from_numpy(x.astype(np.float32)),
+        tgt=torch.zeros(n, 1),
+        lc=torch.from_numpy(lc.astype(np.float32)),
+        ctl=torch.from_numpy(ctl),
+        a_scale=torch.from_numpy(np.array(scale, np.float32)),
+        anchors={
+            "train": torch.from_numpy(rows[~val]),
+            "val": torch.from_numpy(rows[val]),
+            "test": torch.from_numpy(rows[:0]),
+        },
+    )
+    score = {}
+    for k in (1, 2):
+        cfg = base.model_copy(update={"k": k})
+        model, _ = codec.fit(d, cfg, log=lambda _: None)
+        score[k] = float(codec.r2(model, d, d.anchors["val"], cfg, k).mean())
+    assert score[2] > 0.9
+    assert score[1] < 0.7

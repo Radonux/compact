@@ -39,6 +39,7 @@ class Steps:
     episode: npt.NDArray[np.int64]  # [n], index into episode_ids
     step: npt.NDArray[np.int64]  # [n], the step's number in its episode
     episode_ids: tuple[str, ...]
+    controllers: tuple[str, ...]  # the controller of each of episode_ids
     split: npt.NDArray[np.str_]  # [n], "train" | "val" | "test"
 
     def rows(self, split: Split) -> npt.NDArray[np.bool_]:
@@ -90,6 +91,7 @@ def load(
     if not shards:
         raise FileNotFoundError(f"no steps.parquet under {[str(d) for d in dirs]}")
     split_of: dict[str, Split] = {}
+    controller_of: dict[str, str] = {}
     parts: list[dict[str, npt.NDArray[Any]]] = []
     index: dict[str, int] = {}  # episode id -> its index, in order of appearance
     for shard in shards:
@@ -103,6 +105,7 @@ def load(
         ):
             if status == "ok" and (controllers is None or ctl in controllers):
                 split_of[str(eid)] = _split_of(_path_key(str(spec_json), split_by), seed, val, test)
+                controller_of[str(eid)] = str(ctl)
         # One row group at a time, keeping only the rows and columns used and
         # turning them into float32 arrays at once: a campaign's full table
         # (float64 observations) can exceed memory.
@@ -144,6 +147,7 @@ def load(
         episode=episode,
         step=cat.pop("step"),
         episode_ids=episode_ids,
+        controllers=tuple(controller_of[e] for e in episode_ids),
         split=split,
         labels={k.removeprefix("label_"): v for k, v in cat.items()},
     )

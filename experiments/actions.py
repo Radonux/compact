@@ -39,7 +39,6 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
-import pyarrow.parquet as pq
 import torch
 from codec import _mlp
 from ground import (
@@ -51,8 +50,6 @@ from ground import (
     library,
     sender_variables,
 )
-
-from expliccit_env.train import data as steps_data
 
 F64 = npt.NDArray[np.float64]
 I64 = npt.NDArray[np.int64]
@@ -132,21 +129,6 @@ def fit_scores(
     return out
 
 
-def controllers(dirs: list[Path], s: steps_data.Steps) -> tuple[list[str], I64]:
-    """The controllers' names, and for each row the index of its own."""
-    of: dict[str, str] = {}
-    for shard in sorted({p.parent for d in dirs for p in d.rglob("steps.parquet")}):
-        # pyarrow-stubs leave read_table partly untyped.
-        eps = pq.read_table(  # pyright: ignore[reportUnknownMemberType]
-            shard / "episodes.parquet", columns=["episode_id", "controller"]
-        )
-        ids, own = eps["episode_id"].to_pylist(), eps["controller"].to_pylist()
-        of.update((str(e), str(c)) for e, c in zip(ids, own, strict=True))
-    names = sorted({of[e] for e in s.episode_ids})
-    per_episode = np.array([names.index(of[e]) for e in s.episode_ids], dtype=np.int64)
-    return names, per_episode[s.episode]
-
-
 def columns(lib: Library, names: tuple[str, ...]) -> tuple[F64, F64]:
     """The library's columns for these features, on the fit and score rows.
     A feature the library left out as a repeat is read from its twin."""
@@ -164,7 +146,8 @@ def run(out: Path, dirs: list[Path], runs: list[Path], select: Path) -> None:
     lib = library(
         [*labels, *sender], np.concatenate([b, m], 1), s, i_fit, i_score, stride=first.stride
     )
-    names, ctl = controllers(dirs, s)
+    names = sorted(set(s.controllers))
+    ctl = np.array([names.index(c) for c in s.controllers], np.int64)[s.episode]
     lc = d.lc.numpy().astype(np.float64)
 
     def change(idx: I64) -> F64:

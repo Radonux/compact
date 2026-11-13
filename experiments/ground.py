@@ -131,7 +131,7 @@ def filled(b_fit: F64, b: F64) -> tuple[F64, F64]:
 
 def latents(run: Path, d: Data, idx: torch.Tensor) -> tuple[Config, F64]:
     cfg = Config.model_validate_json((run / "config.json").read_text())
-    model = Codec(d.x.shape[1] * cfg.frames, d.tgt.shape[1], cfg)
+    model = Codec.of(d, cfg)
     model.load_state_dict(torch.load(run / "model.pt", weights_only=True)["state"])
     model.eval()
     with torch.no_grad():

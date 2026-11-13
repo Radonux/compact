@@ -56,6 +56,7 @@ def synthetic(n_episodes: int = 40, steps: int = 200, seed: int = 0) -> data.Ste
         episode=episode.astype(np.int64),
         step=np.tile(np.arange(steps), n_episodes).astype(np.int64),
         episode_ids=tuple(str(i) for i in range(n_episodes)),
+        controllers=("cubic",) * n_episodes,
         split=split,
     )
 

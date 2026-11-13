@@ -1,0 +1,34 @@
+{
+  "title": "A student of the logged actions through k latents: a search and a first width curve",
+  "description": "Step 5 of the plan (docs/methodology.md). experiments/codec.py with targets=action: the encoder reads one step's message and gives k latents, and the decoder reads the latents and the identity of the controller that logged the step and predicts how that controller changes its window (log2) over the next 60, 240 and 960 ms, each controller's changes scaled to unit variance. The network is the codec's (width 512, depth 4, decoder width 512, weight decay 1e-4, 10 epochs, fixed widths). Two parts, seed 0. Search: dropout 0, 0.1 and 0.3 with learning rate 3e-4 and 1e-3, at 6 and at 64 latents (12 cells). Width curve at the codec's settings (dropout 0.3, learning rate 1e-3): 1, 2, 3, 4, 8, 12 and 16 latents (7 cells; 6 and 64 are in the search). The score is R^2 on the validation links; skill is against predicting that the window does not change. The width curve is provisional until the search has chosen the settings and seeds confirm it. It is offline: predicting logged actions from one step is not control. Steps: release exp-steps-broad-30s-9. The test links are not read.",
+  "train": true,
+  "inputs": {
+    "steps": "release:exp-steps-broad-30s-9"
+  },
+  "matrix": {
+    "job": [
+      "k6-d0-lr0.0003",
+      "k6-d0-lr0.001",
+      "k6-d0.1-lr0.0003",
+      "k6-d0.1-lr0.001",
+      "k6-d0.3-lr0.0003",
+      "k6-d0.3-lr0.001",
+      "k64-d0-lr0.0003",
+      "k64-d0-lr0.001",
+      "k64-d0.1-lr0.0003",
+      "k64-d0.1-lr0.001",
+      "k64-d0.3-lr0.0003",
+      "k64-d0.3-lr0.001",
+      "k1-d0.3-lr0.001",
+      "k2-d0.3-lr0.001",
+      "k3-d0.3-lr0.001",
+      "k4-d0.3-lr0.001",
+      "k8-d0.3-lr0.001",
+      "k12-d0.3-lr0.001",
+      "k16-d0.3-lr0.001"
+    ]
+  },
+  "run": "K=${JOB%%-*}; K=${K#k}; D=${JOB#*-d}; D=${D%%-*}; LR=${JOB##*-lr}; uv run python experiments/codec.py train \"$OUT/runs/$JOB\" --data \"$IN/steps\" --set targets=action --set 'horizons=[1,4,16]' --set nested=false --set k=$K --set dropout=$D --set lr=$LR --set seed=0 --set width=512 --set depth=4 --set dec_width=512 --set weight_decay=0.0001 --set epochs=10 --set time_budget_s=18000",
+  "collect": "uv run python experiments/codec_report.py \"$OUT\" \"$OUT\"/runs/*",
+  "timeout_minutes": 350
+}
