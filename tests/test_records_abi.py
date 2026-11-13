@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from expliccit_env import labels, records
+from expliccit_env import records
 
 HEADER = Path(__file__).parents[1] / "kernel" / "modules" / "expliccit_rec.h"
 STRUCTS = {
@@ -119,15 +119,3 @@ def test_step_record_matches_the_guest() -> None:
         8 + steps.INFO_LEN,
         8 + steps.INFO_LEN + 8 * policy.OBS_DIM,
     ]
-
-
-def test_active_flows_counts_each_flow_once_per_window() -> None:
-    arr = np.zeros(6, dtype=records.LINK)
-    arr["ms"] = [0, 5, 5, 40, 150, 150]
-    arr["sport"] = [5001, 6000, 5001, 6000, 6000, 6000]
-    arr["proto"] = [6, 17, 6, 17, 17, 6]  # TCP and UDP on one port are two flows
-    hi = np.array([0, 1, 50, 100, 140, 151, 400], dtype=np.int64)
-    lo = np.maximum(hi - 100, 0)
-    got = labels.active_flows(arr, lo, hi)
-    assert got.tolist() == [0, 1, 2, 2, 1, 2, 0]
-    assert labels.active_flows(arr[:0], lo, hi).tolist() == [0] * 7

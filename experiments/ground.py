@@ -16,8 +16,8 @@ training links:
           latents predicted from the other's, linear and quadratic: whether
           the seeds found the same subspace
 
-The base variables are the label columns of the step data, each on a
-logarithmic scale (signed log1p of megabits per second, milliseconds,
+The base variables are the label columns of the step data and the
+composites of them, each on a logarithmic scale (signed log1p of megabits per second, milliseconds,
 kilobytes or packets). A linear probe is a lower bound: the decoder is not
 linear, so a latent may hold a variable in a form these fits miss.
 
@@ -25,9 +25,12 @@ Writes OUT/probe.json and OUT/summary.md.
 
 Usage: python experiments/ground.py select OUT --data DIR... --runs RUN_DIR...
 
-select names the few variables that span the latents. The library is every
-base variable (the labels, and four sender measurements: window, smoothed
-RTT, delivery rate, loss rate) under eight operators: its value now, its
+select names the few variables that span the latents. The base variables
+are every label the step data stores, in each window it is stored in
+(labels.py), every composite of them (train/lcfs.py), and four sender
+measurements (window, smoothed RTT, delivery rate, loss rate). Nothing is
+listed here: a label or composite added there joins the library. The
+library is every base variable under eight operators: its value now, its
 mean, minimum and maximum over the last 240 ms and 960 ms, and its change
 over 60 ms. Sums of logarithms are products and ratios, so a linear fit on
 this library is a fit by products of powers. Features are added one at a
@@ -45,9 +48,10 @@ its runs pooled:
            computed from the sender's message, so they can repeat what it
            measured; this path asks what they hold of the path's state.
   without  for each base variable among the first PICK features: the path
-           when that variable is taken out of the library, which is the
-           vocabulary sensitivity check. Taking out a variable that was
-           never picked cannot change the path.
+           when that label is taken out of the library in every window,
+           with every composite computed from it, which is the vocabulary
+           sensitivity check. Taking out a label that no picked feature
+           uses cannot change the path.
   transfer the R^2 of one run's latents on another run's first PICK
            features
 
@@ -69,7 +73,9 @@ import numpy.typing as npt
 import torch
 from codec import DELIVERY, LOST, SRTT, Codec, Config, Data, _batch, build
 
+from expliccit_env.labels import WINDOWS_MS
 from expliccit_env.train import data as steps_data
+from expliccit_env.train import lcfs
 
 F64 = npt.NDArray[np.float64]
 
@@ -80,18 +86,40 @@ FIT, SCORE = 300_000, 200_000
 _SCALE = {"_bps": 1e-6, "_ns": 1e-6, "_bytes": 1e-3}
 
 
+def _label(name: str) -> str:
+    """A label column's name without its window."""
+    return next(
+        (name.removesuffix(f"_{w}ms") for w in WINDOWS_MS if name.endswith(f"_{w}ms")), name
+    )
+
+
+def sources(variable: str) -> frozenset[str]:
+    """The labels, whatever the window, a base variable is read or computed
+    from; a sender measurement is its own source."""
+    return frozenset(_label(c) for c in lcfs.columns([variable]))
+
+
+def _factor(name: str) -> float:
+    if name in lcfs.LCF_UNITS:
+        return lcfs.LCF_UNITS[name][0]
+    return next((v for suffix, v in _SCALE.items() if _label(name).endswith(suffix)), 1.0)
+
+
 def base_variables(s: steps_data.Steps) -> tuple[list[str], F64]:
-    """Every label that is ever defined, on a logarithmic scale; NaN where
-    it is undefined."""
-    names = sorted(n for n, v in s.labels.items() if np.isfinite(v).any())
-    cols = []
-    for n in names:
-        scale = next((v for suffix, v in _SCALE.items() if n.endswith(suffix)), 1.0)
-        v = s.labels[n].astype(np.float64) * scale
-        cols.append(np.sign(v) * np.log1p(np.abs(v)))
-    b = np.stack(cols, axis=1)
-    b[~np.isfinite(b)] = np.nan
-    return names, b
+    """Every stored label and every composite the stored labels give, if it
+    is ever defined, on a logarithmic scale; NaN where it is undefined."""
+    stored = set(s.labels)
+    made = {n for n in lcfs.LCF_UNITS if n not in stored and lcfs.columns([n]) <= stored}
+    names, cols = [], []
+    with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+        for n in sorted(stored | made):
+            v = s.labels[n].astype(np.float64) * _factor(n)
+            v = np.sign(v) * np.log1p(np.abs(v))
+            v[~np.isfinite(v)] = np.nan
+            if np.isfinite(v).any():
+                names.append(n)
+                cols.append(v)
+    return names, np.stack(cols, axis=1)
 
 
 def quadratic(z: F64) -> F64:
@@ -438,7 +466,8 @@ def _selection(lib: Library, m: Moments) -> dict[str, Any]:
     path = _path(lib, m, everything)
     index = {n: i for i, n in enumerate(lib.names)}
     lcfs = [index[n] for n in EXPLICCIT_LCFS if n in index]
-    used = dict.fromkeys(lib.variable[index[p["feature"]]] for p in path[:PICK])
+    of = [sources(v) for v in lib.variable]
+    used = sorted(set().union(*(of[index[p["feature"]]] for p in path[:PICK])))
     hidden = [f for f in everything if not lib.variable[f].startswith("sender_")]
     return {
         "path": path,
@@ -447,8 +476,7 @@ def _selection(lib: Library, m: Moments) -> dict[str, Any]:
         "hidden_library": float(m.r2(_columns(lib, hidden)).mean()),
         "expliccit_lcfs": float(m.r2(_columns(lib, lcfs)).mean()),
         "without": {
-            var: _path(lib, m, [f for f in everything if lib.variable[f] != var])[:PICK]
-            for var in used
+            var: _path(lib, m, [f for f in everything if var not in of[f]])[:PICK] for var in used
         },
     }
 

@@ -12,7 +12,7 @@ A formula is written once and runs on both kinds of column: NumPy arrays
 exported policy, graph.TruthColumns), so a composite of the truth is the
 composite of the labels.
 
-Where a composite comes from is in docs/lcf-concepts.md.
+Where a composite comes from is in docs/concepts.md.
 """
 
 from __future__ import annotations

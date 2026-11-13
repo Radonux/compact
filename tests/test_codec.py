@@ -141,6 +141,38 @@ def test_ground_selection_finds_the_features_that_span_the_latents() -> None:
     assert sel["without"]["v0"][-1]["mean"] < 0.9  # no substitute for feature 1
 
 
+def test_the_grounding_library_holds_every_stored_label_and_composite() -> None:
+    from types import SimpleNamespace  # noqa: PLC0415
+
+    from expliccit_env.labels import WINDOWED, WINDOWS_MS, label_name  # noqa: PLC0415
+    from expliccit_env.train import lcfs  # noqa: PLC0415
+
+    ground = sys.modules.get("ground") or _load_ground()
+    rng = np.random.default_rng(2)
+    stored = {c for name in lcfs.LCF_UNITS for c in lcfs.columns([name])}
+    labels = lcfs.Labels({c: rng.uniform(1, 1e7, 50).astype(np.float32) for c in stored})
+    names, b = ground.base_variables(SimpleNamespace(labels=labels))
+    # Every label in every window it has, and every composite: nothing is listed twice.
+    assert set(names) == set(lcfs.LCF_UNITS) and b.shape == (50, len(names))
+    assert {label_name(n, w) for n in WINDOWED for w in WINDOWS_MS} <= set(names) | {
+        label_name("drop_fraction", w) for w in WINDOWS_MS
+    }
+    # A label column that no LCF names still joins, and one never defined does not.
+    labels["made_up_bytes"] = np.full(50, 2000.0, np.float32)
+    labels["never"] = np.full(50, np.nan, np.float32)
+    more, _ = ground.base_variables(SimpleNamespace(labels=labels))
+    assert "made_up_bytes" in more and "never" not in more
+    # With only one window stored, the other window's composites are left out.
+    short = lcfs.Labels({k: v for k, v in labels.items() if not k.endswith("_10ms")})
+    assert not any(
+        n.endswith("_10ms") for n in ground.base_variables(SimpleNamespace(labels=short))[0]
+    )
+    # Taking a label out takes out both windows and what is computed from it.
+    assert ground.sources("capacity_bps_10ms") == {"capacity_bps"}
+    assert ground.sources("fair_share_bps_10ms") == {"capacity_bps", "active_flows"}
+    assert ground.sources("sender_cwnd") == {"sender_cwnd"}
+
+
 def test_action_check_scores_a_controller_only_on_what_its_inputs_hold() -> None:
     """Controller 0 acts on variable a and controller 1 on variable b.
     Inputs that hold only a must predict the first and not the second."""
