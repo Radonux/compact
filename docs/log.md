@@ -17,14 +17,15 @@ Updated with each entry. The steps are those of the
 | 2 The codec on logged steps | done (2026-11-12): search `exp-codec-search-3`, confirmation `exp-codec-confirm-4` | `experiments/codec.py`, its positive control (`tests/test_codec.py`), the link split; the trained weights in `exp-codec-confirm-4` | |
 | 3 Strengthen the codec | dropout 0.3 chosen and the width curve rerun with it (2026-11-12, `exp-codec-dropout-6`); knee rule fixed, 6 latents; longer training and a deeper encoder tried and not adopted (2026-11-13, `exp-codec-capacity-7`) | the `dropout` option of the codec; the trained weights in `exp-codec-dropout-6` | the information-bottleneck term; the run on the test links |
 | 4 Grounding | linear grounding done on the knee codecs (2026-11-13, `exp-ground-knee-13`), after a first look (`exp-ground-probe-10`, `exp-ground-select-12`); the latents mostly repeat three sender readings, so the formula search waits for step 5 | the labels and the step message in `steps.parquet`; `experiments/ground.py probe` and `select`; the trained weights in `exp-codec-knee-11` | formulas beyond a linear fit (PySR on the residual); the operator-family sensitivity |
-| 5 Control | offline action check done (2026-11-13, `exp-actions-knee-14`, a proxy); a bottlenecked student of the logged actions searched (`exp-student-search-16`) and confirmed over five seeds (2026-11-13, `exp-student-confirm-17`): no sharp knee, 3 latents by the 5% rule and 6 within 1% of the wide model; its grounding is UNRUN; the closed loop is UNRUN | `experiments/actions.py`; the student (`experiments/codec.py` with `targets=action`) and its trained weights in `exp-student-confirm-17`; a recurrent actor on raw measurements (`train ppo`, `inputs: "raw"`), trained by PPO, TD3+BC or DAgger; closed-loop rollouts and scoring | a controller that reads the codec's latents or fitted concepts; DAgger from a teacher given as a graph; the bottlenecked student in the closed loop |
+| 5 The controller in the closed loop | the controller with a narrow middle is built and unit-tested (2026-11-13); its first closed-loop stage (`experiments/controller-clone.json`) is UNRUN. Done earlier on logged steps, as proxies: the offline action check (`exp-actions-knee-14`) and a student of the logged actions (`exp-student-search-16`, `exp-student-confirm-17`, grounded in `exp-student-ground-18`, not yet read) | `PPOSpec.latents` (`train/recurrent.py`); `train ppo` by DAgger, PPO or TD3+BC; closed-loop rollouts and scoring; `experiments/net2_ppo_setup.py` and `net2_ppo_report.py` | reinforcement learning after the taught start; the width curve in the closed loop; grounding on a controller's own rollouts; a start that does not come from the rule |
 | 6 Retrain and compare | UNRUN | `train run` for net1 and an offline net2; `train ppo` for a closed-loop net2; oracles on the seven LCFs | labels from fitted formulas; net1 on them; the live truth for them |
 
-C1 has first evidence from a release, on validation links only (entry of
-2026-11-12). C2 is not met at the knee by linear fits: seeds agree on the
-latent space and on the first five features, but the fit stays below 0.9
-(entries of 2026-11-13). C4 has its first check for base variables.
-C3 and C5 have none.
+C1 is now stated on the controller with a narrow middle (entry of
+2026-11-13, "the discovery model is a controller") and has no evidence
+yet: the width curves so far are of the codec and of a student of logged
+actions. C2 is not met by linear fits on the codec's latents (entries of
+2026-11-13). C4 has its first check for base variables. C3 and C5 have
+none.
 
 ## Open items
 
@@ -43,6 +44,70 @@ C3 and C5 have none.
   is processed ([architecture.md](architecture.md#known-limits)). The
   oracle net2 of step 6 and labels for fitted formulas need both
   extended.
+
+## 2026-11-13: the plan changed: the discovery model is a controller
+
+- **What changed.** Discovery (step 1 of the idea, step 5 of the plan)
+  is now a controller of expliCCit's shape with the middle left free: an
+  encoder in net1's place to k latents, a recurrent decoder in net2's
+  place to the window, trained in the closed loop
+  ([methodology.md](methodology.md#the-controller)). The codec stays as
+  a second route. C1 and C5 are restated on the controller.
+- **Why.** The goal is the concepts a trained controller uses, judged by
+  closed-loop performance. Every run so far was offline: the codec
+  predicts the flow's future and has no controller in it, and the
+  student imitates 22 logging controllers, 17 of them kernel heuristics,
+  none of which is the controller whose performance is to be retained.
+  The entry of 2026-11-11 that took the teacher out of discovery gave
+  true reasons (action collapse, the cost of a good teacher) and the
+  wrong conclusion: it removed the controller from the question. The
+  project's owner pointed out that the encoder and decoder asked for
+  were net1 and net2 themselves.
+- **What the earlier results still say.** They are about logged steps.
+  The student's curve with no sharp knee (entry below) describes
+  imitation of the logging controllers from one step, scored by squared
+  error, and says nothing yet about a controller's need for width. The
+  grounding tools, the link split and the offline baselines carry over.
+- **Local diagnostics, not a release** (200,000 validation anchors,
+  seed 0 students of `exp-student-confirm-17`; a script outside the
+  repository, so nothing here is citable). They are why the student is
+  not pursued further: at 60 ms, 5% of the anchors hold 83% of the
+  target's variance, so the score is mostly about rare large window
+  changes; the widest student explains 0.54 of the variance and BBR's
+  actions stay near 0.3 at any width; controllers differ in the width
+  they need (Reno and Cubic level off at 2 latents, BBR gains at the
+  third).
+- **Built.** `PPOSpec.latents` and `encoder_hidden`: the encoder (two
+  hidden layers) inside `RecurrentActor`, and `graph.FixedWindow`, a
+  fixed 2^7 packets as the window's base so that no measured
+  bandwidth-delay product passes around the latents. DAgger's labels,
+  the learners, the exported graph and the handoff between stages use
+  the existing code paths. Unit tests (`tests/test_ppo.py`): the window
+  depends on the measurements only through the latents, one exported
+  step equals the trained sequence, the label is the rule's window over
+  the fixed base. Ran: ruff, pyright, `uv run pytest -q` (212 passed,
+  57 skipped). The UML tests and the exported graph in the guest are
+  UNRUN here; the first experiment exercises them.
+- **Decisions, made before any run.**
+  - Widths 4, 7, 10, 16 and 64. 7 is expliCCit's budget, 10 the owner's
+    first proposal, 64 stands for no constraint and is the unconstrained
+    teacher. No count is read from logged steps.
+  - The first stage teaches each controller a fixed rule's window by
+    DAgger, as a start only. The rule reads the estimator of the seven
+    hand-picked LCFs, so the start leans toward capacity and delay. The
+    claim will rest on the reinforcement-learning stage, and a run from
+    another start is the check (C5).
+  - A reference without an encoder (k 0 in the experiment file): the
+    recurrent network on the measurements with its window on a measured
+    bandwidth-delay product.
+- **Inputs.** `experiments/estimator-seven.json` copies the estimator of
+  the seven hand-picked LCFs into a release of this repository; the
+  rule graph of `exp-steps-behaviour-rule-8` supplies the training
+  paths' logging controller.
+- **UNRUN.** Everything in the closed loop: the taught start
+  (`experiments/controller-clone.json`), reinforcement learning, the
+  width curve, grounding on a controller's rollouts, the start that does
+  not come from the rule. Reading `exp-student-ground-18`.
 
 ## 2026-11-13: the student of the actions over seeds, and a curve with no sharp knee
 

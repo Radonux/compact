@@ -55,9 +55,11 @@ the plan. `docs/log.md` holds everything that changes with time: what
 ran, what it showed, the state of each step and the open items. Keep
 status, dates and results out of the README and the other documents.
 
-- **Discover.** Train a model whose output passes through k latents (the
-  codec, `experiments/codec.py`). The width at which its skill stops
-  improving counts the concepts.
+- **Discover.** Train a controller whose decision passes through k
+  latents: an encoder in net1's place, a decoder in net2's place
+  (`PPOSpec.latents`), trained in the closed loop. The width at which
+  its closed-loop performance stops improving counts the concepts. The
+  codec (`experiments/codec.py`) is a second route on logged steps.
 - **Ground.** Fit the latents to short closed-form formulas over emulator
   ground truth and sender metrics. Keep those stable across seeds.
 - **Retrain.** Train a normal net1 and net2 on the fitted formulas as LCF
