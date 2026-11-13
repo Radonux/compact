@@ -262,8 +262,20 @@ than these concepts?) can be asked of concepts directly.
      directions, and between the latents of two seeds. It says which
      variables the latents carry, how much of a latent the vocabulary
      can express at all, and whether seeds agree, each as a lower bound.
-   - Fit all k latents jointly with a multi-output group lasso, then take
-     a sparse basis of the fitted subspace.
+   - Select (`experiments/ground.py select`): fit all k latents jointly
+     and linearly on the library, adding one feature at a time, the one
+     that most raises the fit. The variables are on logarithmic scales,
+     so a linear fit is a fit by products and ratios of powers, and the
+     selected features are themselves the candidate concepts. A greedy
+     path replaces the group lasso first planned: it gives fit against
+     size directly, and taking out a variable that was never picked
+     provably leaves it unchanged. The group lasso stays the fallback if
+     the picks differ between seeds.
+   - Report the path twice: on the whole library, and on ground truth
+     alone. The latents are computed from the sender's message, so on
+     the whole library they can be fitted by what the sender measured,
+     which names no state of the path. Only a feature of ground truth
+     is a candidate concept for net1 to estimate.
    - Run PySR, with a parsimony penalty, only on the residual the linear
      fit leaves.
    - For each latent, report formula size against held-out R^2 and pick

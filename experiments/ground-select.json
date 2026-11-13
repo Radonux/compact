@@ -1,0 +1,13 @@
+{
+  "title": "Grounding, a first selection: the few variables that span the codec's latents",
+  "description": "Step 4 of the plan (docs/methodology.md). experiments/ground.py select builds the library (every label and four sender measurements, each now, as mean, minimum and maximum over 240 ms and 960 ms, and as its change over 60 ms) and adds features one at a time to a joint linear fit of the latents, on anchors of the training links, scoring every size on anchors of the validation links. Reported per run and per width with its runs pooled: the path on the whole library and on ground truth alone, the fit with the whole library and with expliCCit's seven concepts, the path with each picked base variable taken out (vocabulary sensitivity), and one run's picks fitted to another run's latents. Codecs: fixed widths 3, 4, 6 and 12 at dropout 0.3, seeds 0 to 2, of release exp-codec-dropout-6. Messages and labels: release exp-steps-broad-30s-9, the same campaign as the data these codecs were trained on, run again, with most episodes not byte for byte the same; so this is a first look, to be repeated on codecs trained on that release. The test links are not read.",
+  "train": true,
+  "inputs": {
+    "steps": "release:exp-steps-broad-30s-9",
+    "codecs": "release:exp-codec-dropout-6"
+  },
+  "shards": 1,
+  "run": "uv run python experiments/ground.py select \"$OUT\" --data \"$IN/steps\" --runs \"$IN\"/codecs/runs/drop0.3-fixed3-s* \"$IN\"/codecs/runs/drop0.3-fixed4-s* \"$IN\"/codecs/runs/drop0.3-fixed6-s* \"$IN\"/codecs/runs/drop0.3-fixed12-s*",
+  "collect": "test -s \"$OUT/summary.md\"",
+  "timeout_minutes": 120
+}

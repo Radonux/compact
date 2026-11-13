@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -79,11 +80,17 @@ def test_a_horizon_sees_only_the_actions_up_to_it() -> None:
     assert not torch.equal(p[:, 2], q[:, 2])
 
 
-def test_ground_probe_scores_linear_and_quadratic_relations() -> None:
+def _load_ground() -> Any:
     spec = importlib.util.spec_from_file_location("ground", _PATH.with_name("ground.py"))
     assert spec is not None and spec.loader is not None
     ground = importlib.util.module_from_spec(spec)
+    sys.modules["ground"] = ground
     spec.loader.exec_module(ground)
+    return ground
+
+
+def test_ground_probe_scores_linear_and_quadratic_relations() -> None:
+    ground = _load_ground()
     rng = np.random.default_rng(0)
     z = rng.normal(size=(4000, 3))
     y = np.stack([z @ [1.0, -2.0, 0.5] + 3, z[:, 0] * z[:, 1], rng.normal(size=4000)], axis=1)
@@ -101,3 +108,32 @@ def test_ground_probe_scores_linear_and_quadratic_relations() -> None:
     assert b_fit.shape[1] == 4 and np.isfinite(b_score).all()
     target = np.isnan(b[:, 2:3]).astype(np.float64)
     assert ground.r2(b_fit, target[fit], b_score, target[score])[0] > 0.999
+
+
+def test_ground_selection_finds_the_features_that_span_the_latents() -> None:
+    ground = sys.modules.get("ground") or _load_ground()
+    rng = np.random.default_rng(1)
+    x = rng.normal(size=(6000, 6))
+    gap = rng.random(6000) < 0.2  # feature 4 is undefined on a fifth of the rows
+    cols = [np.ones(6000), *x.T, (gap - gap.mean()) / gap.std()]
+    cols[5] = np.where(gap, 0.0, x[:, 4])
+    design = np.stack(cols, axis=1)
+    lib = ground.Library(
+        names=tuple(f"f{i}" for i in range(6)),
+        variable=tuple(f"v{i // 2}" for i in range(6)),
+        columns=((1,), (2,), (3,), (4,), (5, 7), (6,)),
+        same_as={},
+        fit=design[:4000],
+        score=design[4000:],
+    )
+    # Two latents: mixes of features 1 and 4, where 4 also acts by being undefined.
+    z = np.stack([2 * x[:, 1] + cols[5] + 3 * gap, x[:, 1] - cols[5]], axis=1)
+    z += 0.01 * rng.normal(size=z.shape)
+    m = ground.Moments.of(lib, z[:4000], z[4000:])
+    order = ground.greedy(lib, m, list(range(6)), 3)
+    assert set(order[:2]) == {1, 4}
+    assert m.r2(ground._columns(lib, order[:2])).min() > 0.999
+    assert m.r2(ground._columns(lib, order[:1])).min() < 0.9
+    sel = ground._selection(lib, m)
+    assert sel["library"] > 0.999 and set(sel["without"]) >= {"v0", "v2"}
+    assert sel["without"]["v0"][-1]["mean"] < 0.9  # no substitute for feature 1
