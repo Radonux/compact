@@ -241,8 +241,10 @@ def summary(result: dict[str, Any]) -> str:
         "R^2 of the predicted change of the window on validation links, per controller "
         "around its own mean change, then averaged over controllers. Mean and standard "
         "deviation over the fits of a set (three model seeds, or one per codec run). "
+        "Columns counts the network's inputs besides the controller's identity: a "
+        "feature that is sometimes undefined has a second column saying so. "
         "A proxy: no claim about control.\n\n",
-        "| inputs | count | fits | " + " | ".join(f"{h} ms" for h in ms) + " |\n",
+        "| inputs | columns | fits | " + " | ".join(f"{h} ms" for h in ms) + " |\n",
         "|---|---|---|" + "---|" * len(ms) + "\n",
     ]
     for key, fits in groups.items():
