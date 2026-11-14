@@ -65,7 +65,7 @@ What to keep in mind when reading it:
 `experiments/controller-clone.json` taught the same widths by DAgger from
 the fixed rule on the seven hand-picked LCFs, three seeds each. Its
 release is `exp-controller-clone-21`. All 24 runs finished their 40
-iterations, and no rollout count is missing from the report.
+iterations.
 
 Score: mean log utility minus the fixed rule's, on the 21 validation
 links under 6 conditions, for the policy after the last iteration.
