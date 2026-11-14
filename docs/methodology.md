@@ -58,9 +58,12 @@ the teacher by repeating the last window and ignore the measurements. And
 its fit to the teacher's rollouts is not evidence: a clone drifts once it
 drives, so only its closed-loop score says how good the start is.
 
-The controller that is grounded has 64 latents, too wide to constrain
-anything. It is the wide controller, and performance is measured against
-it.
+The controllers that are grounded have 7, 10 and 16 latents: expliCCit's
+budget of seven and a little above it. A wider middle is not used. The
+shipped controller will never have one, more room trained no better and
+no more steadily ([status.md](status.md#the-reinforcement-learning-stage)),
+and fewer latents are fewer things to ground. Retrained controllers are
+compared with these and with the reference without an encoder.
 
 ### What the width cannot count
 
@@ -81,12 +84,11 @@ expliCCit cannot collapse this way, because net1 is trained on labels
 and never with net2: its outputs are facts about the path. The count
 therefore belongs where that holds, in step 3. The retrained net1 can
 output only the fitted formulas, so the number of them at which net1 +
-net2 keep the wide controller's performance is a count of concepts.
+net2 keep the discovery controller's performance is a count of concepts.
 
-The narrow middle keeps two uses. Its latents are what the decoder
-reads, so formulas that span them are enough for a decoder. And widths 1
-and 2 stay in every run as the measurement of the collapse: the decision
-regressed on the latents, and the score beside the wide controller's.
+The narrow middle keeps its use. Its latents are what the decoder reads,
+so formulas that span them are enough for a decoder. The collapse is
+measured on every controller: its decision regressed on its latents.
 
 ## How it can fail
 
@@ -94,7 +96,7 @@ These follow from the design, before any data. Each has a check.
 
 | Failure | Why it can happen | Check |
 |---|---|---|
-| The wide latents hold only the decision | Nothing makes a wide encoder keep the path's state apart from the decision ([above](#what-the-width-cannot-count)). Formulas that span such latents are formulas for the window, not concepts behind it. | Regress the decision on the latents in every run, and read each base variable from the latents. Ground the decision itself beside the latents, and compare the two paths. |
+| The latents hold only the decision | Nothing makes an encoder keep the path's state apart from the decision ([above](#what-the-width-cannot-count)). Formulas that span such latents are formulas for the window, not concepts behind it. | Regress the decision on the latents in every run, and read each base variable from the latents. Ground the decision itself beside the latents, and compare the two paths. |
 | The order is not the order of need | Grounding orders formulas by how much of the decision they explain on logged steps, which is not their worth in the closed loop. | The count is read from closed-loop performance against m. Compare the order with a random one and with the baselines at each m (C3). |
 | The concepts follow the teacher | Reinforcement learning may stay near the controller it started from. | Start from two teachers that work differently, Cubic (loss based) and BBRv3 (model based), and compare the concepts (C5). Measure how far each controller moved from its start. |
 | A weak learner looks like a need for concepts | Reinforcement learning may leave a net2 on few concepts short of comparable for reasons of optimization alone. | Tune before any claim. Compare with the oracle net2 trained the same way on the full set. |
@@ -107,9 +109,9 @@ These follow from the design, before any data. Each has a check.
 
 | | Claim | How it fails |
 |---|---|---|
-| C1 | Count. Closed-loop performance of net1 + net2 on the first m fitted concepts becomes comparable with the wide controller's at a small m, the same across seeds of the wide controller, and at that m it is comparable with the oracle net2 on the full set. | No m short of the full set is comparable, or the m differs between seeds. |
-| C2 | Grounding. The wide controller's latents and its decision are spanned by a few short closed-form formulas over named variables (a flexible fit on them reaches a flexible fit on the whole library), and the same formulas recur in at least 3 of 5 seeds. | They fit no short formula, or the formulas differ between seeds. |
-| C3 | Budget. net1 + net2 trained on the fitted concepts are comparable with the wide controller at a number of concepts where concepts chosen another way are not: the hand-picked LCFs, greedy subset search, SHAP-ranked inputs, a random subset. | A baseline is comparable at the same budget. |
+| C1 | Count. Closed-loop performance of net1 + net2 on the first m fitted concepts becomes comparable with the discovery controller's at a small m, the same across seeds of the discovery controller, and at that m it is comparable with the oracle net2 on the full set. | No m short of the full set is comparable, or the m differs between seeds. |
+| C2 | Grounding. The discovery controller's latents and its decision are spanned by a few short closed-form formulas over named variables (a flexible fit on them reaches a flexible fit on the whole library), and the same formulas recur in at least 3 of 5 seeds. | They fit no short formula, or the formulas differ between seeds. |
+| C3 | Budget. net1 + net2 trained on the fitted concepts are comparable with the discovery controller at a number of concepts where concepts chosen another way are not: the hand-picked LCFs, greedy subset search, SHAP-ranked inputs, a random subset. | A baseline is comparable at the same budget. |
 | C4 | Vocabulary. With one base variable or operator family removed from the library, the selected concepts change only when the removed item was one of them. | The selection follows whatever the library holds. |
 | C5 | Start. The discovery controller yields the same concepts from different teachers. | The concepts describe one teacher. |
 
@@ -153,7 +155,7 @@ conditions.
    score. A higher score there, from a larger share, is not a gain.
 3. Between two controllers trained the same way on this objective, a
    shortfall is what the constraint on one of them costs. This is the
-   comparison the method rests on: the wide controller with the reference
+   comparison the method rests on: the discovery controller with the reference
    without an encoder, and net1 + net2 on m concepts with both. The
    question is whether the constrained one loses, so the test is one
    sided, with a margin of 0.1. It is comparable when the whole interval
@@ -197,18 +199,18 @@ the evidence says so.
    - Continue each by reinforcement learning on the log utility
      (`experiments/controller-rl.json`): PPO from the clone's actor and
      value network. Tune it and confirm over seeds.
-   - Train the wide controller and the narrow widths that measure
-     action collapse ([above](#what-the-width-cannot-count)). A
-     reference without an encoder runs beside them.
+   - Train the widths that are grounded
+     ([above](#the-discovery-controller)). A reference without an
+     encoder runs beside them.
      Report each against the teachers themselves and the fixed rule on
      the seven hand-picked LCFs (`experiments/width_curve.py`).
    - Compare the two teachers' controllers (C5), and report how far
      reinforcement learning moved each from its start: the RMS difference
      in log2 of the window between the two policies on the same rollouts.
-3. Grounding, on the wide controllers' latents and decisions and the
+3. Grounding, on the discovery controllers' latents and decisions and the
    steps of their own rollouts ([below](#grounding)).
 4. Retrain and compare. Compute labels from the frozen formulas, train
-   net1 and net2 as usual, and compare with the wide controller
+   net1 and net2 as usual, and compare with the discovery controller
    ([above](#comparing-controllers)).
    - Train the oracle net2 on the true concept values.
    - Plot the log utility against the number of concepts m, for
@@ -216,7 +218,7 @@ the evidence says so.
      the decision's path, and read the count (C1). m = 7 is
      expliCCit's budget.
    - Baselines at the same budget: the hand-picked LCFs, a greedy forward
-     subset search over the base variables, the wide controller's inputs ranked
+     subset search over the base variables, the discovery controller's inputs ranked
      by SHAP, and a random subset.
 
 A step is done when it has a release with the code, the configuration,
@@ -356,7 +358,6 @@ compact tests against.
 | net2 | The decision maker. It sets the window from net1's output alone. |
 | discovery controller | The encoder, k latents and decoder of [the design](#the-discovery-controller). Never shipped. |
 | latents, z, k | The layer z, of k dimensions, between encoder and decoder. |
-| wide controller | The discovery controller that is grounded ([above](#the-discovery-controller)). |
 | teacher | The traditional congestion controller a discovery controller is bootstrapped from: Cubic or BBRv3, as Linux runs them. |
 | bootstrap | Cloning a teacher to give reinforcement learning a start: the teacher drives the rollouts and the controller learns the window that sends as it did (`PPOSpec.algo` `clone`). |
 | fixed rule | A window of 2^0.25 times the believed BDP of the estimator of the seven LCFs. A common reference in evaluations. |

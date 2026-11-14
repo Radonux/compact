@@ -163,11 +163,11 @@ What it shows:
   and not verdicts:
   - The two references without an encoder are 0.03 apart, with a spread
     between seeds of 0.01 and 0.03.
-  - The wide controllers are 0.13 (Cubic) and 0.37 (BBRv3) below their
+  - The width-64 controllers are 0.13 (Cubic) and 0.37 (BBRv3) below their
     references. Passing the decision through latents costs something at
     this point of the settings.
-  - The narrower widths against their wide controller are unresolved.
-    The wide controllers' own spread is 0.14 and 0.30, larger than the
+  - The narrower widths against width 64 are unresolved.
+    Width 64's own spread is 0.14 and 0.30, larger than the
     margin. Cubic at width 7 is 1.17 below, from two runs that diverged.
 - Two runs got worse: Cubic at width 7, seeds 1 and 3, end at -1.71 and
   -2.44. The third seed of that width ends at -0.22, so this is the
@@ -180,7 +180,7 @@ What it shows:
 - The decision is largely in the latents at widths 1 and 2. A quadratic
   fit of the decision on the latents alone has a held-out R^2 of 0.80 to
   0.93 at width 1 and 0.82 to 0.91 at width 2, and width 1 scores as
-  well as the wide controllers. This is action collapse in the closed
+  well as width 64. This is action collapse in the closed
   loop. It is what the objective allows
   ([methodology.md](methodology.md#what-the-width-cannot-count)), so the
   width is no longer read as a count. The count is read in retraining,
@@ -188,20 +188,21 @@ What it shows:
 - Many runs were still improving at the last evaluation, so 120
   iterations is not the end of training.
 
-The settings search is running (`experiments/controller-rl-search.json`,
-run 43606041206): the wide controller over a full grid of learning rate
-(0.00003, 0.0001, 0.0003), clip (0.1, 0.2) and exploration noise (0.1,
-0.2), from both teachers, seeds 1 and 2. The reason for these three: over
-the last 40 iterations the wide controllers' learner clipped 25% of
-decisions with a step KL of 0.024, against 11% and 0.009 for the
-references. The two best points per teacher then go to a confirmation
-over more seeds, with the reference and the narrow widths, which is
-UNRUN.
+Width 64 is no longer trained. The controllers that are grounded have 7,
+10 and 16 latents ([methodology.md](methodology.md#the-discovery-controller)).
+In this release the wider middle trained no better and no more steadily:
+width 64 ends 0.29 and 0.50 below the rule with a spread between seeds of
+0.14 and 0.30, and widths 10 and 16 end 0.21 to 0.47 below with a spread
+of 0.05 to 0.10.
 
-What follows for the next runs: only widths 64, 1 and 2 and the
-reference without an encoder are trained, which frees most of the
-compute for the search. What remains UNRUN: that search over the
-settings, and more iterations.
+The settings search is running (`experiments/controller-rl-search.json`):
+width 10 over a full grid of learning rate (0.00003, 0.0001, 0.0003),
+clip (0.1, 0.2) and exploration noise (0.1, 0.2), from both teachers,
+seeds 1 and 2. The reason for these three: over the last 40 iterations
+the learner at width 10 clipped 23% of decisions with a step KL of 0.019,
+against 11% and 0.009 for the references. The two best points per teacher
+then go to a confirmation over more seeds at widths 7, 10 and 16 with the
+reference, which is UNRUN. More iterations are UNRUN too.
 
 Two things changed in the trainer for it. A run that the time budget ends
 between evaluations now scores the policy it leaves; before, that policy
@@ -250,7 +251,8 @@ because those controllers are untuned starts.
 with the same paths, formulas and sensitivity check. The decision's path
 is the order in which concepts will be tried in retraining.
 `experiments/ground-rl.json` does all of this for the controllers after
-reinforcement learning, at width 64 and at widths 1 and 2, and is UNRUN.
+reinforcement learning, at width 64 and at widths 1 and 2. It was
+dispatched before width 64 was dropped and is running.
 
 What has run: unit tests on synthetic controllers, and one end-to-end
 test in the guest, where a width-3 controller cloned from BBRv3 for one
@@ -390,7 +392,7 @@ in the latents favours it. The count is read in retraining instead
 
 | Question | Note |
 |---|---|
-| Whether the wide latents hold more than the decision | Nothing forces them to. The probe reads each base variable from the latents, and the decision is grounded beside them. If the two paths agree and the latents add nothing, the decision's path alone is used. |
+| Whether the latents hold more than the decision | Nothing forces them to. The probe reads each base variable from the latents, and the decision is grounded beside them. If the two paths agree and the latents add nothing, the decision's path alone is used. |
 | Whether the order of the decision's path is the order of need | It comes from logged steps. Retraining at each m, against a random order and the baselines, decides. |
 | How far reinforcement learning moves a controller from its teacher | If it barely moves, the concepts are the teacher's. The measure is the RMS difference in log2 of the window from the clone. How small counts as barely is not decided. |
 | What the search over the stage's settings covers | Candidates: exploration noise, learning rate, an anchor to the clone, the value warm-up. |
