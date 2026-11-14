@@ -45,66 +45,39 @@ Every other file links to the home and does not restate it.
   file whose description records the source, and experiments read inputs
   from compact's releases.
 
-## Engineering rules
+## Engineering
 
-- Licensing is never a blocker: this is an academic project, and it can
-  be dual-licensed to fit upstream code or data. Decide what to reuse on
-  technical grounds only, and record where it came from and its license.
+- Choose what to reuse on technical grounds. This is an academic project
+  and can be dual-licensed to fit upstream code or data. Record each
+  source and its license in `third_party/README.md`.
 - expliCCit's original code stays out of this repository and every public
   place until expliCCit is published: it is its co-authors' unpublished
   work. Our own rewrites of it may be public, and so may its released
   weights (`third_party/expliccit-models`).
-- Follow the `pl-theorist` and `ponytail` skills: parse untrusted input
-  once at its boundary, make invalid states unrepresentable, keep the
-  core pure, and write the least code that works. Mark deliberate limits
-  with `ponytail: <ceiling>, <upgrade path>`.
-- Results are published as GitHub releases, with no exceptions. Run
-  experiments through `.github/workflows/experiment.yml` (an experiment
-  file under `experiments/`), which publishes every successful run, and
-  cite the release in `docs/status.md`. Artifacts are transport only and
-  expire.
-- Guest code runs under UML's `time-travel=inf-cpu`: it must block or
-  sleep, never spin, because spinning distorts virtual time.
+- Write the least code that works, with the discipline of the
+  `pl-theorist` and `ponytail` skills. Mark a deliberate limit with
+  `ponytail: <ceiling>, <upgrade path>`.
+- Results are GitHub releases, made by experiments
+  ([docs/architecture.md](docs/architecture.md#experiments-in-github-actions))
+  and cited in `docs/status.md`.
+- Before a push, run the checks the change touches
+  ([docs/validation.md](docs/validation.md#ci)) and report only what
+  actually ran.
 
 ## Git
 
-- Push directly to `main`. Pull requests are not used. Force-push is
-  disabled; never rewrite history.
+- Push directly to `main`. History only grows: pull requests and
+  force-pushes are not used.
 - Write commit messages in Conventional Commits form (the `git-commit`
-  skill in `.github/skills` has the rules).
+  skill in `.github/skills` has the rules), free of session ids and
+  links.
 - End every commit message with exactly this trailer, and no other
   `Co-Authored-By` line:
 
       Co-Authored-By: Joe Fang <25814618+MinecraftFuns@users.noreply.github.com>
 
-- Never put session ids or links (for example `Claude-Session:`) in a
-  commit message, and keep them out of pull request bodies too, since a
-  squash merge copies the body into a commit.
-- Change the kernel only as separate commits under `third_party/linux`,
-  on top of the unmodified import
-  (`git diff e8eadca -- third_party/linux`). Upstream kernel patches (for
-  example Google's BBRv3 series) are imported with `git am`, keeping
-  their original author and message; only the trailer above is added.
-  Record each import in `third_party/README.md`.
-- Do not edit `.github/workflows/sync-skills.yml` or the `.github/skills`
-  submodule by hand: the file is the verbatim updater from
-  BTreeMap/SKILLs, and the workflow bumps the submodule itself.
-- `scripts/stash.sh TAG FILE...` pushes a `stash/TAG` branch;
-  `.github/workflows/stash.yml` publishes release TAG from it and deletes
-  the branch. Delete no stash branch whose release is incomplete. If one
-  is left over, dispatch `.github/workflows/stash-sweep.yml`, which
-  deletes each stash branch whose release holds all its files.
-
-## Before pushing
-
-Run what the change touches, and report only what actually ran:
-
-    uv run ruff format --check src tests experiments && uv run ruff check src tests experiments && uv run pyright
-    uv sync --extra train                                  # the trainer's tests need PyTorch
-    uv run pytest -q                                       # unit tests
-    scripts/build-uml.sh build/uml && scripts/build-guest.sh build/uml
-    EXPLICCIT_UML_DIR=build/uml uv run pytest -q            # adds the UML tests
-    (cd guest && cargo fmt --check && cargo clippy --release --target x86_64-unknown-linux-musl -- -D warnings)
-    scripts/check-kernel.sh                                # checkpatch on modules and kernel patches
-    shellcheck scripts/*.sh tools/m0/*.sh
-    uvx --from actionlint-py==1.7.12.25 actionlint && uvx zizmor==1.31.1 --offline .github/workflows
+- Kernel changes are separate commits under `third_party/linux`, on top
+  of the unmodified import. `third_party/README.md` records each one and
+  how upstream patches are imported.
+- `.github/workflows/sync-skills.yml` and the `.github/skills` submodule
+  are kept by their own workflow, from BTreeMap/SKILLs.

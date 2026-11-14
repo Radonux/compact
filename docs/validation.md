@@ -170,6 +170,18 @@ tests, and a smoke campaign. On demand it also runs the mainline tripwire
 up to `include/linux/tcp.h`, where one hunk no longer applies; the pinned
 7.0 tree is unaffected.
 
+The same checks, to run locally before a push:
+
+    uv run ruff format --check src tests experiments && uv run ruff check src tests experiments && uv run pyright
+    uv sync --extra train                                  # the trainer's tests need PyTorch
+    uv run pytest -q                                       # unit tests
+    scripts/build-uml.sh build/uml && scripts/build-guest.sh build/uml
+    EXPLICCIT_UML_DIR=build/uml uv run pytest -q            # adds the UML tests
+    (cd guest && cargo fmt --check && cargo clippy --release --target x86_64-unknown-linux-musl -- -D warnings)
+    scripts/check-kernel.sh                                # checkpatch on modules and kernel patches
+    shellcheck scripts/*.sh tools/m0/*.sh
+    uvx --from actionlint-py==1.7.12.25 actionlint && uvx zizmor==1.31.1 --offline .github/workflows
+
 ## Not run
 
 | Item | Status |

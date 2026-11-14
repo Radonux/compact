@@ -113,12 +113,8 @@ These follow from the design, before any data. Each has a check.
 | C4 | Vocabulary. With one base variable or operator family removed from the library, the selected concepts change only when the removed item was one of them. | The selection follows whatever the library holds. |
 | C5 | Start. The discovery controller yields the same concepts from different teachers. | The concepts describe one teacher. |
 
-Every threshold and choice rule a claim depends on is written down before
-the run that decides it.
-
 Two things are not claimed. A bottleneck does not make a network
-explainable, and its width does not count concepts: grounding against
-ground truth names them, and retraining on them counts them. And a closed-form concept is exact, which does not make it
+explainable. And a closed-form concept is exact, which does not make it
 readable. Some will match familiar quantities and some will be short,
 unfamiliar formulas, ranked by how much performance drops without them.
 
@@ -205,10 +201,7 @@ the evidence says so.
      action collapse ([above](#what-the-width-cannot-count)). A
      reference without an encoder runs beside them.
      Report each against the teachers themselves and the fixed rule on
-     the seven hand-picked LCFs (`experiments/width_curve.py`). A run's
-     score is that of the policy it leaves, not of its best iterate.
-   - Check for action collapse at every width: the decision regressed on
-     the latents, on the controller's own rollouts.
+     the seven hand-picked LCFs (`experiments/width_curve.py`).
    - Compare the two teachers' controllers (C5), and report how far
      reinforcement learning moved each from its start: the RMS difference
      in log2 of the window between the two policies on the same rollouts.
@@ -220,8 +213,8 @@ the evidence says so.
    - Train the oracle net2 on the true concept values.
    - Plot the log utility against the number of concepts m, for
      m = 1, 2, 3, 5, 7 and the full set, taking concepts in the order of
-     the decision's path. The count (C1) is the smallest m that is
-     comparable with the wide controller. m = 7 is expliCCit's budget.
+     the decision's path, and read the count (C1). m = 7 is
+     expliCCit's budget.
    - Baselines at the same budget: the hand-picked LCFs, a greedy forward
      subset search over the base variables, the wide controller's inputs ranked
      by SHAP, and a random subset.
