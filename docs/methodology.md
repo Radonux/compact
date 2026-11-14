@@ -1,23 +1,9 @@
 # Methodology
 
-compact asks whether the concepts of a concept-bottleneck congestion
-controller can be derived from a trained controller, where today they are
-picked by hand. This page gives the design, the ways it can fail, the
+The question and the idea are in the [README](../README.md#the-question).
+This page gives the design, the ways it can fail, the
 claims, the rules of evidence and the plan. What has run so far is in
 [status.md](status.md).
-
-## The problem
-
-expliCCit splits a learned congestion controller in two. net1, the
-estimator, maps the sender's measurements to a few latent congestion
-factors (LCFs): physical state of the path, such as capacity or queueing
-delay, with an exact value in emulation. net2, the decision maker, sets
-the window from net1's estimates alone. Every decision therefore passes
-through quantities that can be checked against ground truth.
-
-Its seven LCFs were chosen by hand. Nothing says which LCFs a controller
-needs, or how many, and reviewers said so. compact tries to derive the
-set.
 
 ## The design
 
@@ -143,10 +129,10 @@ run are fixed in its experiment file before it runs.
 
 | Rule | Meaning |
 |---|---|
-| Closed loop | A claim about a controller rests on rollouts in the emulator. Fit to logged steps is never evidence about a controller. |
+| Closed loop | A claim about a controller rests on rollouts in the emulator. Fit to logged steps is never evidence about a controller, and the discovery model is a controller, never an offline predictor. |
 | Split by link | Data and evaluation are split by link (capacity trace, delay, buffer; `expliccit_env.train.data.link_key`), never by row or episode. A row split puts one path's steps in every split and overstates accuracy. |
 | Score | Log utility, with differences paired by link and 95% bootstrap intervals over links. |
-| Tune first | No claim about a learned model before it is tuned: read its training diagnostics, search the settings that matter on validation links, confirm the winners over several seeds. |
+| Tune first | No claim about a learned model before it is tuned. Read its training diagnostics (critic and actor scales, saturation, actions outside the data). Search the settings that matter on validation links, by a full grid where affordable and successive halving where not. Confirm the winners over several seeds. |
 | Decide before running | A count, a threshold or a winner is chosen by a rule written before the run. |
 | Test once | The test links run once per candidate, after every choice is fixed on validation. The report says what was searched. |
 | Failed episodes count for nothing | A failed or invalid episode gives no metrics and no labels. |
@@ -215,8 +201,9 @@ the evidence says so.
    - Continue each by reinforcement learning on the log utility
      (`experiments/controller-rl.json`): PPO from the clone's actor and
      value network. Tune it and confirm over seeds.
-   - The widths are 64, the wide controller, and 1 and 2, which measure
-     action collapse. A reference without an encoder runs beside them.
+   - Train the wide controller and the narrow widths that measure
+     action collapse ([above](#what-the-width-cannot-count)). A
+     reference without an encoder runs beside them.
      Report each against the teachers themselves and the fixed rule on
      the seven hand-picked LCFs (`experiments/width_curve.py`). A run's
      score is that of the policy it leaves, not of its best iterate.
@@ -375,17 +362,17 @@ compact tests against.
 | belief | net1's statement about one LCF: a value, an interval, or a distribution over fixed bins. |
 | net2 | The decision maker. It sets the window from net1's output alone. |
 | discovery controller | The encoder, k latents and decoder of [the design](#the-discovery-controller). Never shipped. |
-| latents, z, k | The layer z, of k dimensions, between encoder and decoder. Its width is not a count of concepts. |
-| wide controller | The discovery controller with 64 latents: the unconstrained reference that retrained controllers are compared with. |
+| latents, z, k | The layer z, of k dimensions, between encoder and decoder. |
+| wide controller | The discovery controller that is grounded ([above](#the-discovery-controller)). |
 | teacher | The traditional congestion controller a discovery controller is bootstrapped from: Cubic or BBRv3, as Linux runs them. |
 | bootstrap | Cloning a teacher to give reinforcement learning a start: the teacher drives the rollouts and the controller learns the window that sends as it did (`PPOSpec.algo` `clone`). |
 | fixed rule | A window of 2^0.25 times the believed BDP of the estimator of the seven LCFs. A common reference in evaluations. |
 | believed BDP | net1's mean capacity times twice its mean one-way delay, in 1500-byte packets (`fit.window_target`). |
-| count | The smallest number m of fitted concepts with which net1 + net2 keep their performance, by a rule fixed before the run. |
-| action collapse | The latents carrying the decision itself and not the state behind it. One latent is always enough for that. |
+| count | Claim C1 ([above](#claims)). |
+| action collapse | [Above](#what-the-width-cannot-count). |
 | grounding | Fitting each latent to a closed-form formula over the library, on held-out links. |
 | library | The candidate terms for grounding: base variables crossed with operators. |
 | concept | A grounded formula that recurs across seeds and has been named. Concepts become the LCF labels of the retrained net1. |
-| comparable | Of a controller against one trained the same way: the whole 95% interval of its difference in log utility lies above -0.1 ([above](#comparing-controllers)). |
+| comparable | [Above](#comparing-controllers). |
 | oracle net2 | net2 trained on and fed the true concept values. A diagnostic only. |
 | log utility | Per 10 ms step, from ground truth: ln(max(receive rate / capacity, 0.01)) - 0.5 queueing delay / base RTT - 4 drop fraction (`train/score.py`). An episode scores its mean over steps, and a controller scores on a link the mean over the link's episodes. The log term makes competing flows settle at proportionally fair shares (Kelly, 1998). |

@@ -14,26 +14,15 @@ the window from net1's estimates alone. Its LCFs were chosen by hand, and
 nothing says which to use or how many.
 
 compact trains the same shape with the middle left free, then names what
-the middle learned.
+the middle learned. A controller whose decision passes through learned
+latents is trained in the closed loop. What it learned is grounded as
+short closed-form formulas over the emulator's ground truth. A normal
+net1 and net2 are then retrained on those formulas, so the controller
+that ships passes every decision through exact, checkable quantities.
+Discovery is data driven, and deployment stays by design.
 
-1. Discover. An encoder in net1's place maps measurements to k latents,
-   and a decoder in net2's place sets the window from the latents alone.
-   The controller is trained in the closed loop. Its performance against
-   k says how many latents it needs.
-2. Ground. Fit the latents to short closed-form formulas over emulator
-   ground truth and basic sender metrics. Keep the formulas that recur
-   across seeds.
-3. Retrain. Train a normal net1 and net2 on those formulas as the LCF
-   labels. Only this controller ships, so every decision still passes
-   through exact, checkable quantities.
-
-The measure is the number of concepts at which the retrained controller
-is comparable with an unconstrained one in the closed loop, against other
-ways of choosing the same number of concepts. A higher score on the
-training objective is reported as that and nothing more. ccperf's
-experiments are the last benchmark and are deferred. A bottleneck does not make a network
-explainable. Grounding against ground truth names the concepts, and
-retraining on them counts them.
+The design, the claims and the plan are in
+[docs/methodology.md](docs/methodology.md).
 
 ## The emulator
 
@@ -120,16 +109,7 @@ outside code need a checkout of it and skip without one.
 | [docs/concepts.md](docs/concepts.md) | Concepts the literature defines: the baseline way of choosing them, names for fitted formulas, and the grounding vocabulary |
 | [kernel/modules/README.md](kernel/modules/README.md) | The kernel modules and their ABIs |
 | [third_party/README.md](third_party/README.md) | Vendored sources and the kernel patches |
-
-## Working conventions
-
-Commits go directly to `main` in Conventional Commits form, without pull
-requests. Kernel changes are their own commits under `third_party/linux`.
-Results come only from experiments in GitHub Actions and are published as
-releases of this repository. Agent instructions are in `AGENTS.md`
-(`CLAUDE.md` links to it). Agent skills come from the
-[BTreeMap/SKILLs](https://github.com/BTreeMap/SKILLs) submodule at
-`.github/skills`.
+| [AGENTS.md](AGENTS.md) | How to work in this repository: where each fact lives, engineering, git and the checks before a push |
 
 ## Origin
 

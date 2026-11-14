@@ -13,17 +13,6 @@ start taught from the fixed rule
 Cubic and BBRv3, and one untuned point of the reinforcement-learning
 stage. All are checks and not results for a claim.
 
-The discovery controller is built and unit-tested. Its bootstrap from
-Cubic and from BBRv3 has run ([below](#the-bootstrap)): every start is
-well below the fixed rule. Reinforcement learning then brings 46 of the
-48 controllers to within 0.13 to 0.83 of the rule
-([below](#the-reinforcement-learning-stage)), and the
-widths do not separate: one or two latents already carry most of the
-decision. So the width is not read as a count of concepts. The count is
-read in step 4, from performance against the number of fitted concepts.
-The grounding of the bootstrapped controllers on their own rollouts is
-running.
-
 | Step | State | Built | Not built |
 |---|---|---|---|
 | 1 Setup | done | the documents; the estimator of the seven LCFs and the rule graph as releases | |

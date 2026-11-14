@@ -1,78 +1,49 @@
 # Instructions for coding agents
 
-Read `README.md` first, then `docs/methodology.md` (the design, the
-claims, the plan) and `docs/status.md` (what has run). Emulator detail is
-in `docs/architecture.md`.
+compact derives the concepts of a concept-bottleneck congestion
+controller from a trained controller. Discovery is data driven, and
+deployment stays by design. `README.md` gives the vision. Read it first,
+then `docs/methodology.md` and `docs/status.md`.
 
-## Research direction
+## Where each thing lives
 
-Goal: derive the concepts (LCFs) of expliCCit's two-net controller from a
-trained controller. Discovery is data driven. Deployment stays by design.
+Each fact has one home, so a change to one fact is a change to one file.
+Every other file links to the home and does not restate it.
 
-1. Discover. Train a controller whose decision passes through latents:
-   an encoder in net1's place, a decoder in net2's place
-   (`PPOSpec.latents`), in the closed loop. Bootstrap it from a
-   traditional controller (Cubic, BBRv3), then continue by reinforcement
-   learning so it is not tied to its teacher. The width of the latents
-   counts nothing: one latent can always carry the decision itself.
-2. Ground. Fit the wide controller's latents and its decision to short
-   closed-form formulas over emulator ground truth and sender metrics.
-   Keep those that recur across seeds, in the order the decision needs
-   them.
-3. Retrain. Train a normal net1 and net2 on the first m fitted formulas
-   as LCF labels, through the existing pipeline. Only this controller
-   ships. Closed-loop performance against m counts the concepts. The
-   metric is the smallest m at which it is comparable with the
-   unconstrained controller, against other ways of choosing concepts at
-   the same budget.
+| File | Holds |
+|---|---|
+| `README.md` | The vision: the question, the idea, the emulator and what it guarantees |
+| `docs/methodology.md` | The research design in full: the design, the claims, the rules of evidence, how controllers are compared, the plan and the terms |
+| `docs/status.md` | Everything that changes with time: what has run, results, releases, open questions and dropped directions |
+| `docs/architecture.md` | How an episode runs |
+| `docs/training.md` | The commands |
+| `docs/validation.md` | What was checked about the emulator |
+| `docs/concepts.md` | Concepts from the literature and the grounding vocabulary |
+| This file | How to work in this repository |
 
-Rules for this work:
+- When something changes, rewrite the affected document so it reads as
+  one current account. Git holds the history, so documents carry no dated
+  entries and no earlier versions.
+- A direction that was dropped gets one short paragraph in
+  `docs/status.md`.
+- Plain English, short sentences, no em dashes. Label anything not run as
+  UNRUN.
 
-- A higher log utility means better at the training objective, nothing
-  more. Report the signed difference with its interval, apart for
-  conditions with and without a competing flow, and never call a
-  controller a better congestion controller on it. Choose no size of
-  result before measuring it. The rules are in `docs/methodology.md`
-  (comparing controllers). ccperf is the last benchmark and is deferred.
-- The discovery model is a controller, trained and judged in the closed
-  loop. Fit to logged steps is never evidence about a controller. Do not
-  replace the controller with an offline predictor.
+## How to work
+
+- Reason from the problem about what would show whether the idea works.
+  The plan is a starting point: follow the evidence, and change
+  `docs/methodology.md` to match.
 - Before a run that changes what is trained or measured, say so to the
   owner in one sentence.
-- The plan is a starting point. Reason from the problem about what would
-  show whether the idea works. Reorder, add or drop steps when the
-  evidence says so, and change `docs/methodology.md` to match.
-- Check every discovery controller for action collapse: regress its
-  decision on the latents, and keep widths 1 and 2 in every width curve.
-- Never claim that a bottleneck makes a network explainable, or that its
-  width counts concepts. Grounding against ground truth names the
-  concepts, and retraining on them counts them. A closed-form concept is
-  exact, not necessarily readable.
-- A person chooses the grounding library, which is the standing objection
-  to the method. Every grounding result comes with its vocabulary
-  sensitivity check.
 - A step is done when it has a release with code, configuration, seeds
   and raw outputs, and `docs/status.md` says what ran, what was searched,
   the held-out numbers and what remains UNRUN.
 - compact is an independent project. Name every model, release and
-  experiment for what it is in compact, never after the project it was
-  forked from. An input taken from there is copied into a compact release
-  by an experiment file whose description records the source.
-  Experiments read inputs only from compact's releases.
-
-## Documents
-
-- One home per fact. The design, claims, plan and terms are in
-  `docs/methodology.md`. Everything that changes with time (status,
-  dates, results, open questions) is in `docs/status.md` and nowhere
-  else.
-- When something changes, rewrite the affected document from the ground
-  up so it reads as one current account. Do not append dated entries, and
-  do not describe earlier versions. Git holds the history.
-- A direction that was dropped gets one short paragraph in
-  `docs/status.md` and is removed everywhere else.
-- Plain English, short sentences, no em dashes. Label anything not run as
-  UNRUN.
+  experiment for what it is in compact. An input taken from the project
+  it was forked from is copied into a compact release by an experiment
+  file whose description records the source, and experiments read inputs
+  from compact's releases.
 
 ## Engineering rules
 
@@ -87,18 +58,11 @@ Rules for this work:
   once at its boundary, make invalid states unrepresentable, keep the
   core pure, and write the least code that works. Mark deliberate limits
   with `ponytail: <ceiling>, <upgrade path>`.
-- Never let a failed or invalid episode produce metrics or labels.
 - Results are published as GitHub releases, with no exceptions. Run
   experiments through `.github/workflows/experiment.yml` (an experiment
   file under `experiments/`), which publishes every successful run, and
   cite the release in `docs/status.md`. Artifacts are transport only and
   expire.
-- Make no claim about a learned model's performance before tuning it.
-  Inspect its training diagnostics (critic and actor scales, saturation,
-  actions outside the data), search the hyperparameters that matter on
-  validation paths (brute-force grid where affordable, successive halving
-  where not), confirm the winners over several seeds, then report once on
-  the held-out test paths, saying what was searched.
 - Guest code runs under UML's `time-travel=inf-cpu`: it must block or
   sleep, never spin, because spinning distorts virtual time.
 
