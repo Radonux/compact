@@ -188,6 +188,16 @@ What it shows:
 - Many runs were still improving at the last evaluation, so 120
   iterations is not the end of training.
 
+The settings search is running (`experiments/controller-rl-search.json`,
+run 43606041206): the wide controller over a full grid of learning rate
+(0.00003, 0.0001, 0.0003), clip (0.1, 0.2) and exploration noise (0.1,
+0.2), from both teachers, seeds 1 and 2. The reason for these three: over
+the last 40 iterations the wide controllers' learner clipped 25% of
+decisions with a step KL of 0.024, against 11% and 0.009 for the
+references. The two best points per teacher then go to a confirmation
+over more seeds, with the reference and the narrow widths, which is
+UNRUN.
+
 What follows for the next runs: only widths 64, 1 and 2 and the
 reference without an encoder are trained, which frees most of the
 compute for the search. What remains UNRUN: that search over the
