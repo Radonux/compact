@@ -153,37 +153,47 @@ run are fixed in its experiment file before it runs.
 
 ### Comparing controllers
 
-A controller is not called better than another because its log utility is
-higher. The log utility is the training objective and a coarse check. It
-is one choice of weights among throughput, delay and loss, and a
-controller pushed high on it raises questions it does not score, fairness
-first. A fixed controller's score on it is not a ceiling either: BBRv3 is
-by design less aggressive than BBRv1.
+The score is the log utility of the observed flow. What a difference in
+it means depends on which controllers are compared and under which
+conditions.
 
-So the daily comparison asks one thing: comparable or not. A controller
-is comparable with another when its mean log utility, on the same links,
-conditions and seeds, is no more than 0.1 below the other's. The paired
-difference and its 95% interval are reported with it. Being above earns
-nothing, and a difference inside the margin is not ranked.
+1. A higher log utility means better at the training objective, and
+   nothing more. Say "higher log utility", with the paired difference and
+   its 95% interval over links and seeds. Tuning ranks settings by it,
+   because that is what tuning is.
+2. Alone on the link, the objective has one good end: the whole link
+   used, an empty queue and no loss. A higher score there is closer to
+   that end and takes nothing from anyone. With a competing flow the
+   score is the observed flow's own, so taking the competitor's share
+   raises it. So every score is reported twice: over the conditions
+   without a competing flow, and over those with one. With a competing
+   flow, the observed flow's share of the link is reported beside the
+   score. A higher score there, from a larger share, is not a gain.
+3. Between two controllers trained the same way on this objective, a
+   shortfall is what the constraint on one of them costs. This is the
+   comparison the method rests on: the wide controller with the reference
+   without an encoder, and net1 + net2 on m concepts with both. The
+   question is whether the constrained one loses, so the test is one
+   sided, with a margin of 0.1. It is comparable when the whole interval
+   of its difference lies above -0.1, not comparable when the whole
+   interval lies below -0.1, and unresolved otherwise. Unresolved calls
+   for more seeds or tuning, not for a verdict. A constrained controller
+   that scores above its reference says the reference is under-trained.
+4. Against a controller that was not trained on this objective (Cubic,
+   BBRv3, the fixed rule) the signed difference is reported, by kind of
+   condition. It supports a claim about this objective on these paths. It
+   does not make either one the better congestion controller: the
+   objective is ours and not theirs. None of them is a bar or a ceiling.
+5. No size of result is chosen before it is measured. A run's score is
+   that of the policy it leaves.
 
-The margin is 0.1 because of what it means in the utility's own terms:
-about 10% of throughput at equal delay and loss, or a queueing delay of
-0.2 base RTTs, or 2.5 points of dropped packets. A controller
-whose seeds spread by more than the margin has not trained steadily
-enough to be compared, and more seeds or tuning come first
-([status.md](status.md#the-reinforcement-learning-stage)). The margin is
-fixed here, before any run that counts.
+The margin of 0.1 is a convention, stated before any run that counts. In
+the utility's own terms it is about 10% of throughput at equal delay and
+loss, or a queueing delay of 0.2 base RTTs, or 2.5 points of dropped
+packets.
 
-The comparisons that matter are among the learned controllers: the wide
-controller with the reference without an encoder, which shows what
-passing the decision through latents costs, and net1 + net2 on m concepts
-with the wide controller, which gives the count. The fixed rule is a
-common reference point that the scores are written against. It is not a
-bar: it has weaknesses of its own that the log utility does not score,
-and a controller that behaves well may sit below it.
-
-The key metrics (throughput, delay, loss, fairness between flows) are
-left to ccperf's experiments (`experiments/ccperf.py`). That is the last
+Fairness beyond the share above, and the wider set of paths, are left to
+ccperf's experiments (`experiments/ccperf.py`). That is the last
 benchmark, for controllers that have trained well, and it is deferred. No
 step of the plan waits for it.
 
@@ -376,6 +386,6 @@ compact tests against.
 | grounding | Fitting each latent to a closed-form formula over the library, on held-out links. |
 | library | The candidate terms for grounding: base variables crossed with operators. |
 | concept | A grounded formula that recurs across seeds and has been named. Concepts become the LCF labels of the retrained net1. |
-| comparable | Mean log utility no more than 0.1 below the other controller's ([above](#comparing-controllers)). Never a ranking. |
+| comparable | Of a controller against one trained the same way: the whole 95% interval of its difference in log utility lies above -0.1 ([above](#comparing-controllers)). |
 | oracle net2 | net2 trained on and fed the true concept values. A diagnostic only. |
 | log utility | Per 10 ms step, from ground truth: ln(max(receive rate / capacity, 0.01)) - 0.5 queueing delay / base RTT - 4 drop fraction (`train/score.py`). An episode scores its mean over steps, and a controller scores on a link the mean over the link's episodes. The log term makes competing flows settle at proportionally fair shares (Kelly, 1998). |

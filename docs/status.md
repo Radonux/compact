@@ -159,37 +159,32 @@ Mean score of three seeds, with the lowest and the highest:
 
 What it shows:
 
-- PPO improves on the clones. They started 0.5 to 2.4 below the rule,
-  and 46 of the 48 runs end 0.13 to 0.83 below it. The margin for
-  comparable is 0.1
-  ([methodology.md](methodology.md#comparing-controllers)), so none is
-  comparable with the rule yet. The references without an encoder are
-  nearest, at 0.13 and 0.16 below. The rule is a reference point here
-  and not a bar to pass.
-- Among the controllers, which is the comparison that matters:
-  - The two references without an encoder are comparable with each
-    other, 0.03 apart with a spread between seeds of 0.01 and 0.03. This
-    is the one comparison the seeds resolve.
-  - The wide controllers are not comparable with their references: 0.13
-    below from Cubic and 0.37 below from BBRv3. Passing the decision
-    through latents costs something at this point of the settings.
-  - No width is more than 0.1 below its wide controller except Cubic at
-    width 7, whose two runs diverged. So by the rule every other width is
-    comparable with the wide controller. The wide controllers' own spread
-    is 0.14 and 0.30, so this is weak.
-  - Comparable with the reference: widths 1, 10 and 16 from Cubic, and
-    width 4 from BBRv3.
-- The spread between seeds decides what the margin can resolve. The
-  standard deviation over 3 seeds is 0.01 and 0.03 for the references
-  without an encoder, and 0.04 to 0.37 for the controllers with latents
-  (1.13 at Cubic width 7). So only the references are steady enough to
-  compare at this point of the settings.
+- PPO raises the clones' log utility. They started 0.5 to 2.4 below the
+  rule, and 46 of the 48 runs end 0.13 to 0.83 below it. The references
+  without an encoder end 0.13 and 0.16 below.
+- Three of the six validation conditions have a competing flow (BBR from
+  4 s, Cubic from 0 s, two Cubic flows), and there a larger share raises
+  the score. The only cells above the rule are of this kind: the
+  references under Cubic from 0 s (+0.12 from Cubic) and under two Cubic
+  flows (+0.14 and +0.05). Whether these come from a larger share is
+  UNRUN: the share is not yet computed, and the table above does not
+  split the conditions.
+- Among the controllers trained the same way, by mean and spread over 3
+  seeds. Intervals over links and seeds are UNRUN, so these are readings
+  and not verdicts:
+  - The two references without an encoder are 0.03 apart, with a spread
+    between seeds of 0.01 and 0.03.
+  - The wide controllers are 0.13 (Cubic) and 0.37 (BBRv3) below their
+    references. Passing the decision through latents costs something at
+    this point of the settings.
+  - The narrower widths against their wide controller are unresolved.
+    The wide controllers' own spread is 0.14 and 0.30, larger than the
+    margin. Cubic at width 7 is 1.17 below, from two runs that diverged.
 - Two runs got worse: Cubic at width 7, seeds 1 and 3, end at -1.71 and
   -2.44. The third seed of that width ends at -0.22, so this is the
   training and not the width.
-- The reference without an encoder is the steadiest row across seeds for
-  both teachers. The rows are not ranked: their differences are of the
-  size of the spread between seeds.
+- The reference without an encoder has the highest mean and the smallest
+  spread between seeds for both teachers.
 - The widths do not separate. The rule in the file puts a knee at
   width 1 from Cubic (pooled standard error 0.26) and at width 4 from
   BBRv3 (0.11).

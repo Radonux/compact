@@ -28,11 +28,12 @@ trained controller. Discovery is data driven. Deployment stays by design.
 
 Rules for this work:
 
-- Never call one controller better than another because its training
-  utility is higher. Comparable performance is enough: a mean log utility
-  no more than 0.1 below the other's. ccperf is the last benchmark, for
-  controllers that have trained well. It is deferred, and daily work
-  does not run it.
+- A higher log utility means better at the training objective, nothing
+  more. Report the signed difference with its interval, apart for
+  conditions with and without a competing flow, and never call a
+  controller a better congestion controller on it. Choose no size of
+  result before measuring it. The rules are in `docs/methodology.md`
+  (comparing controllers). ccperf is the last benchmark and is deferred.
 - The discovery model is a controller, trained and judged in the closed
   loop. Fit to logged steps is never evidence about a controller. Do not
   replace the controller with an offline predictor.

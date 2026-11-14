@@ -29,8 +29,8 @@ the middle learned.
 
 The measure is the number of concepts at which the retrained controller
 is comparable with an unconstrained one in the closed loop, against other
-ways of choosing the same number of concepts. Comparable is enough: no
-controller is ranked above another on the training utility. ccperf's
+ways of choosing the same number of concepts. A higher score on the
+training objective is reported as that and nothing more. ccperf's
 experiments are the last benchmark and are deferred. A bottleneck does not make a network
 explainable. Grounding against ground truth names the concepts, and
 retraining on them counts them.
