@@ -17,7 +17,7 @@ stage. All are checks and not results for a claim.
 |---|---|---|---|
 | 1 Setup | done | the documents; the estimator of the seven LCFs and the rule graph as releases | |
 | 2 The controller in the closed loop | the bootstrap and one untuned point of reinforcement learning have run | `PPOSpec.latents`; `train ppo` by cloning a Linux controller, PPO, DAgger or TD3+BC; closed-loop rollouts and scoring; `experiments/net2_ppo_setup.py`, `net2_ppo_report.py`; the collapse check on rollouts (`ground.py probe`); the reinforcement-learning stage (`experiments/controller-rl.json`) and its scores by width (`experiments/width_curve.py`) | the search over the stage's settings; the teachers' own scores on the validation links |
-| 3 Grounding | first readings on untuned controllers; widths 7 to 16 after reinforcement learning UNRUN | `experiments/ground.py`: `rollouts` of a controller in the closed loop, `probe` and `select` on its latents there, with the sensitivity check; a library of every stored label (37 columns over 100 ms and 10 ms windows) and 12 composites in both windows; `experiments/ground-teachers.json`; a stress test on planted latents, `experiments/ground_stress.py` | formulas beyond two terms of four factors; the operator-family sensitivity; matching concepts across seeds |
+| 3 Grounding | first readings on untuned controllers, at widths 7 to 16 with the sender's own window held; tuned controllers UNRUN | `experiments/ground.py`: `rollouts` of a controller in the closed loop, `probe` and `select` on its latents there, with the sensitivity check; a library of every stored label (37 columns over 100 ms and 10 ms windows) and 12 composites in both windows; `experiments/ground-teachers.json`; a stress test on planted latents, `experiments/ground_stress.py` | formulas beyond two terms of four factors; the operator-family sensitivity; matching concepts across seeds |
 | 4 Retrain and compare | UNRUN | `train run` for net1; `train ppo` for a closed-loop net2; net1 on any stored label or composite; the live truth for every label but `queue_delay_ns`, so oracles on them | labels from fitted formulas beyond the composites; net1 on them |
 
 ## The bootstrap
@@ -248,7 +248,7 @@ controllers are untuned, so neither supports a claim about concepts.
 `exp-ground-teachers-26` is the bootstrapped controllers: both teachers,
 widths 1 to 64, three seeds, latents only. `exp-ground-rl-27` is the
 controllers after reinforcement learning at widths 1, 2 and 64, latents
-and decision. Widths 7 to 16 after reinforcement learning are UNRUN.
+and decision.
 All numbers are R^2 on the validation links.
 
 | Bootstrapped, by width | 1 | 2 | 4 | 7 | 10 | 16 | 64 |
@@ -283,8 +283,8 @@ What they show:
   first. So the high R^2 of the decision is not evidence of concepts.
   Both releases predate the fix: `select` now holds the sender's own
   window in every fit and grounds the change a decision makes
-  ([methodology.md](methodology.md#grounding)). Grounding with
-  the fix is UNRUN.
+  ([methodology.md](methodology.md#grounding)). The readings with the
+  fix are [below](#grounding-beyond-the-senders-own-window).
 - A wider middle holds more of the path's state and is harder to span.
   Base RTT, queueing delay and receive rate are read from the latents
   better as the width grows. The library's linear span of the latents
@@ -308,6 +308,62 @@ That end-to-end test also found a fault. A cloned controller with more
 than one rollout per link ran the same episode twice under one id, and
 one copy failed. The specification now refuses that. The bootstrap uses
 one rollout per link and is not affected.
+
+## Grounding beyond the sender's own window
+
+`exp-ground-rl-30` is the first grounding with the sender's own window
+held in every fit. It grounds the controllers of `exp-controller-rl-24`
+at widths 7, 10 and 16, both teachers, three seeds. These controllers are
+untuned and two of the Cubic controllers at width 7 diverged, so the
+release checks the method and supports no claim about concepts. All
+numbers are R^2 on the validation links.
+
+| Latents, runs of one width pooled | Cubic 7 | Cubic 10 | Cubic 16 | BBRv3 7 | BBRv3 10 | BBRv3 16 |
+|---|---|---|---|---|---|---|
+| The window alone, linear | 0.51 | 0.46 | 0.51 | 0.63 | 0.57 | 0.62 |
+| With the first 8 features of ground truth, linear | 0.68 | 0.64 | 0.69 | 0.72 | 0.69 | 0.69 |
+| With the whole library, linear | 0.74 | 0.71 | 0.76 | 0.79 | 0.77 | 0.78 |
+| The window alone, a small network | 0.53 | 0.54 | 0.57 | 0.69 | 0.67 | 0.72 |
+| With the first 8 features of ground truth, a small network | 0.83 | 0.80 | 0.84 | 0.83 | 0.83 | 0.84 |
+| With the whole library, a small network | 0.86 | 0.84 | 0.87 | 0.86 | 0.85 | 0.87 |
+
+| The change a decision makes, range over runs | Cubic | BBRv3 |
+|---|---|---|
+| The window alone, linear | -0.03 to 0.05 | 0.25 to 0.80 |
+| With the whole library, linear | 0.08 to 0.24 | 0.40 to 0.85 |
+| The window alone, a small network | -0.01 to 0.11 | 0.36 to 0.88 |
+| With the first 8 features and formulas, a small network | 0.18 to 0.30, one run -1.09 | 0.46 to 0.89 |
+
+What it shows:
+
+- The fix does what it was made for. No path holds the window, and the
+  flow's packets in flight no longer come first. The features added
+  first to the latents are the base RTT, the drop fraction, the ratio of
+  RTT to base RTT, the queueing delay on the ACK path and the receive
+  rate. The flow's own arrival rate still appears in some paths. With
+  the window held it tells the RTT, so the rule allows it.
+- The path's state adds to the latents what the window does not. The
+  window alone gives 0.53 to 0.72 by a small network, and eight features
+  of ground truth raise that to 0.80 to 0.84, within 0.03 to 0.05 of the
+  whole library.
+- The change a decision makes is mostly unexplained for the controllers
+  bootstrapped from Cubic. The window gives almost nothing and the best
+  fit reaches 0.18 to 0.30. Its first features are the ratio of RTT to
+  base RTT, the queueing delay on the ACK path and the change in the
+  drop fraction. The decoder is recurrent, so the rest may be its own
+  memory, which no feature of one step holds. That is not checked.
+- For the controllers bootstrapped from BBRv3 the window's own history
+  explains most of the change (0.58 to 0.80 in all runs but one), and
+  the path adds 0.04 to 0.15. Why the two teachers differ is not known.
+  One candidate is that the window in force at a decision is not always
+  the window the controller last set. That is not checked.
+- The small network on the whole library scores below the one on eight
+  features for several Cubic decisions (down to -0.75). It overfits a
+  target this noisy, so that bound is not usable for the decision's
+  change as it stands.
+- Seeds still do not agree on the features. One run's window and first 8
+  features span another run's latents at 0.49 to 0.74, and the lists
+  differ.
 
 ## A stress test of the fitter
 
@@ -382,6 +438,7 @@ Limits that remain:
 | `exp-ground-stress-23` | The stress test of the fitter: the rollouts' setup, `stress/stress.json` with every case and `summary.md`. | read above |
 | `exp-ground-teachers-26` | Grounding of the bootstrapped controllers on their own rollouts: probe and select per teacher, widths 1 to 64, three seeds. |
 | `exp-ground-rl-27` | Grounding of the controllers after reinforcement learning at widths 1, 2 and 64: latents and decision. |
+| `exp-ground-rl-30` | Grounding of the controllers after reinforcement learning at widths 7, 10 and 16, with the sender's own window held in every fit: latents and the change a decision makes. |
 | `exp-controller-clone-21` | The start taught from the fixed rule: 24 run directories with specs, weights, exported policies and histories. | read above |
 | `exp-steps-broad-30s-9` | Logged steps on a broad set of links, 14,400 episodes, with every label. | old guest; regenerate before use |
 | `exp-phase0-teachers-1`, `exp-phase0-steps-2` | Two policy graphs and logged steps, copied in at setup. | old guest; not used by the plan |
