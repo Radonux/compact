@@ -127,7 +127,7 @@ replaced it. It stays as a third start for C5.
 
 `experiments/controller-rl.json` continues every bootstrapped controller
 by PPO on the log utility, from the clone's actor and value network. It
-is UNRUN.
+is running (dispatched 2026-11-14) and has no result yet.
 
 Its rules are fixed in the file before it runs. A run's score is that of
 the policy it leaves. The knee is the smallest width within one pooled
@@ -177,8 +177,9 @@ decision on the latents, which is the action-collapse check. A controller
 without latents is refused.
 
 `experiments/ground-teachers.json` does this for the bootstrapped
-controllers: both teachers, widths 1 to 64, three seeds. It is UNRUN. It
-reads the bootstrap's release. It will test the
+controllers: both teachers, widths 1 to 64, three seeds. It is running
+(dispatched 2026-11-14) and has no result yet. It reads the bootstrap's
+release. It will test the
 pipeline on real controllers. It supports no claim about concepts,
 because those controllers are untuned starts.
 
