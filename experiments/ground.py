@@ -29,7 +29,8 @@ For every run, on its own rollouts:
             the width counts nothing.
   read      R^2 of each base variable predicted from the latents, linear
             and quadratic (the latents, their squares and pairwise
-            products): which variables the latents carry
+            products): which variables the latents carry. Quadratic
+            fits are left out (n/a) above WIDE latents.
   write     R^2 of each latent predicted linearly from all base variables:
             how much of a latent the vocabulary can express at all
   spread    each latent's standard deviation. Every fit standardizes the
@@ -484,6 +485,15 @@ def r2(x_fit: F64, y_fit: F64, x: F64, y: F64) -> F64:
     return out
 
 
+def r2_quadratic(x_fit: F64, y_fit: F64, x: F64, y: F64) -> F64:
+    """r2 on the quadratic terms of x. NaN for every column when x is wider
+    than WIDE: the terms then number in the thousands, and a fit on them
+    takes more memory and time than the answer is worth."""
+    if x.shape[1] > WIDE:
+        return np.full(y.shape[1], np.nan)
+    return r2(quadratic(x_fit), y_fit, quadratic(x), y)
+
+
 def filled(b_fit: F64, b: F64) -> tuple[F64, F64]:
     """Undefined entries set to the fit rows' mean, with one indicator
     column per variable that is ever undefined, so a linear fit can use
@@ -514,13 +524,9 @@ def probe(out: Path, runs: list[Path]) -> None:
             "score": int(s.sum()),
             "latent_std": z_fit.std(0).tolist(),
             "decision_linear": float(r2(z_fit, u_fit, z_score, u_score)[0]),
-            "decision_quadratic": float(
-                r2(quadratic(z_fit), u_fit, quadratic(z_score), u_score)[0]
-            ),
+            "decision_quadratic": float(r2_quadratic(z_fit, u_fit, z_score, u_score)[0]),
             "read_linear": r2(z_fit, b_fit[f], z_score, b_score[s]).tolist(),
-            "read_quadratic": r2(
-                quadratic(z_fit), b_fit[f], quadratic(z_score), b_score[s]
-            ).tolist(),
+            "read_quadratic": r2_quadratic(z_fit, b_fit[f], z_score, b_score[s]).tolist(),
             "write_linear": r2(bf_fit[f], z_fit, bf_score[s], z_score).tolist(),
         }
     result["seeds"] = [
@@ -533,12 +539,7 @@ def probe(out: Path, runs: list[Path]) -> None:
             ),
             "quadratic": float(
                 np.mean(
-                    r2(
-                        quadratic(z_of[a.name][0]),
-                        z_of[c.name][0],
-                        quadratic(z_of[a.name][1]),
-                        z_of[c.name][1],
-                    )
+                    r2_quadratic(z_of[a.name][0], z_of[c.name][0], z_of[a.name][1], z_of[c.name][1])
                 )
             ),
         }
@@ -594,8 +595,8 @@ def summary(result: dict[str, Any]) -> str:
     for key in ("linear", "quadratic"):
         row = []
         for k in widths:
-            v = [p[key] for p in result["seeds"] if p["k"] == k]
-            row.append(f"{np.mean(v):.3f}" if v else "n/a")
+            v = np.array([p[key] for p in result["seeds"] if p["k"] == k])
+            row.append("n/a" if np.isnan(v).all() else f"{np.nanmean(v):.3f}")
         lines.append(f"| {key} | " + " | ".join(row) + " |\n")
     return "".join(lines)
 
