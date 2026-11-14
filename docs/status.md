@@ -7,7 +7,9 @@ dated entries; its history is in git. The steps are those of the
 
 ## Where the project stands
 
-No claim has evidence yet. Nothing has finished in the closed loop.
+No claim has evidence yet. One closed-loop run has finished: the start
+taught from the fixed rule, which is a check and not a result for a claim
+([below](#the-start-taught-from-the-fixed-rule)).
 
 The discovery controller is built and unit-tested. Its bootstrap from
 Cubic and from BBRv3 is running (`experiments/controller-teachers.json`,
@@ -58,11 +60,43 @@ What to keep in mind when reading it:
   yet, so the report says how a start compares with the rule and not how
   close it is to its teacher in the closed loop.
 
-An earlier start is also running: the same widths taught by DAgger from
-the fixed rule (`experiments/controller-clone.json`, workflow run 21). It
-leans toward the seven hand-picked LCFs, which is why the teachers above
-replaced it. It stays as a check that the narrow graph runs in the guest
-and as a third start for C5.
+## The start taught from the fixed rule
+
+`experiments/controller-clone.json` taught the same widths by DAgger from
+the fixed rule on the seven hand-picked LCFs, three seeds each. Its
+release is `exp-controller-clone-21`. All 24 runs finished their 40
+iterations, and no rollout count is missing from the report.
+
+Score: mean log utility minus the fixed rule's, on the 21 validation
+links under 6 conditions, for the policy after the last iteration.
+
+| width | mean over 3 seeds | the seeds |
+|---|---|---|
+| 0 (no encoder) | -0.028 | -0.031, -0.040, -0.013 |
+| 1 | -0.041 | -0.049, -0.042, -0.032 |
+| 2 | -0.037 | -0.031, -0.020, -0.060 |
+| 4 | -0.046 | -0.047, -0.021, -0.071 |
+| 7 | -0.054 | -0.078, -0.046, -0.038 |
+| 10 | -0.029 | -0.044, -0.040, -0.003 |
+| 16 | -0.037 | -0.042, -0.047, -0.022 |
+| 64 | -0.033 | -0.035, -0.005, -0.058 |
+
+What it shows:
+
+- The narrow controller's exported graph runs in the guest, at every
+  width.
+- Every width ends 0.03 to 0.05 below the rule. Before teaching, the
+  encoder controllers were 0.79 below.
+- The curve is flat. Width 1 is 0.008 below width 64, and seeds of one
+  width differ by up to 0.05. So one latent carries the rule's decision.
+  That was expected: the rule's window is one number. It is why imitation
+  alone cannot count concepts.
+
+What it does not show: anything about concepts. The runs are untuned, the
+teacher is the hand-built rule, and the decision was not regressed on the
+latents, because these runs kept no rollouts. This start leans toward the
+seven hand-picked LCFs, which is why the Cubic and BBRv3 bootstrap
+replaced it. It stays as a third start for C5.
 
 ## The reinforcement-learning stage
 
@@ -139,6 +173,7 @@ one rollout per link and is not affected.
 |---|---|---|
 | `exp-estimator-seven-20` | The estimator of the seven LCFs: `estimator/source-net1.pt` as copied, and `estimator/net1.pt` converted to the current spec with weights and scalers untouched (a distribution over 64 bins, 3 members, 70 inputs). Hashes are in the release notes. | input of the bootstrap |
 | `exp-steps-behaviour-rule-8` | The fixed rule as an ONNX graph. | input of the bootstrap |
+| `exp-controller-clone-21` | The start taught from the fixed rule: 24 run directories with specs, weights, exported policies and histories. | read above |
 | `exp-steps-broad-30s-9` | Logged steps on a broad set of links, 14,400 episodes, with every label. | old guest; regenerate before use |
 | `exp-phase0-teachers-1`, `exp-phase0-steps-2` | Two policy graphs and logged steps, copied in at setup. | old guest; not used by the plan |
 
@@ -202,4 +237,4 @@ end-to-end pipeline for every net1 kind and view, grounding included, one
 training iteration under each learner, and the run that the time budget
 ends. The other tests that boot the guest are UNRUN locally on this
 code. CI runs them, and its `ci` and `uml` workflows pass on the
-grounding commit `5ac258809`.
+commit of the reinforcement-learning stage, `7d24b9ac2`.
