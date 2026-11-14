@@ -98,8 +98,8 @@ def text(rows: list[dict[str, Any]], result: dict[str, dict[str, Any]], missing:
         "paired by link and condition, on the validation links. `moved` is the",
         "RMS difference in log2 of the window between a run's last policy and",
         "its start. The knee is the smallest width within one pooled standard",
-        "error of the best width. It is not a count of concepts until the",
-        "controllers are tuned and checked for action collapse.",
+        "error of the best width. It is not a count of concepts: one latent",
+        "can carry the decision itself (docs/methodology.md).",
         "",
     ]
     for name, c in result.items():

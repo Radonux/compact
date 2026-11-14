@@ -104,6 +104,12 @@ together):
            uses cannot change the path.
   transfer the R^2 of one run's latents on another run's first PICK
            features
+  decision per run, all of the above with the run's decision (log2 of
+           the window it set) in place of its latents. An encoder trained
+           end to end can pass the decision itself through one latent, so
+           the width of the latents counts no concepts. What the decision
+           reads of the path's state is asked directly here, and its path
+           is the order in which concepts are tried in retraining.
 
 Writes OUT/select.json and OUT/summary.md.
 """
@@ -988,7 +994,8 @@ def select(out: Path, runs: list[Path]) -> None:
     for r, c in enumerate(ctls):
         own = lib.rows(fr.own(r), sr.own(r))
         z = (z_of[c.name][0][fr.own(r)], z_of[c.name][1][sr.own(r)])
-        result["runs"][c.name] = {"k": c.k} | _selection(own, z)
+        u = (fr.u[fr.own(r)][:, None], sr.u[sr.own(r)][:, None])
+        result["runs"][c.name] = {"k": c.k} | _selection(own, z) | {"decision": _selection(own, u)}
         moments[c.name] = Moments.of(own, *z)
         print(f"select: {c.name}", file=sys.stderr, flush=True)
     for k in sorted({c.k for c in ctls}):
@@ -1051,6 +1058,21 @@ def select_summary(result: dict[str, Any]) -> str:
                 path = r["path"][:PICK]
                 names = ", ".join(p["feature"] for p in path)
                 lines.append(f"| {run} | {path[-1]['mean']:.3f} | {names} |\n")
+        lines.append(
+            f"\nEach run's decision in place of its latents, its first {PICK} features of "
+            "ground truth (linear, and a small network on them):\n\n"
+            "| run | linear | network | network on the library | features |\n"
+            "|---|---|---|---|---|\n"
+        )
+        for run, r in result["runs"].items():
+            if str(r["k"]) == k:
+                d = r["decision"]
+                path = d["formula_path"][:PICK]
+                names = ", ".join(p["feature"] for p in path)
+                lines.append(
+                    f"| {run} | {path[-1]['mean']:.3f} | {d['flexible']['formula_picked']:.3f} "
+                    f"| {d['flexible']['library']:.3f} | {names} |\n"
+                )
         t = [x["mean"] for x in result["transfer"] if str(x["k"]) == k]
         if t:
             lines.append(

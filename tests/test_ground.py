@@ -253,6 +253,9 @@ def test_a_controllers_latents_are_grounded_on_its_own_rollouts(
     sel = json.loads((tmp_path / "select" / "select.json").read_text())
     assert sel["pooled"]["2"]["runs"] == 3 and len(sel["runs"]["a"]["path"]) >= 1
     assert sel["runs"]["a"]["path"] == sel["runs"]["b"]["path"]
+    # The decision is grounded as the latents are.
+    assert len(sel["runs"]["a"]["decision"]["path"]) >= 1
+    assert "decision in place of its latents" in (tmp_path / "select" / "summary.md").read_text()
     assert {t["from"] for t in sel["transfer"]} == {"a", "b", "c"}
 
     # A run without a narrow middle is refused.

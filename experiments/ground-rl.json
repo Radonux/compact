@@ -1,0 +1,28 @@
+{
+  "title": "Grounding the controllers after reinforcement learning, latents and decision",
+  "description": "Grounding (step 3) on the controllers of experiments/controller-rl.json, read from its release: for each teacher (Cubic, BBRv3), the discovery controllers after 120 iterations of PPO at width 64, the wide controller whose latents and decision are to be grounded, and at widths 1 and 2, which measure action collapse, seeds 1 to 3. The width of the latents is not read as a count of concepts (docs/methodology.md, what the width cannot count). Each cell runs one controller's exported policy in the closed loop, without exploration noise and with every step kept: on 96 (link, condition) pairs sampled from the training links (the same pairs and seeds for every controller), where the fits are made, and on all 21 validation links under 6 conditions, where they are scored. Collect then runs, once per teacher, experiments/ground.py probe (per controller on its own rollouts: the decision regressed on the latents, each library variable read from the latents and each latent written from the variables, and the agreement between seeds of one width) and select (selection of library features for all latents jointly and, per controller, for its decision in place of its latents, each with the formula search and the sensitivity check that removes each label in turn). The library is every stored label in both windows, the twelve composites and four sender measurements, under eight operators. What is read: whether the wide latents hold path state beyond the decision, which features the decision's path picks and whether seeds and teachers agree on them, and how a small network on the picked features compares with one on the whole library. These controllers come from one untuned point of the reinforcement-learning settings and none reaches the fixed rule, so this run supports no claim about concepts. It is the first reading of the method on controllers trained by reinforcement learning. The test links are not read.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "runs": "release:exp-controller-rl-24"
+  },
+  "matrix": {
+    "teacher": [
+      "cubic",
+      "bbr3"
+    ],
+    "k": [
+      1,
+      2,
+      64
+    ],
+    "seed": [
+      1,
+      2,
+      3
+    ]
+  },
+  "run": "R=\"ctl-$TEACHER-k$K-s$SEED\"; mkdir -p \"$OUT/$R\"; cp \"$IN/runs/$R\"/{ppo_spec.json,net1.pt,actor.pt,policy.onnx} \"$OUT/$R/\"; uv run python experiments/ground.py rollouts \"$OUT/$R\" --fit \"$IN/runs/setup/paths/campaign.json\" --score \"$IN/runs/setup/eval/campaign.json\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "for T in cubic bbr3; do uv run python experiments/ground.py probe \"$OUT/probe-$T\" --runs \"$OUT\"/ctl-$T-k*; uv run python experiments/ground.py select \"$OUT/select-$T\" --runs \"$OUT\"/ctl-$T-k*; done",
+  "timeout_minutes": 360
+}

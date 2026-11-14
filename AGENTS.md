@@ -9,16 +9,19 @@ in `docs/architecture.md`.
 Goal: derive the concepts (LCFs) of expliCCit's two-net controller from a
 trained controller. Discovery is data driven. Deployment stays by design.
 
-1. Discover. Train a controller whose decision passes through k latents:
+1. Discover. Train a controller whose decision passes through latents:
    an encoder in net1's place, a decoder in net2's place
    (`PPOSpec.latents`), in the closed loop. Bootstrap it from a
    traditional controller (Cubic, BBRv3), then continue by reinforcement
-   learning so it can go beyond its teacher. The width at which
-   closed-loop performance stops improving counts the concepts.
-2. Ground. Fit the latents to short closed-form formulas over emulator
-   ground truth and sender metrics. Keep those that recur across seeds.
-3. Retrain. Train a normal net1 and net2 on the fitted formulas as LCF
-   labels, through the existing pipeline. Only this controller ships. The
+   learning so it can go beyond its teacher. The width of the latents
+   counts nothing: one latent can always carry the decision itself.
+2. Ground. Fit the wide controller's latents and its decision to short
+   closed-form formulas over emulator ground truth and sender metrics.
+   Keep those that recur across seeds, in the order the decision needs
+   them.
+3. Retrain. Train a normal net1 and net2 on the first m fitted formulas
+   as LCF labels, through the existing pipeline. Only this controller
+   ships. Closed-loop performance against m counts the concepts. The
    metric is retained performance against the unconstrained controller,
    in the closed loop, compared with other ways of choosing concepts at
    the same budget.
@@ -35,9 +38,10 @@ Rules for this work:
   evidence says so, and change `docs/methodology.md` to match.
 - Check every discovery controller for action collapse: regress its
   decision on the latents, and keep widths 1 and 2 in every width curve.
-- Never claim that a bottleneck makes a network explainable. The
-  bottleneck counts the concepts, and grounding against ground truth
-  names them. A closed-form concept is exact, not necessarily readable.
+- Never claim that a bottleneck makes a network explainable, or that its
+  width counts concepts. Grounding against ground truth names the
+  concepts, and retraining on them counts them. A closed-form concept is
+  exact, not necessarily readable.
 - A person chooses the grounding library, which is the standing objection
   to the method. Every grounding result comes with its vocabulary
   sensitivity check.

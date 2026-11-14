@@ -19,13 +19,15 @@ well below the fixed rule. Reinforcement learning then brings 46 of the
 48 controllers to within 0.13 to 0.83 of the rule
 ([below](#the-reinforcement-learning-stage)), none above it, and the
 widths do not separate: one or two latents already carry most of the
-decision. The grounding of the bootstrapped controllers' latents on
-their own rollouts is running.
+decision. So the width is not read as a count of concepts. The count is
+read in step 4, from performance against the number of fitted concepts.
+The grounding of the bootstrapped controllers on their own rollouts is
+running.
 
 | Step | State | Built | Not built |
 |---|---|---|---|
 | 1 Setup | done | the documents; the estimator of the seven LCFs and the rule graph as releases | |
-| 2 The controller in the closed loop | the bootstrap and one untuned point of reinforcement learning have run | `PPOSpec.latents`; `train ppo` by cloning a Linux controller, PPO, DAgger or TD3+BC; closed-loop rollouts and scoring; `experiments/net2_ppo_setup.py`, `net2_ppo_report.py`; the collapse check on rollouts (`ground.py probe`); the reinforcement-learning stage (`experiments/controller-rl.json`) and its width curve with the knee rule (`experiments/width_curve.py`) | the search over the stage's settings; the teachers' own scores on the validation links |
+| 2 The controller in the closed loop | the bootstrap and one untuned point of reinforcement learning have run | `PPOSpec.latents`; `train ppo` by cloning a Linux controller, PPO, DAgger or TD3+BC; closed-loop rollouts and scoring; `experiments/net2_ppo_setup.py`, `net2_ppo_report.py`; the collapse check on rollouts (`ground.py probe`); the reinforcement-learning stage (`experiments/controller-rl.json`) and its scores by width (`experiments/width_curve.py`) | the search over the stage's settings; the teachers' own scores on the validation links |
 | 3 Grounding | UNRUN | `experiments/ground.py`: `rollouts` of a controller in the closed loop, `probe` and `select` on its latents there, with the sensitivity check; a library of every stored label (37 columns over 100 ms and 10 ms windows) and 12 composites in both windows; `experiments/ground-teachers.json`; a stress test on planted latents, `experiments/ground_stress.py` | formulas beyond two terms of four factors; the operator-family sensitivity; matching concepts across seeds |
 | 4 Retrain and compare | UNRUN | `train run` for net1; `train ppo` for a closed-loop net2; net1 on any stored label or composite; the live truth for every label but `queue_delay_ns`, so oracles on them | labels from fitted formulas beyond the composites; net1 on them |
 
@@ -165,23 +167,24 @@ What it shows:
   training and not the width.
 - The reference without an encoder is the best row for both teachers and
   the steadiest across seeds.
-- The widths do not separate. The rule in the file puts the knee at
+- The widths do not separate. The rule in the file puts a knee at
   width 1 from Cubic (pooled standard error 0.26) and at width 4 from
-  BBRv3 (0.11). Neither is a count of concepts: the settings are
-  untuned, and the next point applies.
+  BBRv3 (0.11).
 - The decision is largely in the latents at widths 1 and 2. A quadratic
   fit of the decision on the latents alone has a held-out R^2 of 0.80 to
   0.93 at width 1 and 0.82 to 0.91 at width 2, and width 1 scores as
-  well as the wide controllers. This is the first failure in
-  [methodology.md](methodology.md#how-it-can-fail), seen in the closed
-  loop: the encoder can compute most of the window itself, so the width
-  does not count concepts as the controller stands.
+  well as the wide controllers. This is action collapse in the closed
+  loop. It is what the objective allows
+  ([methodology.md](methodology.md#what-the-width-cannot-count)), so the
+  width is no longer read as a count. The count is read in retraining,
+  from performance against the number of fitted concepts.
 - Many runs were still improving at the last evaluation, so 120
   iterations is not the end of training.
 
-What remains UNRUN: a search over the settings, more iterations, and a
-change that keeps the decision out of the latents. Which change is not
-decided.
+What follows for the next runs: only widths 64, 1 and 2 and the
+reference without an encoder are trained, which frees most of the
+compute for the search. What remains UNRUN: that search over the
+settings, and more iterations.
 
 Two things changed in the trainer for it. A run that the time budget ends
 between evaluations now scores the policy it leaves; before, that policy
@@ -225,6 +228,12 @@ controllers: both teachers, widths 1 to 64, three seeds. It is running
 release. It will test the
 pipeline on real controllers. It supports no claim about concepts,
 because those controllers are untuned starts.
+
+`select` also grounds each controller's decision in place of its latents,
+with the same paths, formulas and sensitivity check. The decision's path
+is the order in which concepts will be tried in retraining.
+`experiments/ground-rl.json` does all of this for the controllers after
+reinforcement learning, at width 64 and at widths 1 and 2, and is UNRUN.
 
 What has run: unit tests on synthetic controllers, and one end-to-end
 test in the guest, where a width-3 controller cloned from BBRv3 for one
@@ -350,13 +359,24 @@ from the tree. Each release names the commit it ran at.
 What that work left that is still used: the split by link, and the
 selection method in `experiments/ground.py`.
 
+Counting concepts by the width of the latents is dropped. One latent
+can always carry the decision itself, and the reinforcement-learning
+stage showed it in the closed loop
+([above](#the-reinforcement-learning-stage)). Changes that would keep
+the decision out of the latents were weighed and not built: several
+tasks or a preference the encoder does not see only raise the collapse
+to as many numbers as there are tasks, and a penalty on the information
+in the latents favours it. The count is read in retraining instead
+([methodology.md](methodology.md#what-the-width-cannot-count)).
+
 ## Open questions
 
 | Question | Note |
 |---|---|
-| What keeps the decision out of the latents | The first failure in [methodology.md](methodology.md#how-it-can-fail). An untuned prototype on logged states, made before this repository and never released, saw it: with only the action to fit, one latent was enough. The reinforcement-learning stage saw it in the closed loop: at widths 1 and 2 a quadratic fit of the decision on the latents has a held-out R^2 of 0.80 to 0.93. What to change is not decided. |
+| Whether the wide latents hold more than the decision | Nothing forces them to. The probe reads each base variable from the latents, and the decision is grounded beside them. If the two paths agree and the latents add nothing, the decision's path alone is used. |
+| Whether the order of the decision's path is the order of need | It comes from logged steps. Retraining at each m, against a random order and the baselines, decides. |
 | How far reinforcement learning moves a controller from its teacher | If it barely moves, the concepts are the teacher's. The measure is the RMS difference in log2 of the window from the clone. How small counts as barely is not decided. |
-| Whether one standard error is the right knee rule | With 3 seeds the error is itself noisy. It is pooled over widths for that reason. |
+| Whether one standard error is the right rule for the count | With 3 seeds the error is itself noisy. It is pooled over m for that reason. |
 | What the search over the stage's settings covers | Candidates: exploration noise, learning rate, an anchor to the clone, the value warm-up. |
 | The scale of retained performance | [methodology.md](methodology.md#retained-performance). |
 | The threshold for C3 | |
