@@ -67,6 +67,9 @@ def test_ground_selection_finds_the_features_that_span_the_latents() -> None:
         same_as={},
         fit=design[:4000],
         score=design[4000:],
+        base=(),
+        base_fit=np.zeros((4000, 0)),
+        base_score=np.zeros((2000, 0)),
     )
     # Two latents: mixes of features 1 and 4, where 4 also acts by being undefined.
     z = np.stack([2 * x[:, 1] + cols[5] + 3 * gap, x[:, 1] - cols[5]], axis=1)
@@ -76,11 +79,8 @@ def test_ground_selection_finds_the_features_that_span_the_latents() -> None:
     assert set(order[:2]) == {1, 4}
     assert m.r2(ground._columns(lib, order[:2])).min() > 0.999
     assert m.r2(ground._columns(lib, order[:1])).min() < 0.9
-    sel = ground._selection(
-        lib,
-        m,
-        lambda cols: ground.flexible(lib.fit[:, cols], z[:4000], lib.score[:, cols], z[4000:]),
-    )
+    sel = ground._selection(lib, (z[:4000], z[4000:]))
+    assert sel["formulas"] == [] and sel["formula_path"] == sel["hidden_path"]
     assert sel["flexible"]["picked"] > 0.99
     assert sel["library"] > 0.999 and set(sel["without"]) >= {"v0", "v2"}
     assert sel["without"]["v0"][-1]["mean"] < 0.9  # no substitute for feature 1
@@ -157,8 +157,9 @@ def test_the_library_finds_a_windowed_feature_and_drops_repeats() -> None:
     assert m.r2(ground._columns(lib, [first_pick])).min() > 0.999
     # On a subset of the rows, the moments are those of that subset alone.
     keep_f, keep_s = np.arange(half) % 2 == 0, np.arange(idx.size - half) % 3 == 0
-    sub = ground.Moments.of(lib, z[:half][keep_f], z[half:][keep_s], keep_f, keep_s)
-    assert sub.r2(ground._columns(lib, [first_pick])).min() > 0.999
+    part = lib.rows(keep_f, keep_s)
+    sub = ground.Moments.of(part, z[:half][keep_f], z[half:][keep_s])
+    assert sub.r2(ground._columns(part, [first_pick])).min() > 0.999
 
 
 def _campaign(d: Path, s: data.Steps) -> None:
@@ -271,6 +272,9 @@ def _plain_library(x: np.ndarray, fit: int) -> ground.Library:
         same_as={},
         fit=design[:fit],
         score=design[fit:],
+        base=(),
+        base_fit=np.zeros((fit, 0)),
+        base_score=np.zeros((len(x) - fit, 0)),
     )
 
 
@@ -295,3 +299,35 @@ def test_the_flexible_fit_sees_a_variable_the_latent_holds_in_another_form() -> 
     assert m.r2(ground._columns(lib, [0, 1, 2]))[0] < 0.5
     assert ground.flexible(lib.fit[:, 1:3], z[:4000], lib.score[:, 1:3], z[4000:]) > 0.95
     assert ground.flexible(lib.fit[:, 3:], z[:4000], lib.score[:, 3:], z[4000:]) < 0.05
+
+
+def test_the_formula_search_rebuilds_a_composite_from_its_labels() -> None:
+    rng = np.random.default_rng(4)
+    n = 6000
+    raw = {
+        "capacity_bps": rng.uniform(5e6, 1e8, n),
+        "base_rtt_ns": rng.uniform(1e7, 2e8, n),
+        "queue_bytes": rng.uniform(0, 3e5, n),
+        "busy_fraction": rng.uniform(0, 1, n),
+        "active_flows": rng.integers(1, 6, n).astype(np.float64),
+    }
+    names = list(raw)
+    # The library's own scale, as base_variables gives it.
+    x = np.stack([np.log1p(raw[v] * ground._factor(v)) for v in names], axis=1)
+    lib = ground.Library.of(names, len(names), x[:4000], x[4000:])
+    planted = {
+        # HPCC's normalized inflight, q / (C R) + U: a sum no product of powers writes.
+        "busy_fraction + queue_bytes/(base_rtt_ns*capacity_bps)": raw["busy_fraction"]
+        + 8 * raw["queue_bytes"] / (raw["capacity_bps"] * raw["base_rtt_ns"] * 1e-9),
+        # C U, what the link sent: a product with a fraction, which log(1 + U) does not give.
+        "busy_fraction*capacity_bps": raw["capacity_bps"] * raw["busy_fraction"],
+    }
+    for name, truth in planted.items():
+        held = np.tanh(2 * (truth - truth.mean()) / truth.std())  # one latent, squashed
+        z = (held + 0.1 * rng.normal(size=n))[:, None]
+        wider, made = ground.formulas(lib, (z[:4000], z[4000:]), names)
+        assert made[0] == name
+        m = ground.Moments.of(wider, z[:4000], z[4000:])
+        first = ground.greedy(wider, m, list(range(len(wider.names))), 1)[0]
+        ranks = ground._places(np.stack([wider.score[:, wider.columns[first][0]], truth[4000:]], 1))
+        assert abs(np.mean(ranks[:, 0] * ranks[:, 1])) > 0.999

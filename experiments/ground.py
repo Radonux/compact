@@ -57,32 +57,45 @@ measurements (window, smoothed RTT, delivery rate, loss rate). Nothing is
 listed here: a label or composite added there joins the library. The
 library is every base variable under eight operators: its value now, its
 mean, minimum and maximum over the last 240 ms and 960 ms, and its change
-over 60 ms. Sums of logarithms are products and ratios, so a linear fit on
-this library is a fit by products of powers. STEPS features are added one
-at a time, each the one that most raises the R^2 of a joint linear fit of
-all latents on the fit rollouts. They are then put in order by taking them
-away again, each time the one the fit loses least without, so a feature
-that stood in for a mix of later ones falls to the end. Every size is
-scored on the score rollouts. Reported per run on its own rollouts, and per width with the
-latents of its runs pooled, on the rollouts of every run given (give the
-runs of one teacher together):
+over 60 ms.
+
+Every fit is made on places: a latent and a feature are each replaced by
+their rank among the fit rows (``ranked``). An encoder may hold a variable
+in any monotone form, since the decoder can undo it, and x, 1 / x and
+log x are one variable. On places none of that changes a fit, and a
+feature that orders the rows as another does is left out as a repeat.
+
+STEPS features are added one at a time, each the one that most raises the
+R^2 of a joint linear fit of all latents on the fit rollouts. They are
+then put in order by taking them away again, each time the one the fit
+loses least without, so a feature that stood in for a mix of later ones
+falls to the end. Every size is scored on the score rollouts. Reported
+per run on its own rollouts, and per width with the latents of its runs
+pooled, on the rollouts of every run given (give the runs of one teacher
+together):
 
   path     the features in the order added, with the mean and the worst
            latent's R^2 at each size
   bounds   the R^2 with the whole library, and with expliCCit's seven
            hand-picked concepts alone
-  flexible the R^2 of a small network, in place of the linear fit, on the
-           first PICK features, on the first PICK of the hidden path, and
-           on the whole library. An encoder may hold a variable in any
-           form, and the decoder can undo it, so the linear numbers are
-           lower bounds. The features are enough when the network on them
-           reaches the network on the whole library; what that one misses
-           is not a function of the library at all (the sender's
-           estimation error, or a variable nobody listed).
   hidden   the path and the bound when the sender's four measurements are
            taken out, so only ground truth is left. The latents are
            computed from the sender's message, so they can repeat what it
            measured; this path asks what they hold of the path's state.
+  formulas the hidden path again, with formulas built from the stored
+           labels behind it allowed too (``formulas``): products of two
+           or three labels, and sums of two terms of one dimension. A
+           linear fit on places writes neither, and they are the form of
+           the literature's composites, so a concept nobody listed can
+           still be written in closed form.
+  flexible the R^2 of a small network, in place of the linear fit, on the
+           first PICK features of each path, and on the whole library. A
+           mix of concepts through a nonlinear form is not linear even on
+           places, so the linear numbers are lower bounds. The features
+           are enough when the network on them reaches the network on the
+           whole library; what that one misses is not a function of the
+           library at all (the sender's estimation error, or a variable
+           nobody listed).
   without  for each label behind the first PICK features: the path
            when that label is taken out of the library in every window,
            with every composite computed from it, which is the vocabulary
@@ -106,8 +119,8 @@ import hashlib
 import itertools
 import json
 import warnings
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -116,8 +129,9 @@ import numpy.typing as npt
 import torch
 
 from expliccit_env.labels import WINDOWS_MS
+from expliccit_env.mahimahi import PACKET_SIZE
 from expliccit_env.policy import OBS_COLUMNS
-from expliccit_env.spec import AgentCC, EpisodeSpec, OnnxPolicy
+from expliccit_env.spec import AgentCC, EpisodeSpec, OnnxPolicy, StockCC
 from expliccit_env.train import actors, fit, lcfs, rollouts
 from expliccit_env.train import data as steps_data
 from expliccit_env.train.graph import FixedWindow
@@ -134,6 +148,11 @@ I64 = npt.NDArray[np.int64]
 # if a fit ever needs them.
 FIT, SCORE = 300_000, 200_000
 FLEX_STEPS = 1500  # gradient steps of the flexible fit
+# The formula search: formulas kept, rows they are screened on (and those of
+# these the first, coarse pass uses), factors in a
+# sum's two terms together, the width above which the screen reads the
+# latents linearly, and the rank correlation at which two formulas are one.
+FORMULAS, SCREEN, COARSE, TERMS, WIDE, ALIKE = 32, 5000, 2000, 4, 16, 0.98
 _SCALE = {"_bps": 1e-6, "_ns": 1e-6, "_bytes": 1e-3}
 SRTT, DELIVERY, LOST = (
     OBS_COLUMNS.index(c) for c in ("srtt_x100ms", "delivery_rate_x100mbps", "lost_x100mbps")
@@ -251,9 +270,28 @@ def features(names: list[str], v: F64, s: steps_data.Steps, idx: I64) -> tuple[l
     return [f"{op}({n})" if op else n for op in ops for n in names], x
 
 
+def ranked(ref: F64, x: F64) -> F64:
+    """Per column, the place of x's values among ref's, from -0.5 to 0.5;
+    equal values share a place and NaN stays NaN. A latent may hold a
+    variable in any monotone form, and so may a feature (x, 1 / x and
+    log x are one variable), so every fit is made on places: a monotone
+    change of a column changes none of them."""
+    out = np.full(x.shape, np.nan)
+    for j in range(x.shape[1]):
+        r = np.sort(ref[np.isfinite(ref[:, j]), j])
+        ok = np.isfinite(x[:, j])
+        if r.size:
+            v = x[ok, j]
+            out[ok, j] = (np.searchsorted(r, v, "left") + np.searchsorted(r, v, "right")) / (
+                2 * r.size
+            ) - 0.5
+    return out
+
+
 @dataclass(frozen=True, slots=True)
 class Library:
-    """A design matrix whose columns are standardized on the fit rows.
+    """A design matrix of the features' places (``ranked``) among the fit
+    rows, standardized.
     Column 0 is the constant. A feature owns one or two columns: its value
     (0, the fit mean, where undefined) and, if it is ever undefined, an
     indicator of that."""
@@ -264,43 +302,82 @@ class Library:
     same_as: dict[str, str]  # a feature left out -> the kept one it repeats
     fit: F64
     score: F64
+    base: tuple[str, ...]  # the base variables
+    base_fit: F64  # [fit row, base variable] its value now, on its log scale, unscaled
+    base_score: F64
 
     @staticmethod
     def of(names: list[str], variables: int, fit: F64, score: F64) -> Library:
         """The features (``features``: ``variables`` base variables under
         each operator) less those that are constant, almost never defined,
         or repeat an earlier one."""
-        kept: list[tuple[int, F64]] = []  # feature, its standardized fit values (0 undefined)
-        same_as: dict[str, str] = {}
-        cols_fit, cols_score, columns = [np.ones(len(fit))], [np.ones(len(score))], []
+        empty = Library(
+            names=(),
+            variable=(),
+            columns=(),
+            same_as={},
+            fit=np.ones((len(fit), 1)),
+            score=np.ones((len(score), 1)),
+            base=tuple(names[:variables]),
+            base_fit=fit[:, :variables],
+            base_score=score[:, :variables],
+        )
+        return empty.plus(names, [names[j % variables] for j in range(len(names))], fit, score)
+
+    def plus(self, names: list[str], variable: list[str], fit: F64, score: F64) -> Library:
+        """With these features too, less those that are constant, almost
+        never defined, or repeat a feature already here."""
+        have = self.fit[:, [c[0] for c in self.columns]]  # the features' values, standardized
+        kept = list(self.names)
+        fresh: list[tuple[str, F64]] = []
+        same_as = dict(self.same_as)
+        cols_fit, cols_score = list(self.fit.T), list(self.score.T)
+        columns, variables = list(self.columns), list(self.variable)
         for j, name in enumerate(names):
-            x = fit[:, j]
-            if np.isfinite(x).mean() < 0.01 or np.nanstd(x) < 1e-9:
+            raw = np.where(np.isfinite(fit[:, j]), fit[:, j], np.nan)
+            if np.isfinite(raw).mean() < 0.01 or np.nanstd(raw) < 1e-9:
                 continue
+            x = ranked(raw[:, None], raw[:, None])[:, 0]
             mean, std = np.nanmean(x), np.nanstd(x)
             xf = np.nan_to_num((x - mean) / std)
-            twin = next((i for i, y in kept if abs(np.mean(xf * y)) > 0.999), None)
+            alike = np.abs(xf @ have) / len(xf) > 0.999
+            twin = self.names[int(np.argmax(alike))] if alike.any() else None
+            twin = twin or next((n for n, y in fresh if abs(np.mean(xf * y)) > 0.999), None)
             if twin is not None:
-                same_as[name] = names[twin]
+                same_as[name] = twin
                 continue
-            kept.append((j, xf))
+            kept.append(name)
+            fresh.append((name, xf))
+            variables.append(variable[j])
             own = [len(cols_fit)]
             cols_fit.append(xf)
-            cols_score.append(np.nan_to_num((score[:, j] - mean) / std))
+            other = ranked(raw[:, None], score[:, [j]])[:, 0]
+            cols_score.append(np.nan_to_num((other - mean) / std))
             gap = np.isnan(x)
             if 0 < gap.mean() < 1:
                 m, sd = gap.mean(), gap.std()
                 own.append(len(cols_fit))
                 cols_fit.append((gap - m) / sd)
-                cols_score.append((np.isnan(score[:, j]) - m) / sd)
+                cols_score.append((np.isnan(other) - m) / sd)
             columns.append(tuple(own))
-        return Library(
-            names=tuple(names[j] for j, _ in kept),
-            variable=tuple(names[j % variables] for j, _ in kept),
+        return replace(
+            self,
+            names=tuple(kept),
+            variable=tuple(variables),
             columns=tuple(columns),
             same_as=same_as,
             fit=np.stack(cols_fit, axis=1),
             score=np.stack(cols_score, axis=1),
+        )
+
+    def rows(self, fit: npt.NDArray[np.bool_], score: npt.NDArray[np.bool_]) -> Library:
+        """The same library on some of its rows."""
+        return replace(
+            self,
+            fit=self.fit[fit],
+            score=self.score[score],
+            base_fit=self.base_fit[fit],
+            base_score=self.base_score[score],
         )
 
 
@@ -531,19 +608,12 @@ class Moments:
     var_score: F64  # per latent, its variance on the score rows
 
     @staticmethod
-    def of(
-        lib: Library,
-        z_fit: F64,
-        z_score: F64,
-        fit: npt.NDArray[np.bool_] | None = None,
-        score: npt.NDArray[np.bool_] | None = None,
-    ) -> Moments:
-        """On the library's rows, or on those ``fit`` and ``score`` keep
-        (z_fit and z_score hold these rows alone)."""
-        x = lib.fit if fit is None else lib.fit[fit]
-        y = lib.score if score is None else lib.score[score]
-        mean, std = z_fit.mean(0), z_fit.std(0) + 1e-12
-        a, b = (z_fit - mean) / std, (z_score - mean) / std
+    def of(lib: Library, z_fit: F64, z_score: F64) -> Moments:
+        """Of the latents' places among the fit rows, like the library's."""
+        x, y = lib.fit, lib.score
+        a, b = ranked(z_fit, z_fit), ranked(z_fit, z_score)
+        mean, std = a.mean(0), a.std(0) + 1e-12
+        a, b = (a - mean) / std, (b - mean) / std
         return Moments(
             g_fit=x.T @ x / len(a),
             c_fit=x.T @ a / len(a),
@@ -603,11 +673,9 @@ def flexible(x_fit: F64, z_fit: F64, x: F64, z: F64) -> float:
     lower bound on what any function of x explains.
     ponytail: one fixed network, a tuned one if its numbers decide a claim."""
     torch.manual_seed(0)
-    mean, std = z_fit.mean(0), z_fit.std(0) + 1e-12
-    a, b, t, v = (
-        torch.tensor(q, dtype=torch.float32)
-        for q in (x_fit, (z_fit - mean) / std, x, (z - mean) / std)
-    )
+    zf, zs = ranked(z_fit, z_fit), ranked(z_fit, z)  # as Moments scores them
+    scale = zf.std(0) + 1e-12
+    a, b, t, v = (torch.tensor(q, dtype=torch.float32) for q in (x_fit, zf / scale, x, zs / scale))
     net = torch.nn.Sequential(
         torch.nn.Linear(a.shape[1], 128),
         torch.nn.SiLU(),
@@ -639,30 +707,211 @@ def _path(lib: Library, m: Moments, allowed: list[int]) -> list[dict[str, Any]]:
     return out
 
 
-def _selection(lib: Library, m: Moments, flex: Callable[[list[int]], float]) -> dict[str, Any]:
-    """``flex``: the flexible fit's R^2 on these columns of the library."""
+# A stored label's factor to SI units and its dimension (bits, seconds). A
+# packet counts as PACKET_SIZE bytes, as in the composites.
+_SI: dict[str, tuple[float, tuple[int, int]]] = {
+    "_bps": (1.0, (1, -1)),
+    "_ns": (1e-9, (0, 1)),
+    "_bytes": (8.0, (1, 0)),
+    "_pkts": (8.0 * PACKET_SIZE, (1, 0)),
+}
+type Monomial = tuple[tuple[int, int], ...]  # (variable, exponent 1 or -1), ...
+type Sum = tuple[Monomial, int, Monomial]  # m1 + sign * m2; sign 0 is m1 alone
+
+
+def _si(label: str) -> tuple[float, tuple[int, int]]:
+    return next((v for suffix, v in _SI.items() if label.endswith(suffix)), (1.0, (0, 0)))
+
+
+def _sums(dims: list[tuple[int, int]]) -> list[Sum]:
+    """Every product of two or three of the variables or their inverses,
+    and every sum and difference of two terms of one dimension, a term
+    being 1 or a product of up to three, with TERMS factors at most in
+    the two together."""
+    by: dict[tuple[int, int], list[Monomial]] = {}
+    out: list[Sum] = []
+    for r in range(4):
+        for vs in itertools.combinations(range(len(dims)), r):
+            for es in itertools.product((1, -1), repeat=r):
+                m = tuple(zip(vs, es, strict=True))
+                d0, d1 = (sum(e * dims[v][i] for v, e in m) for i in (0, 1))
+                by.setdefault((d0, d1), []).append(m)
+                if r > 1:
+                    out.append((m, 0, ()))
+    for group in by.values():
+        for a, b in itertools.combinations(group, 2):
+            if len(a) + len(b) <= TERMS:
+                out += [(a, 1, b), (a, -1, b)]
+    return out
+
+
+def _written(f: Sum, names: list[str]) -> str:
+    def term(m: Monomial) -> str:
+        top = "*".join(names[v] for v, e in m if e > 0) or "1"
+        under = [names[v] for v, e in m if e < 0]
+        if len(under) > 1:
+            return f"{top}/({'*'.join(under)})"
+        return top + "".join("/" + u for u in under)
+
+    a, sign, b = f
+    return term(a) + (f" {'+' if sign > 0 else '-'} {term(b)}" if sign else "")
+
+
+def _values(sums: list[Sum], raw: F64) -> F64:
+    """[row, sum] from the variables' values [row, variable]."""
+    made: dict[Monomial, F64] = {}
+
+    def product(m: Monomial) -> F64:
+        if m not in made:
+            out = np.ones(len(raw))
+            for v, e in m:
+                out = out * raw[:, v] if e > 0 else out / raw[:, v]
+            made[m] = out
+        return made[m]
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return np.stack([product(a) + sign * product(b) for a, sign, b in sums], axis=1)
+
+
+def _places(x: F64) -> F64:
+    """``ranked`` among x's own rows, standardized, an undefined entry in the middle."""
+    r = np.nan_to_num(ranked(x, x))
+    return r / (r.std(0) + 1e-12)
+
+
+def formulas(lib: Library, z: tuple[F64, F64], picked: list[str]) -> tuple[Library, list[str]]:
+    """(the library with formulas the picked features suggest, their names).
+
+    A linear fit on places writes no product and no sum of two variables.
+    This adds both, over the stored labels behind ``picked``, in one window at a time (``_sums``).
+    Two terms are added only if they have one dimension in SI units, so
+    no coefficient is fitted. That is the form of the literature's
+    composites (lcfs.COMPOSITES).
+
+    FORMULAS of them are kept: those the latents hold best. A formula is
+    scored by how well the latents' places predict its own, with their
+    squares and products while those are few: what a decoder
+    can read from the latents is what they hold, however they hold it.
+    Of formulas that order the rows alike (rank correlation above ALIKE)
+    the one with the fewest factors, then the fewest inverses, is kept.
+    ponytail: two terms with coefficient 1, PySR on the picked labels if
+    the flexible fit shows a form beyond this."""
+    index = {n: i for i, n in enumerate(lib.names)}
+    behind = set().union(*(sources(lib.variable[index[f]]) for f in picked if f in index))
+    stored = {_label(n) for n in lib.base if _label(n) not in lcfs.COMPOSITES}
+    labels = sorted(n for n in behind & stored if not n.startswith("sender_"))
+    dims = [_si(n)[1] for n in labels]
+    some = np.random.default_rng(0).choice(len(z[0]), min(len(z[0]), SCREEN), replace=False)
+    zs = _places(z[0][some])
+    design = np.concatenate(
+        [np.ones((len(zs), 1)), zs if zs.shape[1] > WIDE else quadratic(zs)], axis=1
+    )
+    q, _ = np.linalg.qr(design)
+    coarse = np.linalg.qr(design[:COARSE])[0].astype(np.float32)
+
+    def raw(x: F64, at: list[int]) -> F64:
+        """The labels in SI units, from the library's log scale."""
+        k = np.array([_si(n)[0] / _factor(lib.base[i]) for n, i in zip(labels, at, strict=True)])
+        return np.sign(x[:, at]) * np.expm1(np.abs(x[:, at])) * k
+
+    first: list[tuple[float, Sum, int, list[str]]] = []  # -score, the formula, its window
+    # -score, factors, inverses, name, the formula, its window
+    found: list[tuple[float, int, int, str, Sum, int]] = []
+    used = {lib.variable[index[f]] for f in picked if f in index}
+    rows: dict[int, tuple[list[int], F64]] = {}  # window -> the labels' columns and values
+    for w in WINDOWS_MS:
+        names = [f"{n}_{w}ms" if f"{n}_{w}ms" in lib.base else n for n in labels]
+        if w != WINDOWS_MS[0] and not any(v.endswith(f"_{w}ms") for v in used):
+            continue  # nothing picked is of this window
+        at = [lib.base.index(n) for n in names]
+        r = raw(lib.base_fit[some], at)
+        rows[w] = at, r
+        sums = _sums(dims)
+        for lo in range(0, len(sums), 1024):
+            part = sums[lo : lo + 1024]
+            # A coarse first pass, on some of the rows, with equal and
+            # undefined values in no particular place: thousands of columns.
+            v = _values(part, r[:COARSE]).astype(np.float32)
+            ok = np.isfinite(v)
+            order = np.argsort(np.where(ok, v, 0), axis=0)
+            g = np.empty_like(v)
+            np.put_along_axis(
+                g, order, np.linspace(-0.5, 0.5, len(v), dtype=np.float32)[:, None], 0
+            )
+            score = np.sum((coarse.T @ g) ** 2, axis=0) / np.sum(g**2, axis=0)
+            score[ok.mean(0) < 0.5] = 0.0
+            first += [(-float(c), f, w, names) for c, f in zip(score, part, strict=True)]
+    first.sort(key=lambda t: t[0])
+    for _, f, w, names in first[: 16 * FORMULAS]:
+        g = _places(_values([f], rows[w][1]))[:, 0]
+        found.append(
+            (
+                -round(float(np.sum((q.T @ g) ** 2) / len(g)), 2),
+                len(f[0]) + len(f[2]),
+                sum(e < 0 for _, e in f[0] + f[2]),
+                _written(f, names),
+                f,
+                w,
+            )
+        )
+    found.sort(key=lambda t: t[:4])
+    kept: list[tuple[str, Sum, list[int]]] = []
+    ranks: list[F64] = []
+    for *_, name, f, w in found:
+        g = _places(_values([f], rows[w][1]))[:, 0]
+        if all(abs(np.mean(g * h)) < ALIKE for h in ranks):
+            kept.append((name, f, rows[w][0]))
+            ranks.append(g)
+        if len(kept) == FORMULAS:
+            break
+    if not kept:
+        return lib, []
+    fit, score = (
+        np.concatenate([_values([f], raw(x, at)) for _, f, at in kept], axis=1)
+        for x in (lib.base_fit, lib.base_score)
+    )
+    names = [name for name, _, _ in kept]
+    wider = lib.plus(names, names, fit, score)
+    return wider, [n for n in names if n in wider.names]
+
+
+def _selection(lib: Library, z: tuple[F64, F64]) -> dict[str, Any]:
+    """Of latents ``z`` on the library's rows."""
+    m = Moments.of(lib, *z)
     everything = list(range(len(lib.names)))
     path = _path(lib, m, everything)
     index = {n: i for i, n in enumerate(lib.names)}
 
-    def picked(path: list[dict[str, Any]]) -> list[int]:
-        return _columns(lib, [index[p["feature"]] for p in path[:PICK]])[1:]
+    def flex(lib: Library, path: list[dict[str, Any]]) -> float:
+        index = {n: i for i, n in enumerate(lib.names)}
+        cols = _columns(lib, [index[p["feature"]] for p in path[:PICK]])[1:]
+        return flexible(lib.fit[:, cols], z[0], lib.score[:, cols], z[1])
 
     lcfs = [index[n] for n in EXPLICCIT_LCFS if n in index]
     of = [sources(v) for v in lib.variable]
     used = sorted(set().union(*(of[index[p["feature"]]] for p in path[:PICK])))
     hidden = [f for f in everything if not lib.variable[f].startswith("sender_")]
     hidden_path = _path(lib, m, hidden)
+    wider, made = formulas(lib, z, [p["feature"] for p in hidden_path])
+    again = {n: i for i, n in enumerate(wider.names)}
+    formula_path = _path(
+        wider,
+        Moments.of(wider, *z),
+        [again[lib.names[f]] for f in hidden] + [again[n] for n in made],
+    )
     return {
         "path": path,
         "library": float(m.r2(_columns(lib, everything)).mean()),
         "flexible": {
-            "picked": flex(picked(path)),
-            "hidden_picked": flex(picked(hidden_path)),
-            "library": flex(list(range(1, lib.fit.shape[1]))),
+            "picked": flex(lib, path),
+            "hidden_picked": flex(lib, hidden_path),
+            "formula_picked": flex(wider, formula_path),
+            "library": flexible(lib.fit[:, 1:], z[0], lib.score[:, 1:], z[1]),
         },
         "hidden_path": hidden_path,
         "hidden_library": float(m.r2(_columns(lib, hidden)).mean()),
+        "formula_path": formula_path,
+        "formulas": made,
         "expliccit_lcfs": float(m.r2(_columns(lib, lcfs)).mean()),
         "without": {
             var: _path(lib, m, [f for f in everything if var not in of[f]])[:PICK] for var in used
@@ -675,42 +924,28 @@ def select(out: Path, runs: list[Path]) -> None:
     ctls, names, variables, fr, sr = _setup(runs)
     lib = Library.of(names, variables, fr.x, sr.x)
     z_of = {c.name: (c.encode(fr.obs), c.encode(sr.obs)) for c in ctls}
-    moments = {
-        c.name: Moments.of(
-            lib, z_of[c.name][0][fr.own(r)], z_of[c.name][1][sr.own(r)], fr.own(r), sr.own(r)
-        )
-        for r, c in enumerate(ctls)
+    # Each run on its own rollouts.
+    own = {c.name: lib.rows(fr.own(r), sr.own(r)) for r, c in enumerate(ctls)}
+    z_own = {
+        c.name: (z_of[c.name][0][fr.own(r)], z_of[c.name][1][sr.own(r)]) for r, c in enumerate(ctls)
     }
     index = {n: i for i, n in enumerate(lib.names)}
-
-    def flex(
-        z: tuple[F64, F64], fit: Any = slice(None), score: Any = slice(None)
-    ) -> Callable[[list[int]], float]:
-        x, y = lib.fit[fit], lib.score[score]
-        return lambda cols: flexible(x[:, cols], z[0], y[:, cols], z[1])
-
-    def own(r: int, c: Controller) -> dict[str, Any]:
-        f, s = fr.own(r), sr.own(r)
-        z = z_of[c.name]
-        return _selection(lib, moments[c.name], flex((z[0][f], z[1][s]), f, s))
-
     result: dict[str, Any] = {
         "features": lib.names,
         "same_as": lib.same_as,
-        "runs": {c.name: {"k": c.k} | own(r, c) for r, c in enumerate(ctls)},
+        "runs": {c.name: {"k": c.k} | _selection(own[c.name], z_own[c.name]) for c in ctls},
         "pooled": {},
         "transfer": [],
     }
     for k in sorted({c.k for c in ctls}):
         same = [z_of[c.name] for c in ctls if c.k == k]
         z = (np.concatenate([v[0] for v in same], 1), np.concatenate([v[1] for v in same], 1))
-        result["pooled"][str(k)] = {"runs": len(same)} | _selection(
-            lib, Moments.of(lib, *z), flex(z)
-        )
+        result["pooled"][str(k)] = {"runs": len(same)} | _selection(lib, z)
     for a, c in itertools.permutations(ctls, 2):
         if a.k == c.k:
             picks = [index[p["feature"]] for p in result["runs"][a.name]["path"][:PICK]]
-            r = float(moments[c.name].r2(_columns(lib, picks)).mean())
+            m = Moments.of(own[c.name], *z_own[c.name])
+            r = float(m.r2(_columns(lib, picks)).mean())
             result["transfer"].append({"from": a.name, "to": c.name, "k": a.k, "mean": r})
     (out / "select.json").write_text(json.dumps(result, indent=1) + "\n")
     (out / "summary.md").write_text(select_summary(result))
@@ -735,7 +970,12 @@ def select_summary(result: dict[str, Any]) -> str:
             "\nThe library without the sender's measurements "
             f"(all of it: {sel['hidden_library']:.3f}):\n\n"
         )
-        for intro, key in (("", "path"), (hidden, "hidden_path")):
+        sums = (
+            "\nGround truth again, with the sums of labels that the latents hold best "
+            f"allowed too (a small network on the first {PICK}: "
+            f"{sel['flexible']['formula_picked']:.3f}):\n\n"
+        )
+        for intro, key in (("", "path"), (hidden, "hidden_path"), (sums, "formula_path")):
             lines.append(
                 intro + "| size | feature added | mean | worst latent |\n|---|---|---|---|\n"
             )
@@ -773,15 +1013,19 @@ def select_summary(result: dict[str, Any]) -> str:
     return "".join(lines)
 
 
-def drive(
-    run: Path, fit_from: Path, score_from: Path, build: UmlBuild, *, workers: int, links: int
+def drive(  # noqa: PLR0917  (one caller per verb, each naming what it passes)
+    out: Path,
+    ccs: Sequence[AgentCC | StockCC],
+    duration_ms: int,
+    fit_from: Path,
+    score_from: Path,
+    build: UmlBuild,
+    *,
+    workers: int,
+    links: int,
 ) -> None:
-    """The run's controller in the closed loop, every step kept."""
-    spec = PPOSpec.model_validate_json((run / "ppo_spec.json").read_text())
-    policy = run / "policy.onnx"
-    cc = AgentCC(
-        policy=OnnxPolicy(path=policy, sha256=hashlib.sha256(policy.read_bytes()).hexdigest())
-    )
+    """The controllers, in turn, in the closed loop, every step kept, into
+    OUT/ground."""
     for kind, source, n in (("fit", fit_from, links), ("score", score_from, None)):
         # The same pairs and seeds for every run: both generators start alike.
         arms = rollouts.arms(source, np.random.default_rng(0))
@@ -792,15 +1036,23 @@ def drive(
             EpisodeSpec(
                 path=p.model_copy(update={"loss": c.loss}),
                 cross=c.flows(p.trace),
-                cc=cc,
-                duration_ms=spec.duration_ms,
+                cc=ccs[i % len(ccs)],
+                duration_ms=duration_ms,
                 seed=7 + i,
                 steps=True,
             )
             for i, (p, c) in enumerate(arms)
         ]
-        done = rollouts.run(run / "ground" / kind, episodes, build, workers, None)
-        print(f"{run.name} {kind}: {json.dumps(done, default=float)}")
+        done = rollouts.run(out / "ground" / kind, episodes, build, workers, None)
+        print(f"{out.name} {kind}: {json.dumps(done, default=float)}")
+
+
+def _own(run: Path) -> tuple[AgentCC, int]:
+    """(a run's exported policy, its episodes' length)."""
+    spec = PPOSpec.model_validate_json((run / "ppo_spec.json").read_text())
+    policy = run / "policy.onnx"
+    sha = hashlib.sha256(policy.read_bytes()).hexdigest()
+    return AgentCC(policy=OnnxPolicy(path=policy, sha256=sha)), spec.duration_ms
 
 
 def main() -> None:
@@ -819,7 +1071,17 @@ def main() -> None:
         q.add_argument("--runs", type=Path, nargs="+", required=True)
     a = p.parse_args()
     if a.verb == "rollouts":
-        drive(a.run, a.fit, a.score, UmlBuild.at(a.build), workers=a.workers, links=a.links)
+        cc, duration_ms = _own(a.run)
+        drive(
+            a.run,
+            [cc],
+            duration_ms,
+            a.fit,
+            a.score,
+            UmlBuild.at(a.build),
+            workers=a.workers,
+            links=a.links,
+        )
     else:
         (probe if a.verb == "probe" else select)(a.out, a.runs)
 
