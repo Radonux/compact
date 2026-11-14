@@ -203,8 +203,7 @@ a few labels that the literature defines, such as the load factor or the
 fair share ([architecture.md](architecture.md#ground-truth-labels)). The
 library reads both lists from the code, so a label or composite added
 there takes part in the fitting with no change here. The operators are a windowed mean, minimum and
-maximum over 2 to 3 horizons, a first difference, pairwise ratios and
-products, and a log.
+maximum over two horizons and a first difference.
 
 1. Probe (`experiments/ground.py probe`). The decision regressed on the
    latents, which is the action-collapse check. Then linear fits between
@@ -212,13 +211,15 @@ products, and a log.
    the latents of two seeds. They show which variables the latents carry,
    how much of a latent the vocabulary can express at all, and whether
    seeds agree. Each is a lower bound.
-2. Select (`experiments/ground.py select`). Fit all k latents jointly and
-   linearly on the library, adding one feature at a time, the one that
-   most raises the fit. Then order the chosen features by taking them
-   away again, each time the one the fit loses least without: a feature
-   chosen early because it stood in for a mix of later ones falls to the
-   end. The variables are on log scales, so a linear fit is a fit by
-   products and ratios of powers, and the selected features are the
+2. Select (`experiments/ground.py select`). Every fit is made on places:
+   a latent and a feature are each replaced by their rank among the
+   rows. The encoder may hold a variable in any monotone form, because
+   the decoder can undo it, and on places no such form changes a fit.
+   Fit all k latents jointly and linearly on the library, adding one
+   feature at a time, the one that most raises the fit. Then order the
+   chosen features by taking them away again, each time the one the fit
+   loses least without: a feature chosen early because it stood in for a
+   mix of later ones falls to the end. The selected features are the
    candidate concepts. The joint fit needs no rotation of the latents:
    it asks which features span them, and any invertible mix of the
    latents has the same span.
@@ -228,16 +229,29 @@ products, and a log.
    quantities they measure. Only a feature of ground truth is a concept
    for net1 to estimate. Beside each linear number, report a flexible
    fit (a small network) on the same features and on the whole library.
-   The encoder may hold a variable in any form the decoder can undo, so
-   a linear R^2 is a lower bound and no fixed bar applies to it. The
-   selected features are enough when the flexible fit on them reaches
-   the flexible fit on the whole library. What the flexible fit on the
-   whole library misses is no function of the library: the sender's
-   estimation error, or a variable nobody listed.
-4. Run PySR with a parsimony penalty on the selected features, where the
-   flexible fit shows the linear one leaves something. For each latent,
-   report formula size against held-out R^2 and pick the knee. The
-   target is the flexible fit's R^2 on the same features.
+   A mix of concepts through a nonlinear form is not linear even on
+   places, so a linear R^2 is a lower bound and no fixed bar applies to
+   it. The selected features are enough when the flexible fit on them
+   reaches the flexible fit on the whole library. What the flexible fit
+   on the whole library misses is no function of the library: the
+   sender's estimation error, or a variable nobody listed.
+4. Search for formulas over the stored labels behind the selected
+   features, so that a concept nobody listed can still be written:
+   products of two or three labels or their inverses, and sums and
+   differences of two such terms. Two terms are added only when they
+   have the same dimension in SI units, so no coefficient is fitted.
+   This is the form of the composites in the literature. Formulas of
+   two factors are tried over every stored label, because a difference
+   of two nearly equal variables shows in no linear fit on either, so
+   the selected features need not lead to it. Longer formulas are tried
+   over the labels of the best of those and of the selected features. A
+   formula is scored by how well the latents predict it, since what the
+   decoder can read from the latents is what they hold. Of formulas that order
+   the rows alike, the simplest is kept. The kept formulas join the
+   library and the path is selected again. A formula that is chosen
+   becomes a composite in the code, and from then on is in the library
+   under every operator. PySR on the selected labels is the next step
+   only where the flexible fit shows a form beyond these.
 5. Keep the concepts that recur in at least 3 of 5 seeds, matching
    formulas by a correlation above 0.9 on shared held-out traces.
 6. Vocabulary sensitivity (C4). Refit with each base variable or operator

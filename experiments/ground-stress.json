@@ -1,0 +1,15 @@
+{
+  "title": "Stress test of grounding: latents planted with a known answer",
+  "description": "Whether grounding gives back concepts in closed form when they are really there. Cubic and BBRv3 drive the emulator in turn on 96 (path, condition) pairs of the bootstrap's training links, where fits are made, and on every pair of its validation links, where they are scored (30 s episodes, every step kept). No trained controller takes part: the steps only supply ground truth that moves as it does under real controllers. experiments/ground_stress.py then plants latents made from known concepts and puts them through experiments/ground.py's selection: each literature composite alone, expliCCit's seven hand-picked concepts together, random sets of ground-truth variables, variables under windowed operators, formulas the library cannot write, latents with no relation to the path, degenerate latents, and the sender's own measurements. A latent holds its concepts on the library's scale, as a power, through a tanh, or as a random invertible mix, with white noise of 0, 0.3 or 1 standard deviations. Each case is selected twice: with the composites in the vocabulary, where they must be picked, and with the stored labels alone, where a planted composite's formula has to be rebuilt by the formula search. Reported per case on the validation links: the R^2 the noise leaves, the linear and the flexible fit, whether the picked features span the planted concepts, and whether one picked feature is each concept up to a monotone change. It says what the fitter can recover from planted latents. It says nothing about any trained controller. The link sets come from experiments/net2_ppo_setup.py as in the bootstrap, whose estimator and rule inputs it needs only to build them. The test links are not read.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "estimator": "release:exp-estimator-seven-20",
+    "rule": "release:exp-steps-behaviour-rule-8"
+  },
+  "shards": 1,
+  "prepare": "uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$IN/estimator/estimator/net1.pt\" --models \"$IN/rule/models\" --u 0.25 --paths net2-train-xl",
+  "run": "uv run python experiments/ground_stress.py rollouts \"$OUT/stress\" --fit \"$OUT/setup/paths/campaign.json\" --score \"$OUT/setup/eval/campaign.json\" --build \"$UML\" --workers \"$WORKERS\" --links 96 && uv run python experiments/ground_stress.py run \"$OUT/stress\" && rm -rf \"$OUT/stress/ground\"",
+  "collect": "cp \"$OUT/stress/summary.md\" \"$OUT/summary.md\"",
+  "timeout_minutes": 300
+}
