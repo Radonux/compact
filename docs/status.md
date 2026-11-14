@@ -166,6 +166,19 @@ What it shows:
   comparable with the rule yet. The references without an encoder are
   nearest, at 0.13 and 0.16 below. The rule is a reference point here
   and not a bar to pass.
+- Among the controllers, which is the comparison that matters:
+  - The two references without an encoder are comparable with each
+    other, 0.03 apart with a spread between seeds of 0.01 and 0.03. This
+    is the one comparison the seeds resolve.
+  - The wide controllers are not comparable with their references: 0.13
+    below from Cubic and 0.37 below from BBRv3. Passing the decision
+    through latents costs something at this point of the settings.
+  - No width is more than 0.1 below its wide controller except Cubic at
+    width 7, whose two runs diverged. So by the rule every other width is
+    comparable with the wide controller. The wide controllers' own spread
+    is 0.14 and 0.30, so this is weak.
+  - Comparable with the reference: widths 1, 10 and 16 from Cubic, and
+    width 4 from BBRv3.
 - The spread between seeds decides what the margin can resolve. The
   standard deviation over 3 seeds is 0.01 and 0.03 for the references
   without an encoder, and 0.04 to 0.37 for the controllers with latents

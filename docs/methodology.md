@@ -174,6 +174,14 @@ enough to be compared, and more seeds or tuning come first
 ([status.md](status.md#the-reinforcement-learning-stage)). The margin is
 fixed here, before any run that counts.
 
+The comparisons that matter are among the learned controllers: the wide
+controller with the reference without an encoder, which shows what
+passing the decision through latents costs, and net1 + net2 on m concepts
+with the wide controller, which gives the count. The fixed rule is a
+common reference point that the scores are written against. It is not a
+bar: it has weaknesses of its own that the log utility does not score,
+and a controller that behaves well may sit below it.
+
 The key metrics (throughput, delay, loss, fairness between flows) are
 left to ccperf's experiments (`experiments/ccperf.py`). That is the last
 benchmark, for controllers that have trained well, and it is deferred. No
