@@ -1,0 +1,36 @@
+{
+  "title": "Confirming the reinforcement-learning settings of the discovery controller",
+  "description": "The confirmation that follows step 2's settings search (experiments/controller-rl-search.json, read at 10 latents over two seeds). The two best points per teacher go on, as that search's rules fixed: for Cubic, a = learning rate 0.0003, clip 0.2, noise 0.2 and b = learning rate 0.00003, clip 0.2, noise 0.2; for BBRv3, a = learning rate 0.0001, clip 0.1, noise 0.1 and b = learning rate 0.00003, clip 0.2, noise 0.1. In the search these points lay within the spread between two seeds of each other for BBRv3, and none reached the fixed rule. Each point trains at the widths that are grounded (7, 10 and 16 latents) and for the reference without an encoder (k 0), from the clone of its teacher (read from the bootstrap's release), seeds 1 to 3, which are all the clones there are: 48 runs. Everything else is as in the search: 120 iterations of 8 links with 4 rollouts each, 30 s episodes, noise held for 20 steps, reward horizon 1 s, the first 3 iterations update the value network alone, no anchor to the start, stopping at 4 h. Evaluation: before training, every 20 iterations and for the policy the run leaves, without noise on the 21 validation links under 6 conditions. What is read, by rules fixed here before the run (experiments/settings_search.py gives the tables). (1) A run's score is that of the policy it leaves. (2) Per teacher, a point's score is the mean over its nine runs at widths 7, 10 and 16, and the point with the higher score becomes that teacher's setting. (3) At that setting each width is set against the reference trained at the same point, by the margin of docs/methodology.md (comparing controllers), with the spread over seeds given. (4) Scores are also given apart for conditions with and without a competing flow. Three seeds give a weak interval, so a difference inside the spread is reported as no difference. The test links are not read.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "estimator": "release:exp-estimator-seven-20",
+    "rule": "release:exp-steps-behaviour-rule-8",
+    "runs": "release:exp-controller-teachers-22"
+  },
+  "matrix": {
+    "teacher": [
+      "cubic",
+      "bbr3"
+    ],
+    "point": [
+      "a",
+      "b"
+    ],
+    "k": [
+      0,
+      7,
+      10,
+      16
+    ],
+    "seed": [
+      1,
+      2,
+      3
+    ]
+  },
+  "prepare": "uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$IN/estimator/estimator/net1.pt\" --models \"$IN/rule/models\" --u 0.25 --paths net2-train-xl",
+  "run": "case \"$TEACHER-$POINT\" in cubic-a) LR=0.0003; CLIP=0.2; NOISE=0.2;; cubic-b) LR=0.00003; CLIP=0.2; NOISE=0.2;; bbr3-a) LR=0.0001; CLIP=0.1; NOISE=0.1;; bbr3-b) LR=0.00003; CLIP=0.2; NOISE=0.1;; *) exit 2;; esac; R=\"ctl-$TEACHER-k$K-s$SEED\"; T=\"$R-lr$LR-c$CLIP-n$NOISE\"; S=\"$OUT/spec-$T.json\"; jq --arg from \"$IN/runs/$R\" --argjson k \"$K\" --argjson seed \"$SEED\" --argjson lr \"$LR\" --argjson clip \"$CLIP\" --argjson noise \"$NOISE\" '.algo = \"ppo\" | .init_from = $from | .inputs = \"raw\" | (if $k > 0 then .latents = $k | .action_max = 8 else . end) | .share_k = 0 | .critic_flows = true | .critic_warmup = 3 | .noise_sigma = $noise | .noise_hold_steps = 20 | .tau_s = 1 | .group = 4 | .links_per_iteration = 8 | .lr = $lr | .clip = $clip | .copies = [2, 4] | .competition = \"diverse\" | .alone = 0.35 | .compete = 0.6 | .seed = $seed | .iterations = 120 | .eval_every = 20 | .time_budget_s = 14400' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/$T\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ctl-*; uv run python experiments/settings_search.py \"$OUT\" \"$OUT\"/ctl-*; cat \"$OUT/settings-search.md\" \"$OUT/summary.md\" > \"$OUT/both.md\"; mv \"$OUT/both.md\" \"$OUT/summary.md\"",
+  "timeout_minutes": 360
+}

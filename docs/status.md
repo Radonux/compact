@@ -195,14 +195,50 @@ width 64 ends 0.29 and 0.50 below the rule with a spread between seeds of
 0.14 and 0.30, and widths 10 and 16 end 0.21 to 0.47 below with a spread
 of 0.05 to 0.10.
 
-The settings search is running (`experiments/controller-rl-search.json`):
-width 10 over a full grid of learning rate (0.00003, 0.0001, 0.0003),
-clip (0.1, 0.2) and exploration noise (0.1, 0.2), from both teachers,
-seeds 1 and 2. The reason for these three: over the last 40 iterations
-the learner at width 10 clipped 23% of decisions with a step KL of 0.019,
-against 11% and 0.009 for the references. The two best points per teacher
-then go to a confirmation over more seeds at widths 7, 10 and 16 with the
-reference, which is UNRUN. More iterations are UNRUN too.
+The settings search has run (`exp-controller-rl-search-29`,
+`experiments/controller-rl-search.json`): width 10 over a full grid of
+learning rate (0.00003, 0.0001, 0.0003), clip (0.1, 0.2) and exploration
+noise (0.1, 0.2), from both teachers, seeds 1 and 2. The reason for these
+three: over the last 40 iterations the learner at width 10 clipped 23% of
+decisions with a step KL of 0.019, against 11% and 0.009 for the
+references. It chooses candidates and supports no claim. Scores are the
+log utility minus the fixed rule's, as the mean of two seeds, with the
+spread between them.
+
+| Teacher | Learning rate | Clip | Noise | Score | Spread | Without a competing flow | With one |
+|---|---|---|---|---|---|---|---|
+| Cubic | 0.0003 | 0.2 | 0.2 | -0.17 | 0.00 | -0.23 | -0.12 |
+| Cubic | 0.00003 | 0.2 | 0.2 | -0.27 | 0.09 | -0.18 | -0.36 |
+| Cubic | 0.0001 | 0.2 | 0.2 | -0.28 | 0.01 | -0.15 | -0.40 |
+| BBRv3 | 0.0001 | 0.1 | 0.1 | -0.26 | 0.15 | -0.18 | -0.33 |
+| BBRv3 | 0.00003 | 0.2 | 0.1 | -0.26 | 0.02 | -0.16 | -0.35 |
+| BBRv3 | 0.0003 | 0.2 | 0.2 | -0.29 | 0.07 | -0.29 | -0.29 |
+
+These are the three best of twelve points per teacher. The release's
+summary has all of them.
+
+- No point reaches the fixed rule.
+- A learning rate of 0.0003 with noise 0.1 fails for both teachers. Its
+  four points end 1.05 to 2.94 below the rule, with about half of the
+  decisions clipped.
+- For Cubic the point that was already in use is the best, by 0.10 over
+  the next. Noise 0.2 is better than 0.1 there: the four best points
+  all have it.
+- For BBRv3 the nine best points lie between -0.26 and -0.40 and the
+  spread between two seeds reaches 0.15, so the search does not separate
+  them.
+- The point that was in use scores higher here than in
+  `exp-controller-rl-24`: for BBRv3 -0.29 over two seeds against -0.47
+  over three, for Cubic -0.17 against -0.21. Between the two releases
+  the trainer changed (below) and one seed is missing, so for BBRv3 more
+  of the gain is between releases than between points.
+- The scores of the two best points per teacher changed by 0.04 or less
+  over the last 20 iterations.
+
+The two best points per teacher go to a confirmation at widths 7, 10 and
+16 with the reference, over the three seeds the bootstrap has
+(`experiments/controller-rl-confirm.json`), which is UNRUN. More
+iterations and more seeds than three are UNRUN too.
 
 Two things changed in the trainer for it. A run that the time budget ends
 between evaluations now scores the policy it leaves; before, that policy
@@ -437,6 +473,7 @@ Limits that remain:
 | `exp-controller-rl-24` | The reinforcement-learning stage: 48 run directories with specs, weights, exported policies, histories, the width curve and each controller's probe. | read above |
 | `exp-ground-stress-23` | The stress test of the fitter: the rollouts' setup, `stress/stress.json` with every case and `summary.md`. | read above |
 | `exp-ground-teachers-26` | Grounding of the bootstrapped controllers on their own rollouts: probe and select per teacher, widths 1 to 64, three seeds. |
+| `exp-controller-rl-search-29` | The settings search at width 10: 48 run directories with specs and histories, and the ranking of the twelve points per teacher. | read above |
 | `exp-ground-rl-27` | Grounding of the controllers after reinforcement learning at widths 1, 2 and 64: latents and decision. |
 | `exp-ground-rl-30` | Grounding of the controllers after reinforcement learning at widths 7, 10 and 16, with the sender's own window held in every fit: latents and the change a decision makes. |
 | `exp-controller-clone-21` | The start taught from the fixed rule: 24 run directories with specs, weights, exported policies and histories. | read above |
