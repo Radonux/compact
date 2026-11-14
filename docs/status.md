@@ -172,11 +172,11 @@ one rollout per link and is not affected.
 `experiments/ground_stress.py` plants latents with a known answer and
 puts them through `select`, as if an encoder had learned exactly the
 planted concepts. It asks one question: if training found real concepts,
-does grounding give them back in closed form? A released run
-(`experiments/ground-stress.json`) is UNRUN. The numbers below are from a
-local run of the same script on 150 episodes under Cubic, BBRv3 and the
-fixed rule (90 training links to fit, 60 validation links to score), 125
-cases. They are checks of the fitter, not results about a controller.
+does grounding give them back in closed form? Release
+`exp-ground-stress-23` holds the run: Cubic and BBRv3 for 30 s on 96
+training links to fit (73,844 decisions) and on the validation links to
+score (81,163 decisions), 125 cases. No controller was trained. These are
+checks of the fitter, not results about a controller.
 
 Each case is selected twice. With the curated library the planted concept
 is in the vocabulary. With the stored labels alone every composite is
@@ -186,23 +186,23 @@ does, at a rank correlation of 0.99 or more.
 
 | Planted | Outcome |
 |---|---|
-| Each of the 12 literature composites alone, held on a log scale, as a power of its value, or through a tanh, without noise (36 cases) | From the stored labels alone the formula search names all 36, the worst at 0.994. The linear fit on labels without formulas names 6. Normalized power has five factors, one more than the search writes, and is named by a shorter formula that orders the rows alike at 0.995. |
-| The same with noise of 0.3 standard deviations (36 cases) | 28 named. In the other 8 a different formula that orders the rows much as the planted one does is listed, at 0.93 to 0.98 in 7 of them. In the eighth the noise left nothing to explain. |
-| expliCCit's seven concepts as a random mix in 7 or 10 latents, with and without a tanh and noise (12 cases) | The first 8 features are enough in all 12: a small network on them reaches what the noise leaves. The planted basis is not recovered. Most of the seven are picked by name, and stand-ins take the place of the rest (base RTT beside queueing delay for one-way delay). The linear fit on places reads 0.92 to 0.96 without noise where the network reads 0.98 to 0.99. |
+| Each of the 12 literature composites alone, held on a log scale, as a power of its value, or through a tanh, without noise (36 cases) | From the stored labels alone the formula search names all 36, the worst at 0.995. The linear fit on labels without formulas names 6. Normalized power has five factors, one more than the search writes, and is named by a shorter formula that orders the rows alike at 0.995. |
+| The same with noise of 0.3 standard deviations (36 cases) | 28 named. In 6 of the other 8 a different formula that orders the rows much as the planted one does is listed, at 0.93 to 0.99. In the last 2 the noise left 0.01 or less to explain. |
+| expliCCit's seven concepts as a random mix in 7 or 10 latents, with and without a tanh and noise (12 cases) | The first 8 features are enough in all 12: a small network on them reaches what the noise leaves. The planted basis is not recovered. Most of the seven are picked by name, and stand-ins take the place of the rest (base RTT beside queueing delay for one-way delay). The linear fit on places reads 0.92 to 0.95 without noise where the network reads 0.99. |
 | Random sets of 2 and 4 ground-truth variables through a mix and a tanh, with noise (12 cases) | Enough in all 12. The first features span every planted variable in 6. |
-| One variable under a windowed operator (12 cases) | Named in 8 from the labels. The misses are a windowed composite, which the formula search does not build, and cases where the noise left under 0.05 to explain. |
+| One variable under a windowed operator (12 cases) | Named in 9 from the labels. The 3 misses are a windowed composite, which the formula search does not build. |
 | Forms the search cannot write: a minimum, a clipped ratio, a weighted sum, a root over a sum (10 cases) | Enough in all 10. No formula is exact, and the report says so by the gap between the linear and the flexible fit. |
-| No relation: white noise, and one random number per link | Held-out R^2 is at or below 0, linear and flexible. Nothing is found. |
+| No relation: white noise, and one random number per link | Held-out R^2 is at most 0.01 for the linear fit and below 0 for the flexible one. Nothing is found. |
 | One real latent beside one that hardly moves | The mean R^2 halves. `probe` reports each latent's standard deviation so that such a latent is seen. |
-| What the sender measures, from ground truth alone | The smoothed RTT is found as base RTT plus queueing delay (0.997), a formula nobody listed. |
+| What the sender measures, from ground truth alone | The smoothed RTT is found as base RTT plus queueing delay (R^2 0.996), a formula nobody listed. |
 
 What changed in `select` because of it:
 
 - Every fit is made on places (ranks). A latent that held a variable as
   its value, its inverse or its tanh gave different linear fits before,
   and now gives one. Normal scores in place of ranks were tried and
-  dropped: on the seven-concept mixes the linear fit fell from 0.92 to
-  0.78.
+  dropped: in a local run on the seven-concept mix the linear fit fell
+  from 0.92 to 0.78.
 - A formula search over the stored labels follows the selection, and the
   path is selected again with its formulas. Before it, a product of two
   labels could not be written at all.
@@ -235,6 +235,7 @@ Limits that remain:
 |---|---|---|
 | `exp-estimator-seven-20` | The estimator of the seven LCFs: `estimator/source-net1.pt` as copied, and `estimator/net1.pt` converted to the current spec with weights and scalers untouched (a distribution over 64 bins, 3 members, 70 inputs). Hashes are in the release notes. | input of the bootstrap |
 | `exp-steps-behaviour-rule-8` | The fixed rule as an ONNX graph. | input of the bootstrap |
+| `exp-ground-stress-23` | The stress test of the fitter: the rollouts' setup, `stress/stress.json` with every case and `summary.md`. | read above |
 | `exp-controller-clone-21` | The start taught from the fixed rule: 24 run directories with specs, weights, exported policies and histories. | read above |
 | `exp-steps-broad-30s-9` | Logged steps on a broad set of links, 14,400 episodes, with every label. | old guest; regenerate before use |
 | `exp-phase0-teachers-1`, `exp-phase0-steps-2` | Two policy graphs and logged steps, copied in at setup. | old guest; not used by the plan |
