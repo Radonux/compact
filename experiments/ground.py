@@ -119,6 +119,7 @@ import argparse
 import hashlib
 import itertools
 import json
+import sys
 import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
@@ -324,8 +325,8 @@ class Library:
             fit=np.ones((len(fit), 1)),
             score=np.ones((len(score), 1)),
             base=tuple(names[:variables]),
-            base_fit=fit[:, :variables],
-            base_score=score[:, :variables],
+            base_fit=fit[:, :variables].copy(),  # not a view: the caller may drop fit
+            base_score=score[:, :variables].copy(),
         )
         return empty.plus(names, [names[j % variables] for j in range(len(names))], fit, score)
 
@@ -970,29 +971,35 @@ def select(out: Path, runs: list[Path]) -> None:
     out.mkdir(parents=True, exist_ok=True)
     ctls, names, variables, fr, sr = _setup(runs)
     lib = Library.of(names, variables, fr.x, sr.x)
+    # The library holds the features now. The rows' own copy is a gigabyte
+    # or more that nothing below reads.
+    fr, sr = (replace(q, x=np.empty((len(q.u), 0))) for q in (fr, sr))
     z_of = {c.name: (c.encode(fr.obs), c.encode(sr.obs)) for c in ctls}
-    # Each run on its own rollouts.
-    own = {c.name: lib.rows(fr.own(r), sr.own(r)) for r, c in enumerate(ctls)}
-    z_own = {
-        c.name: (z_of[c.name][0][fr.own(r)], z_of[c.name][1][sr.own(r)]) for r, c in enumerate(ctls)
-    }
     index = {n: i for i, n in enumerate(lib.names)}
     result: dict[str, Any] = {
         "features": lib.names,
         "same_as": lib.same_as,
-        "runs": {c.name: {"k": c.k} | _selection(own[c.name], z_own[c.name]) for c in ctls},
+        "runs": {},
         "pooled": {},
         "transfer": [],
     }
+    # Each run on its own rollouts, one library of its rows at a time.
+    moments: dict[str, Moments] = {}
+    for r, c in enumerate(ctls):
+        own = lib.rows(fr.own(r), sr.own(r))
+        z = (z_of[c.name][0][fr.own(r)], z_of[c.name][1][sr.own(r)])
+        result["runs"][c.name] = {"k": c.k} | _selection(own, z)
+        moments[c.name] = Moments.of(own, *z)
+        print(f"select: {c.name}", file=sys.stderr, flush=True)
     for k in sorted({c.k for c in ctls}):
         same = [z_of[c.name] for c in ctls if c.k == k]
         z = (np.concatenate([v[0] for v in same], 1), np.concatenate([v[1] for v in same], 1))
         result["pooled"][str(k)] = {"runs": len(same)} | _selection(lib, z)
+        print(f"select: pooled {k}", file=sys.stderr, flush=True)
     for a, c in itertools.permutations(ctls, 2):
         if a.k == c.k:
             picks = [index[p["feature"]] for p in result["runs"][a.name]["path"][:PICK]]
-            m = Moments.of(own[c.name], *z_own[c.name])
-            r = float(m.r2(_columns(lib, picks)).mean())
+            r = float(moments[c.name].r2(_columns(lib, picks)).mean())
             result["transfer"].append({"from": a.name, "to": c.name, "k": a.k, "mean": r})
     (out / "select.json").write_text(json.dumps(result, indent=1) + "\n")
     (out / "summary.md").write_text(select_summary(result))
