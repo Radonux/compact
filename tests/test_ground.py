@@ -76,7 +76,12 @@ def test_ground_selection_finds_the_features_that_span_the_latents() -> None:
     assert set(order[:2]) == {1, 4}
     assert m.r2(ground._columns(lib, order[:2])).min() > 0.999
     assert m.r2(ground._columns(lib, order[:1])).min() < 0.9
-    sel = ground._selection(lib, m)
+    sel = ground._selection(
+        lib,
+        m,
+        lambda cols: ground.flexible(lib.fit[:, cols], z[:4000], lib.score[:, cols], z[4000:]),
+    )
+    assert sel["flexible"]["picked"] > 0.99
     assert sel["library"] > 0.999 and set(sel["without"]) >= {"v0", "v2"}
     assert sel["without"]["v0"][-1]["mean"] < 0.9  # no substitute for feature 1
 
@@ -186,7 +191,10 @@ def _campaign(d: Path, s: data.Steps) -> None:
     )
 
 
-def test_a_controllers_latents_are_grounded_on_its_own_rollouts(tmp_path: Path) -> None:
+def test_a_controllers_latents_are_grounded_on_its_own_rollouts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ground, "FLEX_STEPS", 20)  # its value is not under test here
     torch.manual_seed(0)
     steps = _noisy(n_episodes=12)
     net1_spec = Net1Spec(
@@ -251,3 +259,39 @@ def test_a_controllers_latents_are_grounded_on_its_own_rollouts(tmp_path: Path) 
     (wide / "ppo_spec.json").write_text(spec.model_copy(update={"latents": None}).model_dump_json())
     with pytest.raises(SystemExit, match="not a discovery controller"):
         ground.Controller.load(wide)
+
+
+def _plain_library(x: np.ndarray, fit: int) -> ground.Library:
+    design = np.concatenate([np.ones((len(x), 1)), x], axis=1)
+    n = x.shape[1]
+    return ground.Library(
+        names=tuple(f"f{i}" for i in range(n)),
+        variable=tuple(f"v{i}" for i in range(n)),
+        columns=tuple((i + 1,) for i in range(n)),
+        same_as={},
+        fit=design[:fit],
+        score=design[fit:],
+    )
+
+
+def test_pruning_puts_a_feature_that_stood_in_for_a_mix_last() -> None:
+    rng = np.random.default_rng(2)
+    a, b, junk = rng.normal(size=(3, 6000))
+    proxy = a + b + 0.5 * rng.normal(size=6000)  # the best single feature, not a concept
+    lib = _plain_library(np.stack([proxy, a, b, junk], axis=1), 4000)
+    z = np.stack([a + b, a + 0.8 * b], axis=1) + 0.05 * rng.normal(size=(6000, 2))
+    m = ground.Moments.of(lib, z[:4000], z[4000:])
+    forward = ground.greedy(lib, m, [0, 1, 2, 3], 3)
+    assert forward[0] == 0
+    assert set(ground.pruned(lib, m, forward)[:2]) == {1, 2}
+
+
+def test_the_flexible_fit_sees_a_variable_the_latent_holds_in_another_form() -> None:
+    rng = np.random.default_rng(3)
+    x = rng.normal(size=(6000, 3))
+    lib = _plain_library(x, 4000)
+    z = np.minimum(x[:, 0], x[:, 1])[:, None] ** 2  # no linear fit follows this
+    m = ground.Moments.of(lib, z[:4000], z[4000:])
+    assert m.r2(ground._columns(lib, [0, 1, 2]))[0] < 0.5
+    assert ground.flexible(lib.fit[:, 1:3], z[:4000], lib.score[:, 1:3], z[4000:]) > 0.95
+    assert ground.flexible(lib.fit[:, 3:], z[:4000], lib.score[:, 3:], z[4000:]) < 0.05

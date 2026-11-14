@@ -93,7 +93,7 @@ These follow from the design, before any data. Each has a check.
 | | Claim | How it fails |
 |---|---|---|
 | C1 | Count. Closed-loop performance of the discovery controller stops improving at a small width k, the same across seeds, and at that width it matches the wide controller. | No width short of the wide one keeps the performance, or one latent already does (action collapse). |
-| C2 | Grounding. At that width each latent is a short closed-form formula over named variables (held-out R^2 of 0.9 or more at the knee of size against fit), and the same formulas recur in at least 3 of 5 seeds. | The latents fit no short formula, or differ between seeds. |
+| C2 | Grounding. At that width each latent is a short closed-form formula over named variables (at the knee of size against fit, a held-out R^2 close to what a flexible fit on the whole library reaches), and the same formulas recur in at least 3 of 5 seeds. | The latents fit no short formula, or differ between seeds. |
 | C3 | Retention. net1 + net2 trained on the fitted concepts retain more of the wide controller's closed-loop performance than the same number of concepts chosen another way: the hand-picked LCFs, greedy subset search, SHAP-ranked inputs, a random subset. | A baseline ties or wins at the same budget. |
 | C4 | Vocabulary. With one base variable or operator family removed from the library, the selected concepts change only when the removed item was one of them. | The selection follows whatever the library holds. |
 | C5 | Start. The discovery controller yields the same concepts from different teachers. | The concepts describe one teacher. |
@@ -214,17 +214,30 @@ products, and a log.
    seeds agree. Each is a lower bound.
 2. Select (`experiments/ground.py select`). Fit all k latents jointly and
    linearly on the library, adding one feature at a time, the one that
-   most raises the fit. The variables are on log scales, so a linear fit
-   is a fit by products and ratios of powers, and the selected features
-   are the candidate concepts.
+   most raises the fit. Then order the chosen features by taking them
+   away again, each time the one the fit loses least without: a feature
+   chosen early because it stood in for a mix of later ones falls to the
+   end. The variables are on log scales, so a linear fit is a fit by
+   products and ratios of powers, and the selected features are the
+   candidate concepts. The joint fit needs no rotation of the latents:
+   it asks which features span them, and any invertible mix of the
+   latents has the same span.
 3. Report the path twice: on the whole library, and on ground truth
    alone. The latents are computed from the sender's message, so on the
    whole library the sender's own readings can stand in for the path
    quantities they measure. Only a feature of ground truth is a concept
-   for net1 to estimate.
-4. Run PySR with a parsimony penalty on the residual the linear fit
-   leaves. For each latent, report formula size against held-out R^2 and
-   pick the knee. The target is R^2 of 0.9 or more.
+   for net1 to estimate. Beside each linear number, report a flexible
+   fit (a small network) on the same features and on the whole library.
+   The encoder may hold a variable in any form the decoder can undo, so
+   a linear R^2 is a lower bound and no fixed bar applies to it. The
+   selected features are enough when the flexible fit on them reaches
+   the flexible fit on the whole library. What the flexible fit on the
+   whole library misses is no function of the library: the sender's
+   estimation error, or a variable nobody listed.
+4. Run PySR with a parsimony penalty on the selected features, where the
+   flexible fit shows the linear one leaves something. For each latent,
+   report formula size against held-out R^2 and pick the knee. The
+   target is the flexible fit's R^2 on the same features.
 5. Keep the concepts that recur in at least 3 of 5 seeds, matching
    formulas by a correlation above 0.9 on shared held-out traces.
 6. Vocabulary sensitivity (C4). Refit with each base variable or operator

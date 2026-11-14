@@ -32,6 +32,8 @@ For every run, on its own rollouts:
             products): which variables the latents carry
   write     R^2 of each latent predicted linearly from all base variables:
             how much of a latent the vocabulary can express at all
+  spread    each latent's standard deviation. Every fit standardizes the
+            latents, so one that hardly moves counts as much as the rest.
 
 and for each pair of runs of one width, on the rollouts of every run given:
 
@@ -56,10 +58,12 @@ listed here: a label or composite added there joins the library. The
 library is every base variable under eight operators: its value now, its
 mean, minimum and maximum over the last 240 ms and 960 ms, and its change
 over 60 ms. Sums of logarithms are products and ratios, so a linear fit on
-this library is a fit by products of powers. Features are added one at a
-time, each the one that most raises the R^2 of a joint linear fit of all
-latents on the fit rollouts, and every size is scored on the score
-rollouts. Reported per run on its own rollouts, and per width with the
+this library is a fit by products of powers. STEPS features are added one
+at a time, each the one that most raises the R^2 of a joint linear fit of
+all latents on the fit rollouts. They are then put in order by taking them
+away again, each time the one the fit loses least without, so a feature
+that stood in for a mix of later ones falls to the end. Every size is
+scored on the score rollouts. Reported per run on its own rollouts, and per width with the
 latents of its runs pooled, on the rollouts of every run given (give the
 runs of one teacher together):
 
@@ -67,6 +71,14 @@ runs of one teacher together):
            latent's R^2 at each size
   bounds   the R^2 with the whole library, and with expliCCit's seven
            hand-picked concepts alone
+  flexible the R^2 of a small network, in place of the linear fit, on the
+           first PICK features, on the first PICK of the hidden path, and
+           on the whole library. An encoder may hold a variable in any
+           form, and the decoder can undo it, so the linear numbers are
+           lower bounds. The features are enough when the network on them
+           reaches the network on the whole library; what that one misses
+           is not a function of the library at all (the sender's
+           estimation error, or a variable nobody listed).
   hidden   the path and the bound when the sender's four measurements are
            taken out, so only ground truth is left. The latents are
            computed from the sender's message, so they can repeat what it
@@ -121,6 +133,7 @@ I64 = npt.NDArray[np.int64]
 # SCORE of the score rollouts. ponytail: a fixed subsample, every decision
 # if a fit ever needs them.
 FIT, SCORE = 300_000, 200_000
+FLEX_STEPS = 1500  # gradient steps of the flexible fit
 _SCALE = {"_bps": 1e-6, "_ns": 1e-6, "_bytes": 1e-3}
 SRTT, DELIVERY, LOST = (
     OBS_COLUMNS.index(c) for c in ("srtt_x100ms", "delivery_rate_x100mbps", "lost_x100mbps")
@@ -418,6 +431,7 @@ def probe(out: Path, runs: list[Path]) -> None:
             "k": c.k,
             "fit": int(f.sum()),
             "score": int(s.sum()),
+            "latent_std": z_fit.std(0).tolist(),
             "decision_linear": float(r2(z_fit, u_fit, z_score, u_score)[0]),
             "decision_quadratic": float(
                 r2(quadratic(z_fit), u_fit, quadratic(z_score), u_score)[0]
@@ -487,6 +501,10 @@ def summary(result: dict[str, Any]) -> str:
     lines += ["Latents from all base variables, linear:\n\n| | " + head, rule]
     lines.append("| mean over latents | " + cells(lambda r: np.mean(r["write_linear"])))
     lines.append("| worst latent | " + cells(lambda r: np.min(r["write_linear"])))
+    lines.append(
+        "| smallest latent's standard deviation over the largest | "
+        + cells(lambda r: np.min(r["latent_std"]) / np.max(r["latent_std"]))
+    )
     lines += [
         "\nOne run's latents from another's, on every run's rollouts, mean over pairs:\n\n| | "
         + head,
@@ -557,8 +575,9 @@ def _columns(lib: Library, features: list[int]) -> list[int]:
 
 def greedy(lib: Library, m: Moments, allowed: list[int], steps: int) -> list[int]:
     """Features in the order a forward selection adds them.
-    ponytail: greedy forward selection, a group lasso path if the picks
-    prove unstable between seeds."""
+    ponytail: the criterion is a linear fit, so a variable that acts only
+    through a product with another is picked late; a selection scored by
+    the flexible fit if PICK features prove too few for it."""
     picked: list[int] = []
     for _ in range(min(steps, len(allowed))):
         rest = [f for f in allowed if f not in picked]
@@ -566,8 +585,51 @@ def greedy(lib: Library, m: Moments, allowed: list[int], steps: int) -> list[int
     return picked
 
 
+def pruned(lib: Library, m: Moments, order: list[int]) -> list[int]:
+    """``order`` again, by backward elimination: the last is the feature the
+    fit on all of them loses least without, and so on down. Forward
+    selection alone keeps a first pick that stood in for a mix of later ones."""
+    keep, gone = list(order), []
+    while len(keep) > 1:
+        least = max(keep, key=lambda f: m.explained(_columns(lib, [g for g in keep if g != f])))
+        keep.remove(least)
+        gone.append(least)
+    return [*keep, *reversed(gone)]
+
+
+def flexible(x_fit: F64, z_fit: F64, x: F64, z: F64) -> float:
+    """The mean over latents of the held-out R^2 of a small network fitted
+    to z on x. It can overfit the few links of the fit rows, so it is a
+    lower bound on what any function of x explains.
+    ponytail: one fixed network, a tuned one if its numbers decide a claim."""
+    torch.manual_seed(0)
+    mean, std = z_fit.mean(0), z_fit.std(0) + 1e-12
+    a, b, t, v = (
+        torch.tensor(q, dtype=torch.float32)
+        for q in (x_fit, (z_fit - mean) / std, x, (z - mean) / std)
+    )
+    net = torch.nn.Sequential(
+        torch.nn.Linear(a.shape[1], 128),
+        torch.nn.SiLU(),
+        torch.nn.Linear(128, 128),
+        torch.nn.SiLU(),
+        torch.nn.Linear(128, b.shape[1]),
+    )
+    opt = torch.optim.Adam(net.parameters())
+    sched = torch.optim.lr_scheduler.OneCycleLR(opt, 4e-3, total_steps=FLEX_STEPS)
+    for _ in range(FLEX_STEPS):
+        i = torch.randint(len(a), (2048,))
+        loss = ((net(a[i]) - b[i]) ** 2).mean()
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
+        sched.step()
+    with torch.no_grad():
+        return float((1 - ((net(t) - v) ** 2).mean(0) / v.var(0)).mean())
+
+
 def _path(lib: Library, m: Moments, allowed: list[int]) -> list[dict[str, Any]]:
-    order = greedy(lib, m, allowed, STEPS)
+    order = pruned(lib, m, greedy(lib, m, allowed, STEPS))
     out = []
     for n in range(1, len(order) + 1):
         r = m.r2(_columns(lib, order[:n]))
@@ -577,18 +639,29 @@ def _path(lib: Library, m: Moments, allowed: list[int]) -> list[dict[str, Any]]:
     return out
 
 
-def _selection(lib: Library, m: Moments) -> dict[str, Any]:
+def _selection(lib: Library, m: Moments, flex: Callable[[list[int]], float]) -> dict[str, Any]:
+    """``flex``: the flexible fit's R^2 on these columns of the library."""
     everything = list(range(len(lib.names)))
     path = _path(lib, m, everything)
     index = {n: i for i, n in enumerate(lib.names)}
+
+    def picked(path: list[dict[str, Any]]) -> list[int]:
+        return _columns(lib, [index[p["feature"]] for p in path[:PICK]])[1:]
+
     lcfs = [index[n] for n in EXPLICCIT_LCFS if n in index]
     of = [sources(v) for v in lib.variable]
     used = sorted(set().union(*(of[index[p["feature"]]] for p in path[:PICK])))
     hidden = [f for f in everything if not lib.variable[f].startswith("sender_")]
+    hidden_path = _path(lib, m, hidden)
     return {
         "path": path,
         "library": float(m.r2(_columns(lib, everything)).mean()),
-        "hidden_path": _path(lib, m, hidden),
+        "flexible": {
+            "picked": flex(picked(path)),
+            "hidden_picked": flex(picked(hidden_path)),
+            "library": flex(list(range(1, lib.fit.shape[1]))),
+        },
+        "hidden_path": hidden_path,
         "hidden_library": float(m.r2(_columns(lib, hidden)).mean()),
         "expliccit_lcfs": float(m.r2(_columns(lib, lcfs)).mean()),
         "without": {
@@ -609,19 +682,31 @@ def select(out: Path, runs: list[Path]) -> None:
         for r, c in enumerate(ctls)
     }
     index = {n: i for i, n in enumerate(lib.names)}
+
+    def flex(
+        z: tuple[F64, F64], fit: Any = slice(None), score: Any = slice(None)
+    ) -> Callable[[list[int]], float]:
+        x, y = lib.fit[fit], lib.score[score]
+        return lambda cols: flexible(x[:, cols], z[0], y[:, cols], z[1])
+
+    def own(r: int, c: Controller) -> dict[str, Any]:
+        f, s = fr.own(r), sr.own(r)
+        z = z_of[c.name]
+        return _selection(lib, moments[c.name], flex((z[0][f], z[1][s]), f, s))
+
     result: dict[str, Any] = {
         "features": lib.names,
         "same_as": lib.same_as,
-        "runs": {c.name: {"k": c.k} | _selection(lib, moments[c.name]) for c in ctls},
+        "runs": {c.name: {"k": c.k} | own(r, c) for r, c in enumerate(ctls)},
         "pooled": {},
         "transfer": [],
     }
     for k in sorted({c.k for c in ctls}):
         same = [z_of[c.name] for c in ctls if c.k == k]
-        pooled = Moments.of(
-            lib, np.concatenate([v[0] for v in same], 1), np.concatenate([v[1] for v in same], 1)
+        z = (np.concatenate([v[0] for v in same], 1), np.concatenate([v[1] for v in same], 1))
+        result["pooled"][str(k)] = {"runs": len(same)} | _selection(
+            lib, Moments.of(lib, *z), flex(z)
         )
-        result["pooled"][str(k)] = {"runs": len(same)} | _selection(lib, pooled)
     for a, c in itertools.permutations(ctls, 2):
         if a.k == c.k:
             picks = [index[p["feature"]] for p in result["runs"][a.name]["path"][:PICK]]
@@ -641,6 +726,10 @@ def select_summary(result: dict[str, Any]) -> str:
             f"\n## {k} latents, {sel['runs']} runs pooled\n\n",
             f"Whole library: {sel['library']:.3f}. expliCCit's seven concepts: "
             f"{sel['expliccit_lcfs']:.3f}.\n\n",
+            f"A small network in place of the linear fit: {sel['flexible']['picked']:.3f} on "
+            f"the first {PICK} features, {sel['flexible']['hidden_picked']:.3f} on the first "
+            f"{PICK} without the sender's measurements, {sel['flexible']['library']:.3f} on "
+            "the whole library.\n\n",
         ]
         hidden = (
             "\nThe library without the sender's measurements "

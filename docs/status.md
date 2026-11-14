@@ -167,6 +167,35 @@ than one rollout per link ran the same episode twice under one id, and
 one copy failed. The specification now refuses that. The bootstrap uses
 one rollout per link and is not affected.
 
+## A stress test of the fitter
+
+Latents with a known answer were planted and put through `select`. The
+rows were 150 episodes run locally under Cubic, BBRv3 and the fixed rule
+(90 training links to fit, 60 validation links to score). Each latent was
+a formula over ground truth, some with noise added. This was a local
+check. Its script is not in the repository, and a released run is UNRUN.
+
+| Planted | Outcome |
+|---|---|
+| Products of powers, alone or as an invertible mix of three, with and without noise | The right features come first, and R^2 reaches the limit the noise sets. Mixing costs nothing, so the latents need no rotation before the fit. |
+| Other forms: a tanh of a variable, the smaller of two, a ratio of sums, products of plain values | In five of seven cases the linear R^2 stops between 0.68 and 0.95. A small network on the first 8 features reaches 0.98 to 1.00 in all seven, so the features were right and the form was not. |
+| Four variables through a random mix and a tanh, with noise | Forward selection picks a stand-in for the mix first and keeps it: 0.69 at 4 features. Ordering by backward elimination puts the four planted variables first: 0.77. |
+| No relation: one random number per episode, and white noise | Held-out R^2 is at or below 0. Nothing is found. |
+| One real latent beside one that hardly moves | The mean R^2 halves, and fits to the noise take the picks after the first. |
+
+Three changes followed. `select` orders its features by backward
+elimination. It reports a small network's R^2 on the first 8 features and
+on the whole library beside the linear numbers. `probe` reports each
+latent's standard deviation. No fixed bar for R^2 is used any more: a
+latent computed from the sender's measurements can hold less than all of
+a ground-truth variable, and the flexible fit on the whole library says
+how much there is to explain.
+
+Two limits remain. The selection criterion is linear, so a variable that
+acts only through a product with another is picked late: in one planted
+case it came seventh. And a latent that hardly moves still counts as much
+as the others. Whether trained controllers have such latents is not known.
+
 ## Releases
 
 | Release | What it holds | State |
@@ -226,15 +255,16 @@ selection method in `experiments/ground.py`.
 | What the search over the stage's settings covers | Candidates: exploration noise, learning rate, an anchor to the clone, the value warm-up. |
 | The scale of retained performance | [methodology.md](methodology.md#retained-performance). |
 | The threshold for C3 | |
+| How close to the flexible fit a formula must come | C2 compares a formula with a flexible fit on the whole library. The margin is not decided. |
+| How to weigh a latent that hardly moves | Every fit standardizes the latents. A weight from the decoder's use of each latent is a candidate. |
 | The kind of output the retrained net1 states | A value, an interval or a distribution. |
 | Labels for fitted formulas | A formula over stored labels can be added as a composite with no new data and no guest change ([architecture.md](architecture.md#composites)). A formula that uses a windowed operator over past steps, as the library's features do, has no such path yet. |
 
 ## Checks
 
-On the current code: ruff, pyright and `uv run pytest -q` (222 passed, 61
-skipped) pass. With the guest booted locally, 14 tests pass: the
-end-to-end pipeline for every net1 kind and view, grounding included, one
-training iteration under each learner, and the run that the time budget
-ends. The other tests that boot the guest are UNRUN locally on this
-code. CI runs them, and its `ci` and `uml` workflows pass on the
-commit of the reinforcement-learning stage, `7d24b9ac2`.
+On the current code: ruff, pyright and `uv run pytest -q` (224 passed, 61
+skipped) pass. With the guest booted locally, the 24 tests of
+`tests/test_e2e.py` pass: the end-to-end pipeline for every net1 kind and
+view, grounding included. The other tests that boot the guest are UNRUN
+locally on this code. CI runs them, and its `ci` and `uml` workflows
+passed on the commit of the reinforcement-learning stage, `7d24b9ac2`.
