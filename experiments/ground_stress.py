@@ -51,12 +51,13 @@ Per case and regime, on the score rollouts:
             every allowed feature (run only where the linear fit falls
             short of the limit)
   span      the worst planted concept's R^2 from the first c features,
-            and from the first PICK: whether the picks span the concepts
+            and from the first PICK, on places: whether the picks span
+            the concepts
   named     the worst planted concept's best rank correlation with one
             picked feature: 1 when some pick is the concept up to a
             monotone change, which is all a decoder cares about
-  formulas  named and linear again, with the sums ground.py builds from
-            the picked labels allowed too
+  formulas  named and linear again, with the formulas ground.py builds
+            from the stored labels allowed too
 
 Writes OUT/stress.json and OUT/summary.md.
 """
@@ -65,6 +66,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -252,7 +254,7 @@ def regime(lib: Library, p: Planted, allowed: list[int], *, formulas: bool) -> d
             for q in (cols(PICK), everything)
         ]
     if formulas:
-        wider, made = ground.formulas(lib, p.z, [lib.names[f] for f in order[:PICK]])
+        wider, made = ground.formulas(lib, p.z, [lib.names[f] for f in order])
         w = Moments.of(wider, *p.z)
         index = {n: i for i, n in enumerate(wider.names)}
         again = [index[lib.names[f]] for f in allowed if lib.names[f] in index]
@@ -267,7 +269,7 @@ def regime(lib: Library, p: Planted, allowed: list[int], *, formulas: bool) -> d
     return out
 
 
-def run(out: Path) -> None:
+def run(out: Path, only: str = "") -> None:
     names, variables, fr = ground._rows([out], "fit", ground.FIT)
     _, _, sr = ground._rows([out], "score", ground.SCORE)
     lib = Library.of(names, variables, fr.x, sr.x)
@@ -299,6 +301,8 @@ def run(out: Path) -> None:
         plan.append((g, t, v, (zf, zs), s))
     results = []
     for i, (group, title, concepts, (zf, zs), noise) in enumerate(plan):
+        if not re.search(only, f"{group}: {title}"):
+            continue
         rng = np.random.default_rng(1000 + i)
         scale = zf.std(0)
         z = (
@@ -307,7 +311,8 @@ def run(out: Path) -> None:
         )
         # What the noise leaves: each latent's rank correlation with itself before the noise.
         limit = float(np.mean(np.mean(ground._places(zs) * ground._places(z[1]), axis=0) ** 2))
-        p = Planted(z, (concept(fr.x, concepts), concept(sr.x, concepts)), limit)
+        cf = concept(fr.x, concepts)
+        p = Planted(z, (ground.ranked(cf, cf), ground.ranked(cf, concept(sr.x, concepts))), limit)
         row = {
             "group": group,
             "case": title,
@@ -376,8 +381,8 @@ def summary(result: dict[str, Any]) -> str:
                     count(
                         rows,
                         lambda c: (
-                            max(c["labels"]["formulas"]["linear"][1], enough(c, c["labels"]))
-                            >= c["limit"] - ENOUGH
+                            c["labels"]["formulas"]["linear"][1] >= c["limit"] - ENOUGH
+                            or enough(c, c["labels"])
                         ),
                     ),
                 ]
@@ -418,7 +423,9 @@ def main() -> None:
     ro.add_argument("--build", type=Path, required=True)
     ro.add_argument("--workers", type=int, default=1)
     ro.add_argument("--links", type=int, default=96)
-    sub.add_parser("run").add_argument("out", type=Path)
+    go = sub.add_parser("run")
+    go.add_argument("out", type=Path)
+    go.add_argument("--only", default="", help="a pattern for 'group: case'; all by default")
     a = p.parse_args()
     if a.verb == "rollouts":
         ground.drive(
@@ -432,7 +439,7 @@ def main() -> None:
             links=a.links,
         )
     else:
-        run(a.out)
+        run(a.out, a.only)
 
 
 if __name__ == "__main__":

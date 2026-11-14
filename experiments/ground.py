@@ -153,6 +153,7 @@ FLEX_STEPS = 1500  # gradient steps of the flexible fit
 # sum's two terms together, the width above which the screen reads the
 # latents linearly, and the rank correlation at which two formulas are one.
 FORMULAS, SCREEN, COARSE, TERMS, WIDE, ALIKE = 32, 5000, 2000, 4, 16, 0.98
+PAIRS, LABELS = 4, 12
 _SCALE = {"_bps": 1e-6, "_ns": 1e-6, "_bytes": 1e-3}
 SRTT, DELIVERY, LOST = (
     OBS_COLUMNS.index(c) for c in ("srtt_x100ms", "delivery_rate_x100mbps", "lost_x100mbps")
@@ -275,7 +276,10 @@ def ranked(ref: F64, x: F64) -> F64:
     equal values share a place and NaN stays NaN. A latent may hold a
     variable in any monotone form, and so may a feature (x, 1 / x and
     log x are one variable), so every fit is made on places: a monotone
-    change of a column changes none of them."""
+    change of a column changes none of them. The ranks themselves and not
+    their normal scores: on the stress test's mixes of seven concepts the
+    scores lost a sixth of the linear fit, since many labels sit at a
+    bound for much of the time and the scores stretch the rest."""
     out = np.full(x.shape, np.nan)
     for j in range(x.shape[1]):
         r = np.sort(ref[np.isfinite(ref[:, j]), j])
@@ -723,14 +727,14 @@ def _si(label: str) -> tuple[float, tuple[int, int]]:
     return next((v for suffix, v in _SI.items() if label.endswith(suffix)), (1.0, (0, 0)))
 
 
-def _sums(dims: list[tuple[int, int]]) -> list[Sum]:
+def _sums(dims: list[tuple[int, int]], most: int) -> list[Sum]:
     """Every product of two or three of the variables or their inverses,
     and every sum and difference of two terms of one dimension, a term
-    being 1 or a product of up to three, with TERMS factors at most in
+    being 1 or a product of up to three, with ``most`` factors at most in
     the two together."""
     by: dict[tuple[int, int], list[Monomial]] = {}
     out: list[Sum] = []
-    for r in range(4):
+    for r in range(min(most, 3) + 1):
         for vs in itertools.combinations(range(len(dims)), r):
             for es in itertools.product((1, -1), repeat=r):
                 m = tuple(zip(vs, es, strict=True))
@@ -740,7 +744,7 @@ def _sums(dims: list[tuple[int, int]]) -> list[Sum]:
                     out.append((m, 0, ()))
     for group in by.values():
         for a, b in itertools.combinations(group, 2):
-            if len(a) + len(b) <= TERMS:
+            if len(a) + len(b) <= most:
                 out += [(a, 1, b), (a, -1, b)]
     return out
 
@@ -779,14 +783,39 @@ def _places(x: F64) -> F64:
     return r / (r.std(0) + 1e-12)
 
 
-def formulas(lib: Library, z: tuple[F64, F64], picked: list[str]) -> tuple[Library, list[str]]:
-    """(the library with formulas the picked features suggest, their names).
+@dataclass(frozen=True, slots=True)
+class _Candidate:
+    """A formula over some labels of one window."""
+
+    formula: Sum
+    labels: tuple[str, ...]  # the variables of the formula, without the window
+    at: tuple[int, ...]  # their columns in the library's base
+    name: str
+
+    def cost(self) -> tuple[int, int, int]:
+        """Factors, terms and inverses: fewer is simpler, in that order."""
+        a, sign, b = self.formula
+        return len(a) + len(b), abs(sign), sum(e < 0 for _, e in a + b)
+
+
+def formulas(  # noqa: PLR0915  (one search, read top to bottom)
+    lib: Library, z: tuple[F64, F64], picked: list[str]
+) -> tuple[Library, list[str]]:
+    """(the library with formulas the latents suggest, their names).
 
     A linear fit on places writes no product and no sum of two variables.
-    This adds both, over the stored labels behind ``picked``, in one window at a time (``_sums``).
+    This adds both, over stored labels of one window at a time (``_sums``).
     Two terms are added only if they have one dimension in SI units, so
     no coefficient is fitted. That is the form of the literature's
     composites (lcfs.COMPOSITES).
+
+    The search has two rounds. The first tries every formula of two
+    factors over all the stored labels: a difference of two variables
+    that are nearly equal (arrival rate less capacity) shows in no linear
+    fit on either, so the picked features cannot be trusted to lead to
+    it. The second tries formulas of up to TERMS factors over LABELS
+    labels: those of the first round's best PAIRS formulas, then those
+    behind ``picked``, in its order.
 
     FORMULAS of them are kept: those the latents hold best. A formula is
     scored by how well the latents' places predict its own, with their
@@ -797,80 +826,97 @@ def formulas(lib: Library, z: tuple[F64, F64], picked: list[str]) -> tuple[Libra
     ponytail: two terms with coefficient 1, PySR on the picked labels if
     the flexible fit shows a form beyond this."""
     index = {n: i for i, n in enumerate(lib.names)}
-    behind = set().union(*(sources(lib.variable[index[f]]) for f in picked if f in index))
-    stored = {_label(n) for n in lib.base if _label(n) not in lcfs.COMPOSITES}
-    labels = sorted(n for n in behind & stored if not n.startswith("sender_"))
-    dims = [_si(n)[1] for n in labels]
+    stored = sorted(
+        {_label(n) for n in lib.base}
+        - set(lcfs.COMPOSITES)
+        - {n for n in map(_label, lib.base) if n.startswith("sender_")}
+    )
     some = np.random.default_rng(0).choice(len(z[0]), min(len(z[0]), SCREEN), replace=False)
     zs = _places(z[0][some])
     design = np.concatenate(
         [np.ones((len(zs), 1)), zs if zs.shape[1] > WIDE else quadratic(zs)], axis=1
     )
     q, _ = np.linalg.qr(design)
-    coarse = np.linalg.qr(design[:COARSE])[0].astype(np.float32)
+    few = min(len(some), COARSE)
+    coarse = np.linalg.qr(design[:few])[0].astype(np.float32)
+    places = np.linspace(-0.5, 0.5, few, dtype=np.float32)
 
-    def raw(x: F64, at: list[int]) -> F64:
-        """The labels in SI units, from the library's log scale."""
-        k = np.array([_si(n)[0] / _factor(lib.base[i]) for n, i in zip(labels, at, strict=True)])
+    def raw(x: F64, c: _Candidate) -> F64:
+        """The candidate's labels in SI units, from the library's log scale."""
+        at = list(c.at)
+        k = np.array([_si(n)[0] / _factor(lib.base[i]) for n, i in zip(c.labels, at, strict=True)])
         return np.sign(x[:, at]) * np.expm1(np.abs(x[:, at])) * k
 
-    first: list[tuple[float, Sum, int, list[str]]] = []  # -score, the formula, its window
-    # -score, factors, inverses, name, the formula, its window
-    found: list[tuple[float, int, int, str, Sum, int]] = []
+    def screened(
+        labels: list[str], most: int, windows: list[int]
+    ) -> list[tuple[float, _Candidate]]:
+        """(-score, formula) on some of the rows, with equal and undefined
+        values in no particular place: there are thousands of formulas."""
+        out: list[tuple[float, _Candidate]] = []
+        sums = _sums([_si(n)[1] for n in labels], most)
+        for w in windows:
+            names = [f"{n}_{w}ms" if f"{n}_{w}ms" in lib.base else n for n in labels]
+            at = tuple(lib.base.index(n) for n in names)
+            whole = _Candidate(((), 0, ()), tuple(labels), at, "")
+            r = raw(lib.base_fit[some[:few]], whole)
+            for lo in range(0, len(sums), 1024):
+                part = sums[lo : lo + 1024]
+                v = _values(part, r).astype(np.float32)
+                ok = np.isfinite(v)
+                g = np.empty_like(v)
+                np.put_along_axis(g, np.argsort(np.where(ok, v, 0), axis=0), places[:, None], 0)
+                score = np.sum((coarse.T @ g) ** 2, axis=0) / np.sum(g**2, axis=0)
+                score[ok.mean(0) < 0.5] = 0.0
+                out += [
+                    (-float(c), _Candidate(f, tuple(labels), at, _written(f, names)))
+                    for c, f in zip(score, part, strict=True)
+                ]
+        return sorted(out, key=lambda t: (t[0], t[1].cost(), t[1].name))
+
+    def variables(c: _Candidate) -> list[str]:
+        a, _, b = c.formula
+        return [c.labels[v] for v, _ in a + b]
+
     used = {lib.variable[index[f]] for f in picked if f in index}
-    rows: dict[int, tuple[list[int], F64]] = {}  # window -> the labels' columns and values
-    for w in WINDOWS_MS:
-        names = [f"{n}_{w}ms" if f"{n}_{w}ms" in lib.base else n for n in labels]
-        if w != WINDOWS_MS[0] and not any(v.endswith(f"_{w}ms") for v in used):
-            continue  # nothing picked is of this window
-        at = [lib.base.index(n) for n in names]
-        r = raw(lib.base_fit[some], at)
-        rows[w] = at, r
-        sums = _sums(dims)
-        for lo in range(0, len(sums), 1024):
-            part = sums[lo : lo + 1024]
-            # A coarse first pass, on some of the rows, with equal and
-            # undefined values in no particular place: thousands of columns.
-            v = _values(part, r[:COARSE]).astype(np.float32)
-            ok = np.isfinite(v)
-            order = np.argsort(np.where(ok, v, 0), axis=0)
-            g = np.empty_like(v)
-            np.put_along_axis(
-                g, order, np.linspace(-0.5, 0.5, len(v), dtype=np.float32)[:, None], 0
-            )
-            score = np.sum((coarse.T @ g) ** 2, axis=0) / np.sum(g**2, axis=0)
-            score[ok.mean(0) < 0.5] = 0.0
-            first += [(-float(c), f, w, names) for c, f in zip(score, part, strict=True)]
-    first.sort(key=lambda t: t[0])
-    for _, f, w, names in first[: 16 * FORMULAS]:
-        g = _places(_values([f], rows[w][1]))[:, 0]
-        found.append(
-            (
-                -round(float(np.sum((q.T @ g) ** 2) / len(g)), 2),
-                len(f[0]) + len(f[2]),
-                sum(e < 0 for _, e in f[0] + f[2]),
-                _written(f, names),
-                f,
-                w,
-            )
-        )
-    found.sort(key=lambda t: t[:4])
-    kept: list[tuple[str, Sum, list[int]]] = []
+    pairs = screened(stored, 2, list(WINDOWS_MS))
+    leads = [n for _, c in pairs[:PAIRS] for n in variables(c)]
+    leads += [n for f in picked if f in index for n in sorted(sources(lib.variable[index[f]]))]
+    labels = sorted(list(dict.fromkeys(n for n in leads if n in stored))[:LABELS])
+    windows = [
+        w
+        for w in WINDOWS_MS
+        if w == WINDOWS_MS[0]
+        or any(v.endswith(f"_{w}ms") for v in used)
+        or any(c.name.count(f"_{w}ms") for _, c in pairs[:PAIRS])
+    ]
+    first = sorted(
+        {c.name: (s, c) for s, c in pairs + screened(labels, TERMS, windows)}.values(),
+        key=lambda t: (t[0], t[1].cost(), t[1].name),
+    )
+
+    def exact(c: _Candidate) -> F64:
+        return _places(_values([c.formula], raw(lib.base_fit[some], c)))[:, 0]
+
+    found = sorted(
+        ((-round(float(np.sum((q.T @ exact(c)) ** 2) / len(some)), 2), *c.cost(), c.name), c)
+        for _, c in first[: 16 * FORMULAS]
+    )
+    kept: list[_Candidate] = []
     ranks: list[F64] = []
-    for *_, name, f, w in found:
-        g = _places(_values([f], rows[w][1]))[:, 0]
+    for _, c in found:
+        g = exact(c)
         if all(abs(np.mean(g * h)) < ALIKE for h in ranks):
-            kept.append((name, f, rows[w][0]))
+            kept.append(c)
             ranks.append(g)
         if len(kept) == FORMULAS:
             break
     if not kept:
         return lib, []
     fit, score = (
-        np.concatenate([_values([f], raw(x, at)) for _, f, at in kept], axis=1)
+        np.concatenate([_values([c.formula], raw(x, c)) for c in kept], axis=1)
         for x in (lib.base_fit, lib.base_score)
     )
-    names = [name for name, _, _ in kept]
+    names = [c.name for c in kept]
     wider = lib.plus(names, names, fit, score)
     return wider, [n for n in names if n in wider.names]
 

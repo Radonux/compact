@@ -240,9 +240,13 @@ maximum over two horizons and a first difference.
    products of two or three labels or their inverses, and sums and
    differences of two such terms. Two terms are added only when they
    have the same dimension in SI units, so no coefficient is fitted.
-   This is the form of the composites in the literature. A formula is
-   scored by how well the latents predict it, since what the decoder
-   can read from the latents is what they hold. Of formulas that order
+   This is the form of the composites in the literature. Formulas of
+   two factors are tried over every stored label, because a difference
+   of two nearly equal variables shows in no linear fit on either, so
+   the selected features need not lead to it. Longer formulas are tried
+   over the labels of the best of those and of the selected features. A
+   formula is scored by how well the latents predict it, since what the
+   decoder can read from the latents is what they hold. Of formulas that order
    the rows alike, the simplest is kept. The kept formulas join the
    library and the path is selected again. A formula that is chosen
    becomes a composite in the code, and from then on is in the library
