@@ -7,26 +7,27 @@ dated entries; its history is in git. The steps are those of the
 
 ## Where the project stands
 
-No claim has evidence yet. One closed-loop run has finished: the start
-taught from the fixed rule, which is a check and not a result for a claim
-([below](#the-start-taught-from-the-fixed-rule)).
+No claim has evidence yet. Two closed-loop runs have finished: the start
+taught from the fixed rule
+([below](#the-start-taught-from-the-fixed-rule)) and the bootstrap from
+Cubic and BBRv3. Both are checks and not results for a claim.
 
 The discovery controller is built and unit-tested. Its bootstrap from
-Cubic and from BBRv3 is running (`experiments/controller-teachers.json`,
-dispatched 2026-11-13). The reinforcement-learning stage and the
+Cubic and from BBRv3 has run ([below](#the-bootstrap)): every start is
+well below the fixed rule. The reinforcement-learning stage and the
 grounding of a controller's latents on its own rollouts are built and
-tested. Both wait for that release.
+tested, and read that release.
 
 | Step | State | Built | Not built |
 |---|---|---|---|
 | 1 Setup | done | the documents; the estimator of the seven LCFs and the rule graph as releases | |
-| 2 The controller in the closed loop | the bootstrap is running | `PPOSpec.latents`; `train ppo` by cloning a Linux controller, PPO, DAgger or TD3+BC; closed-loop rollouts and scoring; `experiments/net2_ppo_setup.py`, `net2_ppo_report.py`; the collapse check on rollouts (`ground.py probe`); the reinforcement-learning stage (`experiments/controller-rl.json`) and its width curve with the knee rule (`experiments/width_curve.py`) | the search over the stage's settings; the teachers' own scores on the validation links |
+| 2 The controller in the closed loop | the bootstrap has run | `PPOSpec.latents`; `train ppo` by cloning a Linux controller, PPO, DAgger or TD3+BC; closed-loop rollouts and scoring; `experiments/net2_ppo_setup.py`, `net2_ppo_report.py`; the collapse check on rollouts (`ground.py probe`); the reinforcement-learning stage (`experiments/controller-rl.json`) and its width curve with the knee rule (`experiments/width_curve.py`) | the search over the stage's settings; the teachers' own scores on the validation links |
 | 3 Grounding | UNRUN | `experiments/ground.py`: `rollouts` of a controller in the closed loop, `probe` and `select` on its latents there, with the sensitivity check; a library of every stored label (37 columns over 100 ms and 10 ms windows) and 12 composites in both windows; `experiments/ground-teachers.json`; a stress test on planted latents, `experiments/ground_stress.py` | formulas beyond two terms of four factors; the operator-family sensitivity; matching concepts across seeds |
 | 4 Retrain and compare | UNRUN | `train run` for net1; `train ppo` for a closed-loop net2; net1 on any stored label or composite; the live truth for every label but `queue_delay_ns`, so oracles on them | labels from fitted formulas beyond the composites; net1 on them |
 
 ## The bootstrap
 
-What it trains: the discovery controller at widths 1, 2, 4, 7, 10, 16 and
+What it trained: the discovery controller at widths 1, 2, 4, 7, 10, 16 and
 64, three seeds each, once from Cubic and once from BBRv3. The teacher
 drives every training rollout, and the controller learns the window that
 sends as the teacher did. A reference without an encoder (k 0 in the
@@ -37,16 +38,43 @@ Why these widths: 7 is expliCCit's budget, 10 was the owner's first
 proposal, and 64 stands for no constraint. Widths 1 and 2 are there to
 show action collapse.
 
-What will be read from it: how each start drives in the closed loop, in
-log utility on 21 validation links under 6 conditions against the fixed
-rule, and whether width 1 already matches width 64. Nothing is chosen
-from this run, and its width curve is not a count, because a teacher's
-window is one number. Every width goes on to reinforcement learning.
+What was read from it (release `exp-controller-teachers-22`, 48 runs, no
+failed rollout): how each start drives in the closed loop, in log utility
+on 21 validation links under 6 conditions against the fixed rule, the
+noise-free policy after 40 iterations. Mean of three seeds, with the
+lowest and the highest:
+
+| Width | From Cubic | From BBRv3 |
+|---|---|---|
+| none | -1.34 (-1.57 to -1.07) | -1.49 (-1.82 to -1.23) |
+| 1 | -1.58 (-1.70 to -1.36) | -1.89 (-2.37 to -1.08) |
+| 2 | -1.29 (-1.46 to -1.10) | -1.74 (-2.36 to -1.39) |
+| 4 | -1.20 (-1.34 to -1.13) | -1.19 (-1.63 to -0.54) |
+| 7 | -1.46 (-1.56 to -1.29) | -1.63 (-2.38 to -0.89) |
+| 10 | -0.99 (-1.07 to -0.88) | -1.07 (-1.52 to -0.56) |
+| 16 | -1.39 (-1.74 to -1.05) | -1.63 (-2.01 to -1.01) |
+| 64 | -1.00 (-1.32 to -0.55) | -1.48 (-2.10 to -0.68) |
+
+Every start is below the rule, by 0.55 to 2.38. Before any training the
+controller with latents scores -0.79 and the reference -0.55, and 44 of
+the 48 runs end below where they began. The score also moves between
+evaluations of one run, by 0.83 at the median, while the imitation
+loss falls steadily to 0.01 to 0.04. So a low imitation loss on the
+teacher's rollouts does not give a stable controller here. No width
+stands out, and the spread across seeds is as large as any difference
+between widths.
+
+What this does not say: whether the clones drive like their teachers.
+The teachers' own scores on the validation links are UNRUN, so a clone at
+-1.3 may be a faithful copy of a teacher that scores -1.3 against the
+rule, or a poor copy of a better one. The teacher drove every training
+rollout, so the clone never saw the states its own mistakes lead to.
+Nothing is chosen from this run, and its width curve is not a count,
+because a teacher's window is one number. Every width goes on to
+reinforcement learning.
 
 What to keep in mind when reading it:
 
-- The exported graph of the narrow controller, and the cloning code, have
-  not run in the guest before this run.
 - The label for BBRv3 is its pacing rate times its smoothed RTT, capped
   by its window. That reproduces its sending rate under the `agent`
   controller, not its internal state machine.
@@ -56,9 +84,6 @@ What to keep in mind when reading it:
   and as the rule the evaluations compare with. That estimator and rule
   were fitted on episodes from the guest before the cross-flow fix
   (below).
-- The teachers' own scores on the validation links are not in the report
-  yet, so the report says how a start compares with the rule and not how
-  close it is to its teacher in the closed loop.
 
 ## The start taught from the fixed rule
 
@@ -102,7 +127,7 @@ replaced it. It stays as a third start for C5.
 
 `experiments/controller-rl.json` continues every bootstrapped controller
 by PPO on the log utility, from the clone's actor and value network. It
-is UNRUN: it reads the bootstrap's release.
+is UNRUN.
 
 Its rules are fixed in the file before it runs. A run's score is that of
 the policy it leaves. The knee is the smallest width within one pooled
@@ -153,7 +178,7 @@ without latents is refused.
 
 `experiments/ground-teachers.json` does this for the bootstrapped
 controllers: both teachers, widths 1 to 64, three seeds. It is UNRUN. It
-reads the bootstrap's release, which does not exist yet. It will test the
+reads the bootstrap's release. It will test the
 pipeline on real controllers. It supports no claim about concepts,
 because those controllers are untuned starts.
 
@@ -235,6 +260,7 @@ Limits that remain:
 |---|---|---|
 | `exp-estimator-seven-20` | The estimator of the seven LCFs: `estimator/source-net1.pt` as copied, and `estimator/net1.pt` converted to the current spec with weights and scalers untouched (a distribution over 64 bins, 3 members, 70 inputs). Hashes are in the release notes. | input of the bootstrap |
 | `exp-steps-behaviour-rule-8` | The fixed rule as an ONNX graph. | input of the bootstrap |
+| `exp-controller-teachers-22` | The bootstrap from Cubic and BBRv3: 48 run directories with specs, weights, exported policies and histories. | read above; input of the reinforcement-learning stage and of grounding |
 | `exp-ground-stress-23` | The stress test of the fitter: the rollouts' setup, `stress/stress.json` with every case and `summary.md`. | read above |
 | `exp-controller-clone-21` | The start taught from the fixed rule: 24 run directories with specs, weights, exported policies and histories. | read above |
 | `exp-steps-broad-30s-9` | Logged steps on a broad set of links, 14,400 episodes, with every label. | old guest; regenerate before use |
@@ -283,7 +309,7 @@ selection method in `experiments/ground.py`.
 
 | Question | Note |
 |---|---|
-| What keeps the decision out of the latents | The first failure in [methodology.md](methodology.md#how-it-can-fail). An untuned prototype on logged states, made before this repository and never released, saw it: with only the action to fit, one latent was enough. The bootstrap will show whether it happens in the closed loop. What to change if it does is not decided. |
+| What keeps the decision out of the latents | The first failure in [methodology.md](methodology.md#how-it-can-fail). An untuned prototype on logged states, made before this repository and never released, saw it: with only the action to fit, one latent was enough. The bootstrap cannot show it, because a teacher's window is one number. Grounding on the controllers' own rollouts regresses the decision on the latents, and is UNRUN. What to change if it does is not decided. |
 | How far reinforcement learning moves a controller from its teacher | If it barely moves, the concepts are the teacher's. The measure is the RMS difference in log2 of the window from the clone. How small counts as barely is not decided. |
 | Whether one standard error is the right knee rule | With 3 seeds the error is itself noisy. It is pooled over widths for that reason. |
 | What the search over the stage's settings covers | Candidates: exploration noise, learning rate, an anchor to the clone, the value warm-up. |
