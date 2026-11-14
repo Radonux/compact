@@ -255,7 +255,8 @@ def test_a_controllers_latents_are_grounded_on_its_own_rollouts(
     assert sel["runs"]["a"]["path"] == sel["runs"]["b"]["path"]
     # The decision is grounded as the latents are.
     assert len(sel["runs"]["a"]["decision"]["path"]) >= 1
-    assert "decision in place of its latents" in (tmp_path / "select" / "summary.md").read_text()
+    assert 0 <= sel["runs"]["a"]["own"] <= 1
+    assert "in place of its latents" in (tmp_path / "select" / "summary.md").read_text()
     assert {t["from"] for t in sel["transfer"]} == {"a", "b", "c"}
 
     # A run without a narrow middle is refused.
@@ -335,3 +336,25 @@ def test_the_formula_search_rebuilds_a_composite_from_its_labels() -> None:
         first = ground.greedy(wider, m, list(range(len(wider.names))), 1)[0]
         ranks = ground._places(np.stack([wider.score[:, wider.columns[first][0]], truth[4000:]], 1))
         assert abs(np.mean(ranks[:, 0] * ranks[:, 1])) > 0.999
+
+
+def test_a_path_lists_what_a_variable_adds_to_the_senders_own_window() -> None:
+    rng = np.random.default_rng(5)
+    n = 6000
+    window, capacity = rng.normal(size=n), rng.normal(size=n)
+    # What the window sets (the flow's packets in flight) and what it sets in
+    # part (a queue that also tells of the path).
+    inflight = window + 0.05 * rng.normal(size=n)
+    queue = window - 0.5 * capacity
+    names = ["sender_cwnd", "inflight_pkts", "queue_pkts", "capacity_bps", "other"]
+    x = np.stack([window, inflight, queue, capacity, rng.normal(size=n)], axis=1)
+    lib = ground.Library.of(names, len(names), x[:4000], x[4000:])
+    # A latent that is mostly the window, and the change a decision makes.
+    for held in (window + 0.3 * capacity, 0.2 * capacity - 0.1 * window):
+        z = (held + 0.01 * rng.normal(size=n))[:, None]
+        sel = ground._selection(lib, (z[:4000], z[4000:]))
+        first = sel["path"][0]
+        assert first["feature"] in {"capacity_bps", "queue_pkts"}
+        assert sel["own"] < first["mean"] and first["mean"] > 0.95
+        assert all(p["feature"] != "sender_cwnd" for p in sel["path"])
+        assert sel["hidden_path"][0] == first and sel["flexible"]["own"] < 0.95

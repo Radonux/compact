@@ -102,6 +102,7 @@ These follow from the design, before any data. Each has a check.
 | A weak learner looks like a need for concepts | Reinforcement learning may leave a net2 on few concepts short of comparable for reasons of optimization alone. | Tune before any claim. Compare with the oracle net2 trained the same way on the full set. |
 | No count | The decision may need more concepts than a controller can be retrained on. | Report it. It bears on the two-net design itself. The comparison at seven concepts still stands. |
 | The latents fit no short formula | Latents are defined only up to mixing, and narrow layers pack several features into each unit (Locatello et al., ICML 2019). | Report it, and look at what the latents do encode. |
+| The grounding names the action | The window in force and everything it sets predict the latents and the next decision without being concepts. | Hold the sender's own window in every fit, and ground the change a decision makes. Report what the window alone explains. |
 | The vocabulary decides the answer | A person chooses the grounding library. | Refit with each base variable or operator family removed (C4). |
 | Leakage | net1's soft outputs can carry more than the concepts. | Compare net2 on net1's soft outputs with net2 on exact concept values. |
 
@@ -255,6 +256,20 @@ library reads both lists from the code, so a label or composite added
 there takes part in the fitting with no change here. The operators are a windowed mean, minimum and
 maximum over two horizons and a first difference.
 
+A concept is a variable of the path that says more about the latents or
+the decision than the controller's own window does. The window in force
+is what the controller set a moment ago. It predicts the next decision
+and the latents closely, and so does everything the window sets, such as
+the flow's packets in flight and its rate, without saying anything about
+the path. So every fit in select holds the features of the sender's own
+window, and a path lists what is added to them. The decision is grounded
+as the change it makes: log2 of the window it sets less log2 of the
+window in force. A variable the window sets alone then adds nothing. A
+variable it sets in part, such as the queue, adds what it tells of the
+path: with the window known, the queue gives the capacity and the other
+flows. No list of what the controller sets is kept, and a later value of
+a variable is no remedy, because the window changes slowly.
+
 1. Probe (`experiments/ground.py probe`). The decision regressed on the
    latents, which is the action-collapse check. Then linear fits between
    the latents and the base variables, in both directions, and between
@@ -266,7 +281,8 @@ maximum over two horizons and a first difference.
    rows. The encoder may hold a variable in any monotone form, because
    the decoder can undo it, and on places no such form changes a fit.
    Fit all k latents jointly and linearly on the library, adding one
-   feature at a time, the one that most raises the fit. Then order the
+   feature at a time to those of the sender's own window, the one that
+   most raises the fit. Then order the
    chosen features by taking them away again, each time the one the fit
    loses least without: a feature chosen early because it stood in for a
    mix of later ones falls to the end. The selected features are the
@@ -296,7 +312,8 @@ maximum over two horizons and a first difference.
    the selected features need not lead to it. Longer formulas are tried
    over the labels of the best of those and of the selected features. A
    formula is scored by how well the latents predict it, since what the
-   decoder can read from the latents is what they hold. Of formulas that order
+   decoder can read from the latents is what they hold. The sender's own
+   window is taken out of both first. Of formulas that order
    the rows alike, the simplest is kept. The kept formulas join the
    library and the path is selected again. A formula that is chosen
    becomes a composite in the code, and from then on is in the library

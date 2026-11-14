@@ -51,7 +51,17 @@ Writes OUT/probe.json and OUT/summary.md.
 
 Usage: python experiments/ground.py select OUT --runs RUN_DIR...
 
-select names the few variables that span the latents. The base variables
+select names the few variables that span the latents beyond the sender's
+own window. The window is what the controller set a moment ago, so it
+predicts the latents and the next decision without saying anything about
+the path, and so does every quantity the window sets (the flow's packets
+in flight, its rate). A concept is a variable of the path that says more
+about the latents or the decision than the window's own history does. So
+every fit below holds the window's features (OWN under the eight
+operators) and a path lists what is added to them; "own" is the R^2 of
+the window's features alone. A variable the window sets adds nothing to
+them; one the window sets only in part (the queue) adds what it tells of
+the path. The base variables
 are every label the step data stores, in each window it is stored in
 (labels.py), every composite of them (train/lcfs.py), and four sender
 measurements (window, smoothed RTT, delivery rate, loss rate). Nothing is
@@ -104,10 +114,11 @@ together):
            uses cannot change the path.
   transfer the R^2 of one run's latents on another run's first PICK
            features
-  decision per run, all of the above with the run's decision (log2 of
-           the window it set) in place of its latents. An encoder trained
-           end to end can pass the decision itself through one latent, so
-           the width of the latents counts no concepts. What the decision
+  decision per run, all of the above with the run's decision in place of
+           its latents: the change it makes, log2 of the window it set
+           less log2 of the window in force. An encoder trained end to
+           end can pass the decision itself through one latent, so the
+           width of the latents counts no concepts. What the decision
            reads of the path's state is asked directly here, and its path
            is the order in which concepts are tried in retraining.
 
@@ -180,6 +191,7 @@ EXPLICCIT_LCFS = (
     "receive_rate_bps",
 )
 SENDER = ("sender_cwnd", "sender_srtt", "sender_delivery_rate", "sender_loss_rate")
+OWN = "sender_cwnd"  # what the controller itself set: held in every fit of select
 
 
 def _label(name: str) -> str:
@@ -428,6 +440,7 @@ class Rows:
     owner: I64  # [a] the run (its index) whose controller drove
     obs: F32  # [a, 78] the step message at the decision
     u: F64  # [a] the decision: log2 of the window set, over FixedWindow's
+    change: F64  # [a] the change it makes: u less the same of the window in force
     x: F64  # [a, F] every feature of the library, unscaled
 
     def own(self, run: int) -> npt.NDArray[np.bool_]:
@@ -439,7 +452,7 @@ def _rows(runs: list[Path], kind: str, budget: int) -> tuple[list[str], int, Row
     rng = np.random.default_rng(0)
     names: list[str] = []
     variables = 0
-    parts: list[tuple[I64, F32, F64, F64]] = []
+    parts: list[tuple[I64, F32, F64, F64, F64]] = []
     for r, run in enumerate(runs):
         s = steps_data.load([run / "ground" / kind], seed=0, val=0.0, test=0.0)
         labels, b = base_variables(s)
@@ -450,13 +463,14 @@ def _rows(runs: list[Path], kind: str, budget: int) -> tuple[list[str], int, Row
         if names and own != names:
             raise SystemExit(f"{run}: its step data holds other labels than {runs[0]}'s")
         names, variables = own, len(base)
-        u = np.log2(np.maximum(s.cwnd[d + 1].astype(np.float64), 1)) - FixedWindow.LOG2_PACKETS
-        parts.append((np.full(d.size, r), s.obs[d], u, x))
+        w = np.log2(np.maximum(s.cwnd.astype(np.float64), 1)) - FixedWindow.LOG2_PACKETS
+        parts.append((np.full(d.size, r), s.obs[d], w[d + 1], x, w[d + 1] - w[d]))
     rows = Rows(
         owner=np.concatenate([p[0] for p in parts]),
         obs=np.concatenate([p[1] for p in parts]),
         u=np.concatenate([p[2] for p in parts]),
         x=np.concatenate([p[3] for p in parts]),
+        change=np.concatenate([p[4] for p in parts]),
     )
     return names, variables, rows
 
@@ -655,25 +669,34 @@ def _columns(lib: Library, features: list[int]) -> list[int]:
     return [0, *(c for f in features for c in lib.columns[f])]
 
 
-def greedy(lib: Library, m: Moments, allowed: list[int], steps: int) -> list[int]:
-    """Features in the order a forward selection adds them.
+def _window(lib: Library) -> list[int]:
+    """The features of the sender's own window."""
+    return [f for f, v in enumerate(lib.variable) if v == OWN]
+
+
+def greedy(
+    lib: Library, m: Moments, allowed: list[int], steps: int, held: Sequence[int] = ()
+) -> list[int]:
+    """Features in the order a forward selection adds them to ``held``.
     ponytail: the criterion is a linear fit, so a variable that acts only
     through a product with another is picked late; a selection scored by
     the flexible fit if PICK features prove too few for it."""
     picked: list[int] = []
     for _ in range(min(steps, len(allowed))):
         rest = [f for f in allowed if f not in picked]
-        picked.append(max(rest, key=lambda f: m.explained(_columns(lib, [*picked, f]))))
+        picked.append(max(rest, key=lambda f: m.explained(_columns(lib, [*held, *picked, f]))))
     return picked
 
 
-def pruned(lib: Library, m: Moments, order: list[int]) -> list[int]:
+def pruned(lib: Library, m: Moments, order: list[int], held: Sequence[int] = ()) -> list[int]:
     """``order`` again, by backward elimination: the last is the feature the
-    fit on all of them loses least without, and so on down. Forward
+    fit on all of them and ``held`` loses least without, and so on down. Forward
     selection alone keeps a first pick that stood in for a mix of later ones."""
     keep, gone = list(order), []
     while len(keep) > 1:
-        least = max(keep, key=lambda f: m.explained(_columns(lib, [g for g in keep if g != f])))
+        least = max(
+            keep, key=lambda f: m.explained(_columns(lib, [*held, *(g for g in keep if g != f)]))
+        )
         keep.remove(least)
         gone.append(least)
     return [*keep, *reversed(gone)]
@@ -709,10 +732,14 @@ def flexible(x_fit: F64, z_fit: F64, x: F64, z: F64) -> float:
 
 
 def _path(lib: Library, m: Moments, allowed: list[int]) -> list[dict[str, Any]]:
-    order = pruned(lib, m, greedy(lib, m, allowed, STEPS))
+    """The features of ``allowed`` added to the sender's own window, in
+    order, each with the R^2 of the window's features and those so far."""
+    held = _window(lib)
+    allowed = [f for f in allowed if f not in held]
+    order = pruned(lib, m, greedy(lib, m, allowed, STEPS, held), held)
     out = []
     for n in range(1, len(order) + 1):
-        r = m.r2(_columns(lib, order[:n]))
+        r = m.r2(_columns(lib, [*held, *order[:n]]))
         out.append(
             {"feature": lib.names[order[n - 1]], "mean": float(r.mean()), "worst": float(r.min())}
         )
@@ -829,6 +856,8 @@ def formulas(  # noqa: PLR0915  (one search, read top to bottom)
     scored by how well the latents' places predict its own, with their
     squares and products while those are few: what a decoder
     can read from the latents is what they hold, however they hold it.
+    The sender's own window is taken out of both first (a linear fit on
+    its features), so a formula for the window itself scores nothing.
     Of formulas that order the rows alike (rank correlation above ALIKE)
     the one with the fewest factors, then the fewest inverses, is kept.
     ponytail: two terms with coefficient 1, PySR on the picked labels if
@@ -841,12 +870,15 @@ def formulas(  # noqa: PLR0915  (one search, read top to bottom)
     )
     some = np.random.default_rng(0).choice(len(z[0]), min(len(z[0]), SCREEN), replace=False)
     zs = _places(z[0][some])
-    design = np.concatenate(
-        [np.ones((len(zs), 1)), zs if zs.shape[1] > WIDE else quadratic(zs)], axis=1
-    )
-    q, _ = np.linalg.qr(design)
+    design = zs if zs.shape[1] > WIDE else quadratic(zs)
+    # The constant and the sender's own window, taken out of the latents and
+    # of every formula before one is scored on the other.
+    held = np.linalg.qr(lib.fit[some][:, _columns(lib, _window(lib))])[0]
     few = min(len(some), COARSE)
-    coarse = np.linalg.qr(design[:few])[0].astype(np.float32)
+    held_few = np.linalg.qr(held[:few])[0].astype(np.float32)
+    q, _ = np.linalg.qr(design - held @ (held.T @ design))
+    coarse = np.linalg.qr(design[:few] - held_few @ (held_few.T @ design[:few]))[0]
+    coarse = coarse.astype(np.float32)
     places = np.linspace(-0.5, 0.5, few, dtype=np.float32)
 
     def raw(x: F64, c: _Candidate) -> F64:
@@ -873,7 +905,8 @@ def formulas(  # noqa: PLR0915  (one search, read top to bottom)
                 ok = np.isfinite(v)
                 g = np.empty_like(v)
                 np.put_along_axis(g, np.argsort(np.where(ok, v, 0), axis=0), places[:, None], 0)
-                score = np.sum((coarse.T @ g) ** 2, axis=0) / np.sum(g**2, axis=0)
+                rest = g - held_few @ (held_few.T @ g)
+                score = np.sum((coarse.T @ rest) ** 2, axis=0) / np.sum(g**2, axis=0)
                 score[ok.mean(0) < 0.5] = 0.0
                 out += [
                     (-float(c), _Candidate(f, tuple(labels), at, _written(f, names)))
@@ -905,9 +938,11 @@ def formulas(  # noqa: PLR0915  (one search, read top to bottom)
     def exact(c: _Candidate) -> F64:
         return _places(_values([c.formula], raw(lib.base_fit[some], c)))[:, 0]
 
+    def beyond(g: F64) -> float:
+        return float(np.sum((q.T @ (g - held @ (held.T @ g))) ** 2) / len(some))
+
     found = sorted(
-        ((-round(float(np.sum((q.T @ exact(c)) ** 2) / len(some)), 2), *c.cost(), c.name), c)
-        for _, c in first[: 16 * FORMULAS]
+        ((-round(beyond(exact(c)), 2), *c.cost(), c.name), c) for _, c in first[: 16 * FORMULAS]
     )
     kept: list[_Candidate] = []
     ranks: list[F64] = []
@@ -938,13 +973,17 @@ def _selection(lib: Library, z: tuple[F64, F64]) -> dict[str, Any]:
 
     def flex(lib: Library, path: list[dict[str, Any]]) -> float:
         index = {n: i for i, n in enumerate(lib.names)}
-        cols = _columns(lib, [index[p["feature"]] for p in path[:PICK]])[1:]
+        cols = _columns(lib, [*_window(lib), *(index[p["feature"]] for p in path[:PICK])])[1:]
+        if not cols:
+            return 0.0
         return flexible(lib.fit[:, cols], z[0], lib.score[:, cols], z[1])
 
-    lcfs = [index[n] for n in EXPLICCIT_LCFS if n in index]
+    lcfs = [*_window(lib), *(index[n] for n in EXPLICCIT_LCFS if n in index)]
     of = [sources(v) for v in lib.variable]
     used = sorted(set().union(*(of[index[p["feature"]]] for p in path[:PICK])))
-    hidden = [f for f in everything if not lib.variable[f].startswith("sender_")]
+    hidden = [
+        f for f in everything if f in _window(lib) or not lib.variable[f].startswith("sender_")
+    ]
     hidden_path = _path(lib, m, hidden)
     wider, made = formulas(lib, z, [p["feature"] for p in hidden_path])
     again = {n: i for i, n in enumerate(wider.names)}
@@ -955,8 +994,10 @@ def _selection(lib: Library, z: tuple[F64, F64]) -> dict[str, Any]:
     )
     return {
         "path": path,
+        "own": float(m.r2(_columns(lib, _window(lib))).mean()),
         "library": float(m.r2(_columns(lib, everything)).mean()),
         "flexible": {
+            "own": flex(lib, []),
             "picked": flex(lib, path),
             "hidden_picked": flex(lib, hidden_path),
             "formula_picked": flex(wider, formula_path),
@@ -994,7 +1035,7 @@ def select(out: Path, runs: list[Path]) -> None:
     for r, c in enumerate(ctls):
         own = lib.rows(fr.own(r), sr.own(r))
         z = (z_of[c.name][0][fr.own(r)], z_of[c.name][1][sr.own(r)])
-        u = (fr.u[fr.own(r)][:, None], sr.u[sr.own(r)][:, None])
+        u = (fr.change[fr.own(r)][:, None], sr.change[sr.own(r)][:, None])
         result["runs"][c.name] = {"k": c.k} | _selection(own, z) | {"decision": _selection(own, u)}
         moments[c.name] = Moments.of(own, *z)
         print(f"select: {c.name}", file=sys.stderr, flush=True)
@@ -1006,6 +1047,7 @@ def select(out: Path, runs: list[Path]) -> None:
     for a, c in itertools.permutations(ctls, 2):
         if a.k == c.k:
             picks = [index[p["feature"]] for p in result["runs"][a.name]["path"][:PICK]]
+            picks += _window(lib)
             r = float(moments[c.name].r2(_columns(lib, picks)).mean())
             result["transfer"].append({"from": a.name, "to": c.name, "k": a.k, "mean": r})
     (out / "select.json").write_text(json.dumps(result, indent=1) + "\n")
@@ -1014,15 +1056,18 @@ def select(out: Path, runs: list[Path]) -> None:
 
 def select_summary(result: dict[str, Any]) -> str:
     lines = [
-        "R^2 of a joint linear fit of the latents, on validation links. Pooled: the "
-        "latents of every run of one width together.\n"
+        "R^2 of a joint linear fit of the latents, on validation links. Every fit holds "
+        "the features of the sender's own window; a path lists what is added to them. "
+        "Pooled: the latents of every run of one width together.\n"
     ]
     for k, sel in result["pooled"].items():
         lines += [
             f"\n## {k} latents, {sel['runs']} runs pooled\n\n",
-            f"Whole library: {sel['library']:.3f}. expliCCit's seven concepts: "
+            f"The sender's own window alone: {sel['own']:.3f}. Whole library: "
+            f"{sel['library']:.3f}. expliCCit's seven concepts: "
             f"{sel['expliccit_lcfs']:.3f}.\n\n",
-            f"A small network in place of the linear fit: {sel['flexible']['picked']:.3f} on "
+            f"A small network in place of the linear fit: {sel['flexible']['own']:.3f} on "
+            f"the window alone, {sel['flexible']['picked']:.3f} on "
             f"the first {PICK} features, {sel['flexible']['hidden_picked']:.3f} on the first "
             f"{PICK} without the sender's measurements, {sel['flexible']['library']:.3f} on "
             "the whole library.\n\n",
@@ -1059,10 +1104,12 @@ def select_summary(result: dict[str, Any]) -> str:
                 names = ", ".join(p["feature"] for p in path)
                 lines.append(f"| {run} | {path[-1]['mean']:.3f} | {names} |\n")
         lines.append(
-            f"\nEach run's decision in place of its latents, its first {PICK} features of "
-            "ground truth (linear, and a small network on them):\n\n"
-            "| run | linear | network | network on the library | features |\n"
-            "|---|---|---|---|---|\n"
+            f"\nEach run's decision (the change it makes to the window) in place of its "
+            f"latents, its first {PICK} features of ground truth (linear, and a small "
+            "network on them):\n\n"
+            "| run | window alone | linear | network on the window | network "
+            "| network on the library | features |\n"
+            "|---|---|---|---|---|---|---|\n"
         )
         for run, r in result["runs"].items():
             if str(r["k"]) == k:
@@ -1070,7 +1117,8 @@ def select_summary(result: dict[str, Any]) -> str:
                 path = d["formula_path"][:PICK]
                 names = ", ".join(p["feature"] for p in path)
                 lines.append(
-                    f"| {run} | {path[-1]['mean']:.3f} | {d['flexible']['formula_picked']:.3f} "
+                    f"| {run} | {d['own']:.3f} | {path[-1]['mean']:.3f} "
+                    f"| {d['flexible']['own']:.3f} | {d['flexible']['formula_picked']:.3f} "
                     f"| {d['flexible']['library']:.3f} | {names} |\n"
                 )
         t = [x["mean"] for x in result["transfer"] if str(x["k"]) == k]

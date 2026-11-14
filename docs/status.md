@@ -281,9 +281,10 @@ What they show:
   window again. The library holds quantities that the controller's own
   decision sets a moment earlier, and a fit to the decision finds them
   first. So the high R^2 of the decision is not evidence of concepts.
-  The library needs to hold only what the controller does not set
-  (capacity, base RTT, buffer, the other flows, random loss), or lagged
-  values. That change is UNRUN.
+  Both releases predate the fix: `select` now holds the sender's own
+  window in every fit and grounds the change a decision makes
+  ([methodology.md](methodology.md#grounding)). Grounding with
+  the fix is UNRUN.
 - A wider middle holds more of the path's state and is harder to span.
   Base RTT, queueing delay and receive rate are read from the latents
   better as the width grows. The library's linear span of the latents
@@ -438,7 +439,6 @@ in the latents favours it. The count is read in retraining instead
 
 | Question | Note |
 |---|---|
-| What the grounding library may hold | It now holds quantities the controller's own decision sets, such as its window and its packets in flight, and both the latents and the decision are fitted by them first. Candidates: only what the controller does not set, or values lagged by more than a decision. |
 | Whether the latents hold more than the decision | Nothing forces them to. The probe reads each base variable from the latents, and the decision is grounded beside them. If the two paths agree and the latents add nothing, the decision's path alone is used. |
 | Whether the order of the decision's path is the order of need | It comes from logged steps. Retraining at each m, against a random order and the baselines, decides. |
 | How far reinforcement learning moves a controller from its teacher | If it barely moves, the concepts are the teacher's. The measure is the RMS difference in log2 of the window from the clone. How small counts as barely is not decided. |
