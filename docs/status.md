@@ -295,7 +295,7 @@ selection method in `experiments/ground.py`.
 
 ## Checks
 
-On the current code: ruff, pyright and `uv run pytest -q` (224 passed, 61
+On the current code: ruff, pyright and `uv run pytest -q` (225 passed, 61
 skipped) pass. With the guest booted locally, the 24 tests of
 `tests/test_e2e.py` pass: the end-to-end pipeline for every net1 kind and
 view, grounding included. The other tests that boot the guest are UNRUN
