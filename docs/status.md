@@ -175,6 +175,5 @@ selection method in `experiments/ground.py`.
 On the current code: ruff, pyright and `uv run pytest -q` (220 passed, 60
 skipped) pass. With the guest booted locally, the end-to-end pipeline
 test passes for every net1 kind and view (6 tests), grounding included.
-UNRUN locally on this commit: the other tests that boot the guest. CI and
-every experiment run them. CI has not yet finished on any commit since
-the bootstrap code.
+The other tests that boot the guest are UNRUN locally. CI runs them, and
+its `ci` and `uml` workflows pass on the grounding commit `5ac258809`.
