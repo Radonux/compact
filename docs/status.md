@@ -17,7 +17,7 @@ stage. All are checks and not results for a claim.
 |---|---|---|---|
 | 1 Setup | done | the documents; the estimator of the seven LCFs and the rule graph as releases | |
 | 2 The controller in the closed loop | the bootstrap and one untuned point of reinforcement learning have run | `PPOSpec.latents`; `train ppo` by cloning a Linux controller, PPO, DAgger or TD3+BC; closed-loop rollouts and scoring; `experiments/net2_ppo_setup.py`, `net2_ppo_report.py`; the collapse check on rollouts (`ground.py probe`); the reinforcement-learning stage (`experiments/controller-rl.json`) and its scores by width (`experiments/width_curve.py`) | the search over the stage's settings; the teachers' own scores on the validation links |
-| 3 Grounding | UNRUN | `experiments/ground.py`: `rollouts` of a controller in the closed loop, `probe` and `select` on its latents there, with the sensitivity check; a library of every stored label (37 columns over 100 ms and 10 ms windows) and 12 composites in both windows; `experiments/ground-teachers.json`; a stress test on planted latents, `experiments/ground_stress.py` | formulas beyond two terms of four factors; the operator-family sensitivity; matching concepts across seeds |
+| 3 Grounding | first readings on untuned controllers; widths 7 to 16 after reinforcement learning UNRUN | `experiments/ground.py`: `rollouts` of a controller in the closed loop, `probe` and `select` on its latents there, with the sensitivity check; a library of every stored label (37 columns over 100 ms and 10 ms windows) and 12 composites in both windows; `experiments/ground-teachers.json`; a stress test on planted latents, `experiments/ground_stress.py` | formulas beyond two terms of four factors; the operator-family sensitivity; matching concepts across seeds |
 | 4 Retrain and compare | UNRUN | `train run` for net1; `train ppo` for a closed-loop net2; net1 on any stored label or composite; the live truth for every label but `queue_delay_ns`, so oracles on them | labels from fitted formulas beyond the composites; net1 on them |
 
 ## The bootstrap
@@ -240,19 +240,63 @@ steps through the controller's own encoder. `probe` also regresses the
 decision on the latents, which is the action-collapse check. A controller
 without latents is refused.
 
-`experiments/ground-teachers.json` does this for the bootstrapped
-controllers: both teachers, widths 1 to 64, three seeds. It is running
-(dispatched 2026-11-14) and has no result yet. It reads the bootstrap's
-release. It will test the
-pipeline on real controllers. It supports no claim about concepts,
-because those controllers are untuned starts.
-
 `select` also grounds each controller's decision in place of its latents,
-with the same paths, formulas and sensitivity check. The decision's path
-is the order in which concepts will be tried in retraining.
-`experiments/ground-rl.json` does all of this for the controllers after
-reinforcement learning, at width 64 and at widths 1 and 2. It was
-dispatched before width 64 was dropped and is running.
+with the same paths, formulas and sensitivity check.
+
+Two releases hold the first readings on real controllers. Both sets of
+controllers are untuned, so neither supports a claim about concepts.
+`exp-ground-teachers-26` is the bootstrapped controllers: both teachers,
+widths 1 to 64, three seeds, latents only. `exp-ground-rl-27` is the
+controllers after reinforcement learning at widths 1, 2 and 64, latents
+and decision. Widths 7 to 16 after reinforcement learning are UNRUN.
+All numbers are R^2 on the validation links.
+
+| Bootstrapped, by width | 1 | 2 | 4 | 7 | 10 | 16 | 64 |
+|---|---|---|---|---|---|---|---|
+| Latents from the whole library, Cubic | 0.96 | 0.80 | 0.67 | 0.71 | 0.66 | 0.72 | 0.67 |
+| Latents from the whole library, BBRv3 | 0.96 | 0.82 | 0.77 | 0.76 | 0.76 | 0.79 | 0.69 |
+| Latents from the seven hand-picked LCFs, Cubic | 0.62 | 0.38 | 0.30 | 0.37 | 0.28 | 0.39 | 0.38 |
+| Latents from the seven hand-picked LCFs, BBRv3 | 0.79 | 0.57 | 0.51 | 0.50 | 0.52 | 0.57 | 0.45 |
+| One run's 8 features on another run's latents, Cubic | 0.94 | 0.74 | 0.54 | 0.59 | 0.53 | 0.62 | 0.53 |
+| One run's 8 features on another run's latents, BBRv3 | 0.88 | 0.68 | 0.64 | 0.56 | 0.68 | 0.69 | 0.56 |
+| Base RTT read from the latents, Cubic | -0.14 | -0.01 | 0.01 | 0.33 | 0.39 | 0.69 | 0.86 |
+| Queueing delay read from the latents, Cubic | -0.03 | -0.01 | 0.06 | 0.13 | 0.33 | 0.61 | 0.85 |
+| Receive rate read from the latents, Cubic | 0.13 | 0.24 | 0.39 | 0.49 | 0.73 | 0.77 | 0.93 |
+
+| After reinforcement learning | 1 | 2 | 64 |
+|---|---|---|---|
+| Decision from the latents, quadratic (linear at 64), Cubic | 0.87 | 0.77 | 0.97 |
+| Decision from the latents, quadratic (linear at 64), BBRv3 | 0.89 | 0.88 | 0.96 |
+| Latents from the whole library, Cubic and BBRv3 | 0.97, 0.98 | 0.85, 0.88 | 0.64, 0.64 |
+| Latents from the seven hand-picked LCFs | 0.81, 0.80 | 0.63, 0.67 | 0.33, 0.34 |
+| Decision from its first 8 features, linear, range over seeds | 0.95 to 0.99 | 0.96 to 0.98 | 0.89 to 0.99 |
+
+What they show:
+
+- The grounding names the action, not a concept behind it. At every
+  width and for both teachers, the first feature picked for the latents
+  is the sender's own window (`sender_cwnd`). The first feature picked
+  for the decision is, in most runs, the flow's packets in its queue plus
+  its rate times the base RTT: the flow's packets in flight, which is the
+  window again. The library holds quantities that the controller's own
+  decision sets a moment earlier, and a fit to the decision finds them
+  first. So the high R^2 of the decision is not evidence of concepts.
+  The library needs to hold only what the controller does not set
+  (capacity, base RTT, buffer, the other flows, random loss), or lagged
+  values. That change is UNRUN.
+- A wider middle holds more of the path's state and is harder to span.
+  Base RTT, queueing delay and receive rate are read from the latents
+  better as the width grows. The library's linear span of the latents
+  falls from 0.96 at width 1 to about 0.7 from width 4 on.
+- The seven hand-picked LCFs span the latents about half as well as the
+  whole library at widths 4 and above.
+- The features do not recur across seeds beyond width 1. One run's 8
+  features span another run's latents at 0.53 to 0.69 for widths 4 to
+  64. Each seed's list of 8 is different in its lower places.
+- The sensitivity check holds in the narrow sense. With one base
+  variable taken out, the span at 8 features moves by at most 0.02 at
+  width 64, and a near equivalent takes the place (for example the
+  delivery rate for the window).
 
 What has run: unit tests on synthetic controllers, and one end-to-end
 test in the guest, where a width-3 controller cloned from BBRv3 for one
@@ -335,6 +379,8 @@ Limits that remain:
 | `exp-controller-teachers-22` | The bootstrap from Cubic and BBRv3: 48 run directories with specs, weights, exported policies and histories. | read above; input of the reinforcement-learning stage and of grounding |
 | `exp-controller-rl-24` | The reinforcement-learning stage: 48 run directories with specs, weights, exported policies, histories, the width curve and each controller's probe. | read above |
 | `exp-ground-stress-23` | The stress test of the fitter: the rollouts' setup, `stress/stress.json` with every case and `summary.md`. | read above |
+| `exp-ground-teachers-26` | Grounding of the bootstrapped controllers on their own rollouts: probe and select per teacher, widths 1 to 64, three seeds. |
+| `exp-ground-rl-27` | Grounding of the controllers after reinforcement learning at widths 1, 2 and 64: latents and decision. |
 | `exp-controller-clone-21` | The start taught from the fixed rule: 24 run directories with specs, weights, exported policies and histories. | read above |
 | `exp-steps-broad-30s-9` | Logged steps on a broad set of links, 14,400 episodes, with every label. | old guest; regenerate before use |
 | `exp-phase0-teachers-1`, `exp-phase0-steps-2` | Two policy graphs and logged steps, copied in at setup. | old guest; not used by the plan |
@@ -392,6 +438,7 @@ in the latents favours it. The count is read in retraining instead
 
 | Question | Note |
 |---|---|
+| What the grounding library may hold | It now holds quantities the controller's own decision sets, such as its window and its packets in flight, and both the latents and the decision are fitted by them first. Candidates: only what the controller does not set, or values lagged by more than a decision. |
 | Whether the latents hold more than the decision | Nothing forces them to. The probe reads each base variable from the latents, and the decision is grounded beside them. If the two paths agree and the latents add nothing, the decision's path alone is used. |
 | Whether the order of the decision's path is the order of need | It comes from logged steps. Retraining at each m, against a random order and the baselines, decides. |
 | How far reinforcement learning moves a controller from its teacher | If it barely moves, the concepts are the teacher's. The measure is the RMS difference in log2 of the window from the clone. How small counts as barely is not decided. |
