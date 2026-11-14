@@ -1,0 +1,36 @@
+{
+  "title": "The discovery controllers continued by reinforcement learning from Cubic's and BBRv3's clones",
+  "description": "The reinforcement-learning stage of compact's discovery controller. Each controller of experiments/controller-teachers.json (read from its release: a clone of Cubic or of BBRv3 at width 1, 2, 4, 7, 10, 16 or 64, or the reference without an encoder at k 0, seeds 1 to 3) continues by PPO on the log utility, from the clone's actor and value network (init_from), so that it can leave its teacher. Settings, one point and not yet searched: 120 iterations of 8 links with 4 rollouts each, 30 s episodes, exploration noise 0.2 in log2 of the window held for 20 steps, learning rate 0.0003, reward horizon 1 s, the first 3 iterations update the value network alone (the clone's value network learned the teacher's return, not its own), no anchor to the start, stopping at 4 h. The links are those of the bootstrap: alone on 35% and against Linux competitors or copies of itself on 60%. Evaluation: before training, every 20 iterations and for the policy the run leaves, the controller without noise on the 21 validation links under 6 conditions, in log utility paired by link and condition with the fixed rule on the estimator of the seven hand-picked LCFs. What is read, by rules fixed here before the run. (1) A run's score is that of the policy it leaves, not of its best iterate. (2) The width curve per teacher is the mean score over seeds against k, and its knee is the smallest width within one standard error of the best width's mean, the standard error pooled over widths (experiments/width_curve.py). (3) Action collapse: each controller with latents then drives 24 sampled training pairs and all validation pairs without noise, and its decision is regressed on its latents, fitted on the first and scored on the second (experiments/ground.py probe); those step tables are deleted in the cell and the regression's output is kept. (4) How far a controller moved from its clone: the RMS difference in log2 of the window between the two on its last training rollouts. No claim follows from this run: the settings are untuned, so its knee is not a count of concepts. It shows whether PPO improves on a clone, whether widths separate, and what the search should vary (noise, learning rate, anchor, value warm-up). The teachers' own scores on these links are not in this run. The test links are not read.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "estimator": "release:exp-estimator-seven-20",
+    "rule": "release:exp-steps-behaviour-rule-8",
+    "runs": "release:exp-controller-teachers-22"
+  },
+  "matrix": {
+    "teacher": [
+      "cubic",
+      "bbr3"
+    ],
+    "k": [
+      0,
+      1,
+      2,
+      4,
+      7,
+      10,
+      16,
+      64
+    ],
+    "seed": [
+      1,
+      2,
+      3
+    ]
+  },
+  "prepare": "uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$IN/estimator/estimator/net1.pt\" --models \"$IN/rule/models\" --u 0.25 --paths net2-train-xl",
+  "run": "R=\"ctl-$TEACHER-k$K-s$SEED\"; S=\"$OUT/spec-$R.json\"; jq --arg from \"$IN/runs/$R\" --argjson k \"$K\" --argjson seed \"$SEED\" '.algo = \"ppo\" | .init_from = $from | .inputs = \"raw\" | (if $k > 0 then .latents = $k | .action_max = 8 else . end) | .share_k = 0 | .critic_flows = true | .critic_warmup = 3 | .noise_sigma = 0.2 | .noise_hold_steps = 20 | .tau_s = 1 | .group = 4 | .links_per_iteration = 8 | .lr = 0.0003 | .copies = [2, 4] | .competition = \"diverse\" | .alone = 0.35 | .compete = 0.6 | .seed = $seed | .iterations = 120 | .eval_every = 20 | .time_budget_s = 14400' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/$R\" --build \"$UML\" --workers \"$WORKERS\"; if [ \"$K\" -gt 0 ]; then uv run python experiments/ground.py rollouts \"$OUT/$R\" --fit \"$OUT/setup/paths/campaign.json\" --score \"$OUT/setup/eval/campaign.json\" --build \"$UML\" --workers \"$WORKERS\" --links 24; uv run python experiments/ground.py probe \"$OUT/$R/probe\" --runs \"$OUT/$R\"; rm -rf \"$OUT/$R/ground\"; fi",
+  "collect": "uv run python experiments/width_curve.py \"$OUT\" \"$OUT\"/ctl-*; uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ctl-*",
+  "timeout_minutes": 360
+}

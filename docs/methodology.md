@@ -149,16 +149,23 @@ the evidence says so.
      (`experiments/controller-teachers.json`). A teacher's window is one
      number, so this stage is the easiest case for action collapse and
      its width curve is not read as a count.
-   - Continue each by reinforcement learning on the log utility. Tune it
-     and confirm over seeds.
-   - Read the width curve: closed-loop log utility on validation links
-     against k, beside the wide controller, the teachers themselves and
-     the fixed rule on the seven hand-picked LCFs. Width 7 is always
-     present, so the comparison at expliCCit's budget exists whatever the
-     curve looks like.
-   - Check for action collapse at every width.
+   - Continue each by reinforcement learning on the log utility
+     (`experiments/controller-rl.json`): PPO from the clone's actor and
+     value network. Tune it and confirm over seeds.
+   - Read the width curve (`experiments/width_curve.py`): closed-loop log
+     utility on validation links against k, beside the wide controller,
+     the teachers themselves and the fixed rule on the seven hand-picked
+     LCFs. A run's score is that of the policy it leaves, not of its best
+     iterate. Width 7 is always present, so the comparison at expliCCit's
+     budget exists whatever the curve looks like.
+   - The knee is the smallest width whose mean score over seeds is within
+     one standard error of the best width's mean. The standard error is
+     pooled over widths.
+   - Check for action collapse at every width: the decision regressed on
+     the latents, on the controller's own rollouts.
    - Compare the two teachers' controllers (C5), and report how far
-     reinforcement learning moved each from its start.
+     reinforcement learning moved each from its start: the RMS difference
+     in log2 of the window between the two policies on the same rollouts.
 3. Grounding, on the trained controllers' latents and the steps of their
    own rollouts ([below](#grounding)).
 4. Retrain and compare. Compute labels from the frozen formulas, train

@@ -129,6 +129,20 @@ def _paired(
     }
 
 
+def _record(out: Path, history: list[dict[str, Any]], entry: dict[str, Any]) -> None:
+    history.append(entry)
+    (out / "history.json").write_text(json.dumps(history, indent=2, default=float))
+
+
+def _last(spec: PPOSpec, it: int, elapsed: float, slowest: float) -> bool:
+    """Whether iteration ``it`` is the run's last: by count, or because the
+    time budget has no room for another. The policy a run leaves is always
+    scored."""
+    return it + 1 == spec.iterations or (
+        spec.time_budget_s is not None and elapsed + slowest > spec.time_budget_s
+    )
+
+
 def run_ppo(
     spec: PPOSpec, out: Path, build: UmlBuild, *, workers: int, scratch: Path | None = None
 ) -> dict[str, Any]:
@@ -163,13 +177,10 @@ def run_ppo(
     if eval_arms:
         start = _export(out / "initial" / "policy.onnx", net1, learner.actor, spec)
         pol = _evaluate(out / "initial" / "eval", start, eval_arms, spec, run)
-        history.append({"iteration": -1, "eval": _paired(pol, rule_scores)})
-        (out / "history.json").write_text(json.dumps(history, indent=2, default=float))
+        _record(out, history, {"iteration": -1, "eval": _paired(pol, rule_scores)})
     began_all, slowest = time.monotonic(), 0.0
     for it in range(spec.iterations):
         began = time.monotonic()
-        if spec.time_budget_s is not None and began - began_all + slowest > spec.time_budget_s:
-            break
         it_dir = out / f"iter{it:03d}"
         policy = _export(it_dir / "policy.onnx", net1, learner.actor, spec)
         eps, groups, rivals = mixture.batch(train_arms, policy, spec, rng)
@@ -180,15 +191,18 @@ def run_ppo(
             entry["learner"] = learner.update(trs, rng, actor=it >= spec.critic_warmup)
         if not spec.keep_rollouts:
             shutil.rmtree(it_dir / "rollouts" / "shards", ignore_errors=True)
-        if eval_arms and ((it + 1) % spec.eval_every == 0 or it + 1 == spec.iterations):
+        now = time.monotonic()
+        last = _last(spec, it, now - began_all, max(slowest, now - began))
+        if eval_arms and ((it + 1) % spec.eval_every == 0 or last):
             updated = _export(it_dir / "policy-updated.onnx", net1, learner.actor, spec)
             pol = _evaluate(it_dir / "eval", updated, eval_arms, spec, run)
             entry["eval"] = _paired(pol, rule_scores)
             torch.save(learner.actor.state_dict(), it_dir / "actor.pt")
         entry["wall_s"] = time.monotonic() - began
         slowest = max(slowest, entry["wall_s"])
-        history.append(entry)
-        (out / "history.json").write_text(json.dumps(history, indent=2, default=float))
+        _record(out, history, entry)
+        if last:
+            break
     torch.save(learner.actor.state_dict(), out / "actor.pt")
     torch.save(learner.critic.state_dict(), out / "critic.pt")
     _export(out / "policy.onnx", net1, learner.actor, spec)

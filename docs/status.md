@@ -11,13 +11,14 @@ No claim has evidence yet. Nothing has finished in the closed loop.
 
 The discovery controller is built and unit-tested. Its bootstrap from
 Cubic and from BBRv3 is running (`experiments/controller-teachers.json`,
-dispatched 2026-11-13). Grounding of a controller's latents on its own
-rollouts is built and tested, and waits for that release.
+dispatched 2026-11-13). The reinforcement-learning stage and the
+grounding of a controller's latents on its own rollouts are built and
+tested. Both wait for that release.
 
 | Step | State | Built | Not built |
 |---|---|---|---|
 | 1 Setup | done | the documents; the estimator of the seven LCFs and the rule graph as releases | |
-| 2 The controller in the closed loop | the bootstrap is running | `PPOSpec.latents`; `train ppo` by cloning a Linux controller, PPO, DAgger or TD3+BC; closed-loop rollouts and scoring; `experiments/net2_ppo_setup.py`, `net2_ppo_report.py`; the collapse check on rollouts (`ground.py probe`) | the reinforcement-learning stage; the teachers' own scores on the validation links |
+| 2 The controller in the closed loop | the bootstrap is running | `PPOSpec.latents`; `train ppo` by cloning a Linux controller, PPO, DAgger or TD3+BC; closed-loop rollouts and scoring; `experiments/net2_ppo_setup.py`, `net2_ppo_report.py`; the collapse check on rollouts (`ground.py probe`); the reinforcement-learning stage (`experiments/controller-rl.json`) and its width curve with the knee rule (`experiments/width_curve.py`) | the search over the stage's settings; the teachers' own scores on the validation links |
 | 3 Grounding | UNRUN | `experiments/ground.py`: `rollouts` of a controller in the closed loop, `probe` and `select` on its latents there, with the sensitivity check; a library of every stored label (37 columns over 100 ms and 10 ms windows) and 12 composites in both windows; `experiments/ground-teachers.json` | formulas beyond a linear fit; the operator-family sensitivity; matching concepts across seeds |
 | 4 Retrain and compare | UNRUN | `train run` for net1; `train ppo` for a closed-loop net2; net1 on any stored label or composite; the live truth for every label but `queue_delay_ns`, so oracles on them | labels from fitted formulas beyond the composites; net1 on them |
 
@@ -62,6 +63,28 @@ the fixed rule (`experiments/controller-clone.json`, workflow run 21). It
 leans toward the seven hand-picked LCFs, which is why the teachers above
 replaced it. It stays as a check that the narrow graph runs in the guest
 and as a third start for C5.
+
+## The reinforcement-learning stage
+
+`experiments/controller-rl.json` continues every bootstrapped controller
+by PPO on the log utility, from the clone's actor and value network. It
+is UNRUN: it reads the bootstrap's release.
+
+Its rules are fixed in the file before it runs. A run's score is that of
+the policy it leaves. The knee is the smallest width within one pooled
+standard error of the best width. Each controller with latents then
+drives rollouts of its own, and its decision is regressed on its latents.
+The distance from the clone is the RMS difference in log2 of the window.
+
+Its settings are one point, taken from PPO runs made before this
+repository, and are not searched. So its knee will not be a count of
+concepts. It will show whether PPO improves on a clone, whether the
+widths separate, and what the search should vary.
+
+Two things changed in the trainer for it. A run that the time budget ends
+between evaluations now scores the policy it leaves; before, that policy
+had no score. And the value network a clone hands over learned the
+teacher's return, so the stage updates it alone for 3 iterations first.
 
 ## The grounding library
 
@@ -163,8 +186,9 @@ selection method in `experiments/ground.py`.
 | Question | Note |
 |---|---|
 | What keeps the decision out of the latents | The first failure in [methodology.md](methodology.md#how-it-can-fail). An untuned prototype on logged states, made before this repository and never released, saw it: with only the action to fit, one latent was enough. The bootstrap will show whether it happens in the closed loop. What to change if it does is not decided. |
-| How far reinforcement learning moves a controller from its teacher | If it barely moves, the concepts are the teacher's. The measure is not chosen yet. |
-| The knee rule for the width curve | To be fixed in the experiment file of the reinforcement-learning stage. |
+| How far reinforcement learning moves a controller from its teacher | If it barely moves, the concepts are the teacher's. The measure is the RMS difference in log2 of the window from the clone. How small counts as barely is not decided. |
+| Whether one standard error is the right knee rule | With 3 seeds the error is itself noisy. It is pooled over widths for that reason. |
+| What the search over the stage's settings covers | Candidates: exploration noise, learning rate, an anchor to the clone, the value warm-up. |
 | The scale of retained performance | [methodology.md](methodology.md#retained-performance). |
 | The threshold for C3 | |
 | The kind of output the retrained net1 states | A value, an interval or a distribution. |
@@ -172,8 +196,10 @@ selection method in `experiments/ground.py`.
 
 ## Checks
 
-On the current code: ruff, pyright and `uv run pytest -q` (220 passed, 60
-skipped) pass. With the guest booted locally, the end-to-end pipeline
-test passes for every net1 kind and view (6 tests), grounding included.
-The other tests that boot the guest are UNRUN locally. CI runs them, and
-its `ci` and `uml` workflows pass on the grounding commit `5ac258809`.
+On the current code: ruff, pyright and `uv run pytest -q` (222 passed, 61
+skipped) pass. With the guest booted locally, 14 tests pass: the
+end-to-end pipeline for every net1 kind and view, grounding included, one
+training iteration under each learner, and the run that the time budget
+ends. The other tests that boot the guest are UNRUN locally on this
+code. CI runs them, and its `ci` and `uml` workflows pass on the
+grounding commit `5ac258809`.

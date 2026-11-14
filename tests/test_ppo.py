@@ -761,6 +761,23 @@ def test_ppo_loop_runs_an_iteration_with_copies(
     assert (tmp_path / "out" / "policy.onnx").exists()
 
 
+@pytest.mark.uml
+def test_a_run_the_time_budget_ends_still_scores_the_policy_it_leaves(
+    build: object, tmp_path: Path
+) -> None:
+    from expliccit_env.uml import UmlBuild  # noqa: PLC0415
+
+    assert isinstance(build, UmlBuild)
+    spec = _tiny_loop(tmp_path).model_copy(
+        update={"iterations": 3, "eval_every": 5, "time_budget_s": 1}
+    )
+    report = ppo.run_ppo(spec, tmp_path / "out", build, workers=2)
+    _, entry = report["iterations"]  # the budget allows one iteration
+    assert entry["iteration"] == 0 and entry["eval"]["pairs"] == 0
+    history = json.loads((tmp_path / "out" / "history.json").read_text())
+    assert history[-1]["eval"]["pairs"] == 0
+
+
 def _tiny_loop(tmp_path: Path) -> ppo.PPOSpec:
     """One iteration on one 24 Mbit/s link against a copy, net1 _bdp_net1."""
     _, net1 = _bdp_net1()
