@@ -17,7 +17,7 @@ The discovery controller is built and unit-tested. Its bootstrap from
 Cubic and from BBRv3 has run ([below](#the-bootstrap)): every start is
 well below the fixed rule. Reinforcement learning then brings 46 of the
 48 controllers to within 0.13 to 0.83 of the rule
-([below](#the-reinforcement-learning-stage)), none above it, and the
+([below](#the-reinforcement-learning-stage)), and the
 widths do not separate: one or two latents already carry most of the
 decision. So the width is not read as a count of concepts. The count is
 read in step 4, from performance against the number of fitted concepts.
@@ -160,13 +160,16 @@ Mean score of three seeds, with the lowest and the highest:
 What it shows:
 
 - PPO improves on the clones. They started 0.5 to 2.4 below the rule,
-  and 46 of the 48 runs end 0.13 to 0.83 below it. No run reaches the
-  rule.
+  and 46 of the 48 runs end 0.13 to 0.83 below it. Whether that is
+  comparable with the rule is not decided: the margin is not fixed
+  ([methodology.md](methodology.md#comparing-controllers)). The rule is
+  a reference point here and not a bar to pass.
 - Two runs got worse: Cubic at width 7, seeds 1 and 3, end at -1.71 and
   -2.44. The third seed of that width ends at -0.22, so this is the
   training and not the width.
-- The reference without an encoder is the best row for both teachers and
-  the steadiest across seeds.
+- The reference without an encoder is the steadiest row across seeds for
+  both teachers. The rows are not ranked: their differences are of the
+  size of the spread between seeds.
 - The widths do not separate. The rule in the file puts a knee at
   width 1 from Cubic (pooled standard error 0.26) and at width 4 from
   BBRv3 (0.11).
@@ -376,9 +379,9 @@ in the latents favours it. The count is read in retraining instead
 | Whether the wide latents hold more than the decision | Nothing forces them to. The probe reads each base variable from the latents, and the decision is grounded beside them. If the two paths agree and the latents add nothing, the decision's path alone is used. |
 | Whether the order of the decision's path is the order of need | It comes from logged steps. Retraining at each m, against a random order and the baselines, decides. |
 | How far reinforcement learning moves a controller from its teacher | If it barely moves, the concepts are the teacher's. The measure is the RMS difference in log2 of the window from the clone. How small counts as barely is not decided. |
-| Whether one standard error is the right rule for the count | With 3 seeds the error is itself noisy. It is pooled over m for that reason. |
+| The margin for comparable | It must be fixed before step 4 runs. One candidate is the spread between seeds of the wide controller. With 3 seeds that spread is itself noisy. |
+| Which of ccperf's metrics are reported, and for which controllers | `experiments/ccperf.py` plans the experiments. A report for learned controllers beside the teachers is UNRUN. |
 | What the search over the stage's settings covers | Candidates: exploration noise, learning rate, an anchor to the clone, the value warm-up. |
-| The scale of retained performance | [methodology.md](methodology.md#retained-performance). |
 | The threshold for C3 | |
 | How close to the flexible fit a formula must come | C2 compares a formula with a flexible fit on the whole library. The margin is not decided. |
 | How to weigh a latent that hardly moves | Every fit standardizes the latents. A weight from the decoder's use of each latent is a candidate. |

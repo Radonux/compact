@@ -13,7 +13,7 @@ trained controller. Discovery is data driven. Deployment stays by design.
    an encoder in net1's place, a decoder in net2's place
    (`PPOSpec.latents`), in the closed loop. Bootstrap it from a
    traditional controller (Cubic, BBRv3), then continue by reinforcement
-   learning so it can go beyond its teacher. The width of the latents
+   learning so it is not tied to its teacher. The width of the latents
    counts nothing: one latent can always carry the decision itself.
 2. Ground. Fit the wide controller's latents and its decision to short
    closed-form formulas over emulator ground truth and sender metrics.
@@ -22,12 +22,16 @@ trained controller. Discovery is data driven. Deployment stays by design.
 3. Retrain. Train a normal net1 and net2 on the first m fitted formulas
    as LCF labels, through the existing pipeline. Only this controller
    ships. Closed-loop performance against m counts the concepts. The
-   metric is retained performance against the unconstrained controller,
-   in the closed loop, compared with other ways of choosing concepts at
+   metric is the smallest m at which it is comparable with the
+   unconstrained controller, against other ways of choosing concepts at
    the same budget.
 
 Rules for this work:
 
+- Never call one controller better than another because its training
+  utility is higher. Comparable performance, within a margin fixed before
+  the run, is enough. After that the key metrics come from ccperf's
+  experiments, fairness among them.
 - The discovery model is a controller, trained and judged in the closed
   loop. Fit to logged steps is never evidence about a controller. Do not
   replace the controller with an offline predictor.

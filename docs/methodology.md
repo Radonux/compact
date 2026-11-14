@@ -111,7 +111,7 @@ These follow from the design, before any data. Each has a check.
 | The wide latents hold only the decision | Nothing makes a wide encoder keep the path's state apart from the decision ([above](#what-the-width-cannot-count)). Formulas that span such latents are formulas for the window, not concepts behind it. | Regress the decision on the latents in every run, and read each base variable from the latents. Ground the decision itself beside the latents, and compare the two paths. |
 | The order is not the order of need | Grounding orders formulas by how much of the decision they explain on logged steps, which is not their worth in the closed loop. | The count is read from closed-loop performance against m. Compare the order with a random one and with the baselines at each m (C3). |
 | The concepts follow the teacher | Reinforcement learning may stay near the controller it started from. | Start from two teachers that work differently, Cubic (loss based) and BBRv3 (model based), and compare the concepts (C5). Measure how far each controller moved from its start. |
-| A weak learner looks like a need for concepts | Reinforcement learning may train a net2 on few concepts worse for reasons of optimization alone. | Tune before any claim. Compare with the oracle net2 trained the same way on the full set. |
+| A weak learner looks like a need for concepts | Reinforcement learning may leave a net2 on few concepts short of comparable for reasons of optimization alone. | Tune before any claim. Compare with the oracle net2 trained the same way on the full set. |
 | No count | The decision may need more concepts than a controller can be retrained on. | Report it. It bears on the two-net design itself. The comparison at seven concepts still stands. |
 | The latents fit no short formula | Latents are defined only up to mixing, and narrow layers pack several features into each unit (Locatello et al., ICML 2019). | Report it, and look at what the latents do encode. |
 | The vocabulary decides the answer | A person chooses the grounding library. | Refit with each base variable or operator family removed (C4). |
@@ -121,9 +121,9 @@ These follow from the design, before any data. Each has a check.
 
 | | Claim | How it fails |
 |---|---|---|
-| C1 | Count. Closed-loop performance of net1 + net2 on the first m fitted concepts stops improving at a small m, the same across seeds of the wide controller, and at that m it matches the oracle net2 on the full set. | No m short of the full set keeps the performance, or the curve differs between seeds. |
+| C1 | Count. Closed-loop performance of net1 + net2 on the first m fitted concepts becomes comparable with the wide controller's at a small m, the same across seeds of the wide controller, and at that m it is comparable with the oracle net2 on the full set. | No m short of the full set is comparable, or the m differs between seeds. |
 | C2 | Grounding. The wide controller's latents and its decision are spanned by a few short closed-form formulas over named variables (a flexible fit on them reaches a flexible fit on the whole library), and the same formulas recur in at least 3 of 5 seeds. | They fit no short formula, or the formulas differ between seeds. |
-| C3 | Retention. net1 + net2 trained on the fitted concepts retain more of the wide controller's closed-loop performance than the same number of concepts chosen another way: the hand-picked LCFs, greedy subset search, SHAP-ranked inputs, a random subset. | A baseline ties or wins at the same budget. |
+| C3 | Budget. net1 + net2 trained on the fitted concepts are comparable with the wide controller at a number of concepts where concepts chosen another way are not: the hand-picked LCFs, greedy subset search, SHAP-ranked inputs, a random subset. | A baseline is comparable at the same budget. |
 | C4 | Vocabulary. With one base variable or operator family removed from the library, the selected concepts change only when the removed item was one of them. | The selection follows whatever the library holds. |
 | C5 | Start. The discovery controller yields the same concepts from different teachers. | The concepts describe one teacher. |
 
@@ -151,21 +151,31 @@ run are fixed in its experiment file before it runs.
 | Test once | The test links run once per candidate, after every choice is fixed on validation. The report says what was searched. |
 | Failed episodes count for nothing | A failed or invalid episode gives no metrics and no labels. |
 
-### Retained performance
+### Comparing controllers
 
-It is the closed-loop performance of net1 + net2 on the fitted concepts
-over the wide controller's, on the same links, conditions and
-seeds. It is reported with every baseline at the same number of concepts,
-and with the oracle net2 beside it. The oracle splits the gap in two:
-wide controller minus oracle is what the concept set lacks, and oracle minus
-net1 + net2 is what net1's estimation costs.
+A controller is not called better than another because its log utility is
+higher. The log utility is the training objective and a coarse check. It
+is one choice of weights among throughput, delay and loss, and a
+controller pushed high on it raises questions it does not score, fairness
+first. A fixed controller's score on it is not a ceiling either: BBRv3 is
+by design less aggressive than BBRv1.
 
-Log utility is at most about zero, so a plain ratio of two log utilities
-is not a fraction retained: a larger ratio would mean a worse controller.
-The scale must be fixed before step 4 runs. One candidate is the fraction
-of the wide controller's lead over a fixed reference controller,
-(score - reference) / (wide - reference), reported with the paired
-difference and its interval.
+So the comparison is of two kinds, in this order:
+
+1. Comparable or not. Two controllers are comparable when their log
+   utilities, on the same links, conditions and seeds, differ by no more
+   than a margin fixed before the run. The paired difference and its
+   interval are reported with it. A difference inside the margin is not
+   ranked. A controller far outside it is not working, which is all the
+   log utility is asked to show.
+2. The key metrics, for controllers that are comparable. ccperf's
+   experiments (`experiments/ccperf.py`) report throughput, delay, loss
+   and fairness between flows. These are read as a profile and not folded
+   into one number.
+
+Every comparison at m concepts comes with each baseline at the same m and
+with the oracle net2 beside it. The oracle splits a shortfall in two:
+what the concept set lacks, and what net1's estimation costs.
 
 ## Plan
 
@@ -194,13 +204,15 @@ the evidence says so.
 3. Grounding, on the wide controllers' latents and decisions and the
    steps of their own rollouts ([below](#grounding)).
 4. Retrain and compare. Compute labels from the frozen formulas, train
-   net1 and net2 as usual, and measure retained performance.
+   net1 and net2 as usual, and compare with the wide controller
+   ([above](#comparing-controllers)).
    - Train the oracle net2 on the true concept values.
-   - Plot retained performance against the number of concepts m, for
+   - Plot the log utility against the number of concepts m, for
      m = 1, 2, 3, 5, 7 and the full set, taking concepts in the order of
-     the decision's path. The count (C1) is the smallest m whose mean
-     over seeds is within one standard error of the best m's mean, the
-     standard error pooled over m. m = 7 is expliCCit's budget.
+     the decision's path. The count (C1) is the smallest m that is
+     comparable with the wide controller. m = 7 is expliCCit's budget.
+   - Run ccperf's experiments on the controllers that are comparable,
+     and report the key metrics beside the teachers'.
    - Baselines at the same budget: the hand-picked LCFs, a greedy forward
      subset search over the base variables, the wide controller's inputs ranked
      by SHAP, and a random subset.
@@ -321,7 +333,7 @@ Iten et al., PRL 2020; Miles et al., PRB 2021; Cranmer et al., NeurIPS
 2020) and in vision concept-bottleneck work (Discover-then-Name CBM, ECCV
 2024). The new parts here are the networking instance with emulator
 ground truth, the use of grounding to choose concepts for a by-design
-controller, and the retained-performance metric.
+controller, and the count of concepts by retraining.
 
 The closest networking work: Agua (SIGCOMM 2025) maps a controller's
 embeddings to text concepts written by an LLM, after the fact. Niedermayer
@@ -342,7 +354,7 @@ compact tests against.
 | net2 | The decision maker. It sets the window from net1's output alone. |
 | discovery controller | The encoder, k latents and decoder of [the design](#the-discovery-controller). Never shipped. |
 | latents, z, k | The layer z, of k dimensions, between encoder and decoder. Its width is not a count of concepts. |
-| wide controller | The discovery controller with 64 latents: the unconstrained reference of retained performance. |
+| wide controller | The discovery controller with 64 latents: the unconstrained reference that retrained controllers are compared with. |
 | teacher | The traditional congestion controller a discovery controller is bootstrapped from: Cubic or BBRv3, as Linux runs them. |
 | bootstrap | Cloning a teacher to give reinforcement learning a start: the teacher drives the rollouts and the controller learns the window that sends as it did (`PPOSpec.algo` `clone`). |
 | fixed rule | A window of 2^0.25 times the believed BDP of the estimator of the seven LCFs. A common reference in evaluations. |
@@ -352,6 +364,6 @@ compact tests against.
 | grounding | Fitting each latent to a closed-form formula over the library, on held-out links. |
 | library | The candidate terms for grounding: base variables crossed with operators. |
 | concept | A grounded formula that recurs across seeds and has been named. Concepts become the LCF labels of the retrained net1. |
-| retained performance | [Above](#retained-performance). |
+| comparable | Within a margin fixed before the run, on the log utility ([above](#comparing-controllers)). Never a ranking. |
 | oracle net2 | net2 trained on and fed the true concept values. A diagnostic only. |
 | log utility | Per 10 ms step, from ground truth: ln(max(receive rate / capacity, 0.01)) - 0.5 queueing delay / base RTT - 4 drop fraction (`train/score.py`). An episode scores its mean over steps, and a controller scores on a link the mean over the link's episodes. The log term makes competing flows settle at proportionally fair shares (Kelly, 1998). |

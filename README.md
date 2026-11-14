@@ -27,11 +27,13 @@ the middle learned.
    labels. Only this controller ships, so every decision still passes
    through exact, checkable quantities.
 
-The measure is retained performance: how much of an unconstrained
-controller's closed-loop performance the retrained one keeps, against
-other ways of choosing the same number of concepts. A bottleneck does not
-make a network explainable. It counts the concepts, and grounding against
-ground truth names them.
+The measure is the number of concepts at which the retrained controller
+is comparable with an unconstrained one in the closed loop, against other
+ways of choosing the same number of concepts. Comparable is enough: no
+controller is ranked above another on the training utility, and ccperf's
+experiments report the key metrics. A bottleneck does not make a network
+explainable. Grounding against ground truth names the concepts, and
+retraining on them counts them.
 
 ## The emulator
 
