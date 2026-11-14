@@ -160,18 +160,24 @@ controller pushed high on it raises questions it does not score, fairness
 first. A fixed controller's score on it is not a ceiling either: BBRv3 is
 by design less aggressive than BBRv1.
 
-So the comparison is of two kinds, in this order:
+So the daily comparison asks one thing: comparable or not. A controller
+is comparable with another when its mean log utility, on the same links,
+conditions and seeds, is no more than 0.1 below the other's. The paired
+difference and its 95% interval are reported with it. Being above earns
+nothing, and a difference inside the margin is not ranked.
 
-1. Comparable or not. Two controllers are comparable when their log
-   utilities, on the same links, conditions and seeds, differ by no more
-   than a margin fixed before the run. The paired difference and its
-   interval are reported with it. A difference inside the margin is not
-   ranked. A controller far outside it is not working, which is all the
-   log utility is asked to show.
-2. The key metrics, for controllers that are comparable. ccperf's
-   experiments (`experiments/ccperf.py`) report throughput, delay, loss
-   and fairness between flows. These are read as a profile and not folded
-   into one number.
+The margin is 0.1 because of what it means in the utility's own terms:
+about 10% of throughput at equal delay and loss, or a queueing delay of
+0.2 base RTTs, or 2.5 points of dropped packets. A controller
+whose seeds spread by more than the margin has not trained steadily
+enough to be compared, and more seeds or tuning come first
+([status.md](status.md#the-reinforcement-learning-stage)). The margin is
+fixed here, before any run that counts.
+
+The key metrics (throughput, delay, loss, fairness between flows) are
+left to ccperf's experiments (`experiments/ccperf.py`). That is the last
+benchmark, for controllers that have trained well, and it is deferred. No
+step of the plan waits for it.
 
 Every comparison at m concepts comes with each baseline at the same m and
 with the oracle net2 beside it. The oracle splits a shortfall in two:
@@ -211,8 +217,6 @@ the evidence says so.
      m = 1, 2, 3, 5, 7 and the full set, taking concepts in the order of
      the decision's path. The count (C1) is the smallest m that is
      comparable with the wide controller. m = 7 is expliCCit's budget.
-   - Run ccperf's experiments on the controllers that are comparable,
-     and report the key metrics beside the teachers'.
    - Baselines at the same budget: the hand-picked LCFs, a greedy forward
      subset search over the base variables, the wide controller's inputs ranked
      by SHAP, and a random subset.
@@ -364,6 +368,6 @@ compact tests against.
 | grounding | Fitting each latent to a closed-form formula over the library, on held-out links. |
 | library | The candidate terms for grounding: base variables crossed with operators. |
 | concept | A grounded formula that recurs across seeds and has been named. Concepts become the LCF labels of the retrained net1. |
-| comparable | Within a margin fixed before the run, on the log utility ([above](#comparing-controllers)). Never a ranking. |
+| comparable | Mean log utility no more than 0.1 below the other controller's ([above](#comparing-controllers)). Never a ranking. |
 | oracle net2 | net2 trained on and fed the true concept values. A diagnostic only. |
 | log utility | Per 10 ms step, from ground truth: ln(max(receive rate / capacity, 0.01)) - 0.5 queueing delay / base RTT - 4 drop fraction (`train/score.py`). An episode scores its mean over steps, and a controller scores on a link the mean over the link's episodes. The log term makes competing flows settle at proportionally fair shares (Kelly, 1998). |

@@ -160,10 +160,17 @@ Mean score of three seeds, with the lowest and the highest:
 What it shows:
 
 - PPO improves on the clones. They started 0.5 to 2.4 below the rule,
-  and 46 of the 48 runs end 0.13 to 0.83 below it. Whether that is
-  comparable with the rule is not decided: the margin is not fixed
-  ([methodology.md](methodology.md#comparing-controllers)). The rule is
-  a reference point here and not a bar to pass.
+  and 46 of the 48 runs end 0.13 to 0.83 below it. The margin for
+  comparable is 0.1
+  ([methodology.md](methodology.md#comparing-controllers)), so none is
+  comparable with the rule yet. The references without an encoder are
+  nearest, at 0.13 and 0.16 below. The rule is a reference point here
+  and not a bar to pass.
+- The spread between seeds decides what the margin can resolve. The
+  standard deviation over 3 seeds is 0.01 and 0.03 for the references
+  without an encoder, and 0.04 to 0.37 for the controllers with latents
+  (1.13 at Cubic width 7). So only the references are steady enough to
+  compare at this point of the settings.
 - Two runs got worse: Cubic at width 7, seeds 1 and 3, end at -1.71 and
   -2.44. The third seed of that width ends at -0.22, so this is the
   training and not the width.
@@ -379,8 +386,6 @@ in the latents favours it. The count is read in retraining instead
 | Whether the wide latents hold more than the decision | Nothing forces them to. The probe reads each base variable from the latents, and the decision is grounded beside them. If the two paths agree and the latents add nothing, the decision's path alone is used. |
 | Whether the order of the decision's path is the order of need | It comes from logged steps. Retraining at each m, against a random order and the baselines, decides. |
 | How far reinforcement learning moves a controller from its teacher | If it barely moves, the concepts are the teacher's. The measure is the RMS difference in log2 of the window from the clone. How small counts as barely is not decided. |
-| The margin for comparable | It must be fixed before step 4 runs. One candidate is the spread between seeds of the wide controller. With 3 seeds that spread is itself noisy. |
-| Which of ccperf's metrics are reported, and for which controllers | `experiments/ccperf.py` plans the experiments. A report for learned controllers beside the teachers is UNRUN. |
 | What the search over the stage's settings covers | Candidates: exploration noise, learning rate, an anchor to the clone, the value warm-up. |
 | The threshold for C3 | |
 | How close to the flexible fit a formula must come | C2 compares a formula with a flexible fit on the whole library. The margin is not decided. |
