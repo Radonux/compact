@@ -354,7 +354,9 @@ def summary(result: dict[str, Any]) -> str:
     for c in result["cases"]:
         groups.setdefault(c["group"], []).append(c)
 
-    def enough(c: dict[str, Any], r: dict[str, Any]) -> bool:
+    def enough(c: dict[str, Any], r: dict[str, Any]) -> bool | None:
+        if c["group"] == "null":
+            return None  # nothing to explain: read its R^2, which must not be above 0
         return max(r["linear"][1], *r.get("flexible", [-1.0])) >= c["limit"] - ENOUGH
 
     def count(rows: list[dict[str, Any]], ok: Callable[[dict[str, Any]], bool | None]) -> str:
@@ -381,8 +383,10 @@ def summary(result: dict[str, Any]) -> str:
                     count(
                         rows,
                         lambda c: (
-                            c["labels"]["formulas"]["linear"][1] >= c["limit"] - ENOUGH
-                            or enough(c, c["labels"])
+                            None
+                            if c["group"] == "null"
+                            else c["labels"]["formulas"]["linear"][1] >= c["limit"] - ENOUGH
+                            or bool(enough(c, c["labels"]))
                         ),
                     ),
                 ]

@@ -21,7 +21,7 @@ tested. Both wait for that release.
 |---|---|---|---|
 | 1 Setup | done | the documents; the estimator of the seven LCFs and the rule graph as releases | |
 | 2 The controller in the closed loop | the bootstrap is running | `PPOSpec.latents`; `train ppo` by cloning a Linux controller, PPO, DAgger or TD3+BC; closed-loop rollouts and scoring; `experiments/net2_ppo_setup.py`, `net2_ppo_report.py`; the collapse check on rollouts (`ground.py probe`); the reinforcement-learning stage (`experiments/controller-rl.json`) and its width curve with the knee rule (`experiments/width_curve.py`) | the search over the stage's settings; the teachers' own scores on the validation links |
-| 3 Grounding | UNRUN | `experiments/ground.py`: `rollouts` of a controller in the closed loop, `probe` and `select` on its latents there, with the sensitivity check; a library of every stored label (37 columns over 100 ms and 10 ms windows) and 12 composites in both windows; `experiments/ground-teachers.json` | formulas beyond a linear fit; the operator-family sensitivity; matching concepts across seeds |
+| 3 Grounding | UNRUN | `experiments/ground.py`: `rollouts` of a controller in the closed loop, `probe` and `select` on its latents there, with the sensitivity check; a library of every stored label (37 columns over 100 ms and 10 ms windows) and 12 composites in both windows; `experiments/ground-teachers.json`; a stress test on planted latents, `experiments/ground_stress.py` | formulas beyond two terms of four factors; the operator-family sensitivity; matching concepts across seeds |
 | 4 Retrain and compare | UNRUN | `train run` for net1; `train ppo` for a closed-loop net2; net1 on any stored label or composite; the live truth for every label but `queue_delay_ns`, so oracles on them | labels from fitted formulas beyond the composites; net1 on them |
 
 ## The bootstrap
@@ -169,32 +169,65 @@ one rollout per link and is not affected.
 
 ## A stress test of the fitter
 
-Latents with a known answer were planted and put through `select`. The
-rows were 150 episodes run locally under Cubic, BBRv3 and the fixed rule
-(90 training links to fit, 60 validation links to score). Each latent was
-a formula over ground truth, some with noise added. This was a local
-check. Its script is not in the repository, and a released run is UNRUN.
+`experiments/ground_stress.py` plants latents with a known answer and
+puts them through `select`, as if an encoder had learned exactly the
+planted concepts. It asks one question: if training found real concepts,
+does grounding give them back in closed form? A released run
+(`experiments/ground-stress.json`) is UNRUN. The numbers below are from a
+local run of the same script on 150 episodes under Cubic, BBRv3 and the
+fixed rule (90 training links to fit, 60 validation links to score), 125
+cases. They are checks of the fitter, not results about a controller.
+
+Each case is selected twice. With the curated library the planted concept
+is in the vocabulary. With the stored labels alone every composite is
+taken out, so its formula has to be found, not looked up. "Named" means
+that one of the first 8 features orders the rows as the planted concept
+does, at a rank correlation of 0.99 or more.
 
 | Planted | Outcome |
 |---|---|
-| Products of powers, alone or as an invertible mix of three, with and without noise | The right features come first, and R^2 reaches the limit the noise sets. Mixing costs nothing, so the latents need no rotation before the fit. |
-| Other forms: a tanh of a variable, the smaller of two, a ratio of sums, products of plain values | In five of seven cases the linear R^2 stops between 0.68 and 0.95. A small network on the first 8 features reaches 0.98 to 1.00 in all seven, so the features were right and the form was not. |
-| Four variables through a random mix and a tanh, with noise | Forward selection picks a stand-in for the mix first and keeps it: 0.69 at 4 features. Ordering by backward elimination puts the four planted variables first: 0.77. |
-| No relation: one random number per episode, and white noise | Held-out R^2 is at or below 0. Nothing is found. |
-| One real latent beside one that hardly moves | The mean R^2 halves, and fits to the noise take the picks after the first. |
+| Each of the 12 literature composites alone, held on a log scale, as a power of its value, or through a tanh, without noise (36 cases) | From the stored labels alone the formula search names all 36, the worst at 0.994. The linear fit on labels without formulas names 6. Normalized power has five factors, one more than the search writes, and is named by a shorter formula that orders the rows alike at 0.995. |
+| The same with noise of 0.3 standard deviations (36 cases) | 28 named. In the other 8 a different formula that orders the rows much as the planted one does is listed, at 0.93 to 0.98 in 7 of them. In the eighth the noise left nothing to explain. |
+| expliCCit's seven concepts as a random mix in 7 or 10 latents, with and without a tanh and noise (12 cases) | The first 8 features are enough in all 12: a small network on them reaches what the noise leaves. The planted basis is not recovered. Most of the seven are picked by name, and stand-ins take the place of the rest (base RTT beside queueing delay for one-way delay). The linear fit on places reads 0.92 to 0.96 without noise where the network reads 0.98 to 0.99. |
+| Random sets of 2 and 4 ground-truth variables through a mix and a tanh, with noise (12 cases) | Enough in all 12. The first features span every planted variable in 6. |
+| One variable under a windowed operator (12 cases) | Named in 8 from the labels. The misses are a windowed composite, which the formula search does not build, and cases where the noise left under 0.05 to explain. |
+| Forms the search cannot write: a minimum, a clipped ratio, a weighted sum, a root over a sum (10 cases) | Enough in all 10. No formula is exact, and the report says so by the gap between the linear and the flexible fit. |
+| No relation: white noise, and one random number per link | Held-out R^2 is at or below 0, linear and flexible. Nothing is found. |
+| One real latent beside one that hardly moves | The mean R^2 halves. `probe` reports each latent's standard deviation so that such a latent is seen. |
+| What the sender measures, from ground truth alone | The smoothed RTT is found as base RTT plus queueing delay (0.997), a formula nobody listed. |
 
-Three changes followed. `select` orders its features by backward
-elimination. It reports a small network's R^2 on the first 8 features and
-on the whole library beside the linear numbers. `probe` reports each
-latent's standard deviation. No fixed bar for R^2 is used any more: a
-latent computed from the sender's measurements can hold less than all of
-a ground-truth variable, and the flexible fit on the whole library says
-how much there is to explain.
+What changed in `select` because of it:
 
-Two limits remain. The selection criterion is linear, so a variable that
-acts only through a product with another is picked late: in one planted
-case it came seventh. And a latent that hardly moves still counts as much
-as the others. Whether trained controllers have such latents is not known.
+- Every fit is made on places (ranks). A latent that held a variable as
+  its value, its inverse or its tanh gave different linear fits before,
+  and now gives one. Normal scores in place of ranks were tried and
+  dropped: on the seven-concept mixes the linear fit fell from 0.92 to
+  0.78.
+- A formula search over the stored labels follows the selection, and the
+  path is selected again with its formulas. Before it, a product of two
+  labels could not be written at all.
+- The search tries every formula of two factors over every stored label.
+  When it only followed the selected features it missed excess demand,
+  arrival rate less capacity: the difference of two nearly equal
+  variables shows in no linear fit on either.
+- Features are ordered by backward elimination, and a small network's
+  R^2 on the first 8 features and on the whole library stands beside the
+  linear numbers. No fixed bar for R^2 is used.
+
+Limits that remain:
+
+- A mix of several concepts is grounded as a set of features that is
+  enough, not as the planted basis. Which features a person would call
+  the concepts is not decided by the fit. Recurrence across seeds and
+  `probe`, which reads each feature from the latents, are the checks for
+  that, and neither is in the stress test.
+- Under noise the listed formula can be a near equivalent of the planted
+  one. Formulas that order the rows alike at 0.98 count as one, and the
+  simplest is kept.
+- The search writes two terms with coefficient 1 and at most four
+  factors. A weighted sum or a minimum is reported as a gap, not written.
+- A latent that hardly moves still counts as much as the others. Whether
+  trained controllers have such latents is not known.
 
 ## Releases
 
