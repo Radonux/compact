@@ -7,17 +7,20 @@ dated entries; its history is in git. The steps are those of the
 
 ## Where the project stands
 
-No claim has evidence yet. Three closed-loop runs have finished: the
-start taught from the fixed rule
+No claim has evidence yet. The closed-loop runs so far: the start taught
+from the fixed rule
 ([below](#the-start-taught-from-the-fixed-rule)), the bootstrap from
-Cubic and BBRv3, and one untuned point of the reinforcement-learning
-stage. All are checks and not results for a claim.
+Cubic and BBRv3, the reinforcement-learning stage at one point, its
+settings search and the confirmation of the two best settings per
+teacher. The confirmation gives the first comparisons with the
+reference at tuned settings, over seeds only and without the share
+with a competing flow, so they are not yet results for a claim.
 
 | Step | State | Built | Not built |
 |---|---|---|---|
 | 1 Setup | done | the documents; the estimator of the seven LCFs and the rule graph as releases | |
-| 2 The controller in the closed loop | the bootstrap and one untuned point of reinforcement learning have run | `PPOSpec.latents`; `train ppo` by cloning a Linux controller, PPO, DAgger or TD3+BC; closed-loop rollouts and scoring; `experiments/net2_ppo_setup.py`, `net2_ppo_report.py`; the collapse check on rollouts (`ground.py probe`); the reinforcement-learning stage (`experiments/controller-rl.json`) and its scores by width (`experiments/width_curve.py`) | the search over the stage's settings; the teachers' own scores on the validation links |
-| 3 Grounding | first readings on untuned controllers, at widths 7 to 16 with the sender's own window held; tuned controllers UNRUN | `experiments/ground.py`: `rollouts` of a controller in the closed loop, `probe` and `select` on its latents there, with the sensitivity check; a library of every stored label (37 columns over 100 ms and 10 ms windows) and 12 composites in both windows; `experiments/ground-teachers.json`; a stress test on planted latents, `experiments/ground_stress.py` | formulas beyond two terms of four factors; the operator-family sensitivity; matching concepts across seeds |
+| 2 The controller in the closed loop | the bootstrap has run; reinforcement learning is tuned at width 10 and confirmed at widths 7, 10 and 16 over three seeds | `PPOSpec.latents`; `train ppo` by cloning a Linux controller, PPO, DAgger or TD3+BC; closed-loop rollouts and scoring; `experiments/net2_ppo_setup.py`, `net2_ppo_report.py`; the collapse check on rollouts (`ground.py probe`); the reinforcement-learning stage (`experiments/controller-rl.json`) and its scores by width (`experiments/width_curve.py`); its settings search and confirmation (`experiments/controller-rl-search.json`, `controller-rl-confirm.json`, `settings_search.py`) | the share with a competing flow; intervals over links; the teachers' own scores on the validation links |
+| 3 Grounding | first readings on untuned controllers, at widths 7 to 16 with the sender's own window held; the confirmed controllers UNRUN | `experiments/ground.py`: `rollouts` of a controller in the closed loop, `probe` and `select` on its latents there, with the sensitivity check; a library of every stored label (37 columns over 100 ms and 10 ms windows) and 12 composites in both windows; `experiments/ground-teachers.json`; a stress test on planted latents, `experiments/ground_stress.py` | formulas beyond two terms of four factors; the operator-family sensitivity; matching concepts across seeds |
 | 4 Retrain and compare | UNRUN | `train run` for net1; `train ppo` for a closed-loop net2; net1 on any stored label or composite; the live truth for every label but `queue_delay_ns`, so oracles on them | labels from fitted formulas beyond the composites; net1 on them |
 
 ## The bootstrap
@@ -235,10 +238,74 @@ summary has all of them.
 - The scores of the two best points per teacher changed by 0.04 or less
   over the last 20 iterations.
 
-The two best points per teacher go to a confirmation at widths 7, 10 and
-16 with the reference, over the three seeds the bootstrap has
-(`experiments/controller-rl-confirm.json`), which is UNRUN. More
-iterations and more seeds than three are UNRUN too.
+The confirmation has run (`exp-controller-rl-confirm-31`,
+`experiments/controller-rl-confirm.json`): the two best points per
+teacher at widths 7, 10 and 16 and the reference without an encoder,
+seeds 1 to 3, 48 runs, none failed. Its rules were fixed in the file
+before it ran.
+
+Each teacher's setting is the point with the higher mean over its nine
+runs at widths 7, 10 and 16:
+
+- Cubic: learning rate 0.0003, clip 0.2, noise 0.2, at -0.35 against
+  -0.61. Width 7 makes most of the gap, where seed 1 ends at -1.44 and
+  -2.99. Without width 7 the order holds, -0.24 against -0.29.
+- BBRv3: learning rate 0.00003, clip 0.2, noise 0.1, at -0.25 against
+  -0.31. Without width 7 the two points tie at -0.28, so width 7
+  decides.
+
+At that setting, each width against the reference trained at the same
+point. The score is the log utility minus the fixed rule's, the mean of
+three seeds. The difference from the reference has a 95% interval over
+seeds (Welch's t, 2 to 4 degrees of freedom), and the verdict follows
+the margin of 0.1
+([methodology.md](methodology.md#comparing-controllers)).
+
+| Teacher | Width | Score | Minus the reference | 95% interval | Verdict | Minus the reference, without a competing flow | With one |
+|---|---|---|---|---|---|---|---|
+| Cubic | none | -0.16 | | | | | |
+| Cubic | 7 | -0.59 | -0.43 | -2.25 to +1.40 | unresolved | -0.38 | -0.48 |
+| Cubic | 10 | -0.17 | -0.01 | -0.14 to +0.12 | unresolved | +0.03 | -0.05 |
+| Cubic | 16 | -0.31 | -0.15 | -0.45 to +0.16 | unresolved | +0.06 | -0.35 |
+| BBRv3 | none | -0.11 | | | | | |
+| BBRv3 | 7 | -0.20 | -0.09 | -0.17 to -0.02 | unresolved | -0.03 | -0.16 |
+| BBRv3 | 10 | -0.28 | -0.17 | -0.23 to -0.11 | not comparable | +0.00 | -0.34 |
+| BBRv3 | 16 | -0.28 | -0.17 | -0.23 to -0.11 | not comparable | -0.02 | -0.32 |
+
+What it shows:
+
+- No controller reaches the fixed rule. The references end 0.16 (Cubic)
+  and 0.11 (BBRv3) below it.
+- The shortfalls lie with a competing flow. Without one, every width but
+  Cubic's width 7 is within 0.06 of its reference, and Cubic's width 16
+  is comparable there (interval -0.06 to +0.18). With one, BBRv3's widths
+  10 and 16 are 0.34 and 0.32 below (intervals -0.62 to -0.07 and -0.61
+  to -0.03). There a higher score can come from a larger share of the
+  link, which is not a gain. The share is not computed, so whether the
+  two verdicts of not comparable are a cost of the latents, or the
+  reference taking more of the link, is UNRUN.
+- The intervals are over seeds only. The trainer kept the paired scores
+  per condition and not per link, so intervals over links could not be
+  drawn from this release. It now keeps every link and condition.
+- Cubic's width 7, seed 1, fails at both points. It starts at -1.54, as
+  the other seeds do (-1.29 and -1.56), and ends at -1.44 and -2.99,
+  while seeds 2 and 3 end at -0.13 to -0.47. Both releases train from
+  the same clones, and in `exp-controller-rl-24` this width diverged too.
+  Its cause is UNRUN.
+- The setting chosen for Cubic gives the results of the search again at
+  width 10 (-0.17 in both). The references score a little higher with the
+  slower learner for both teachers (Cubic -0.13 against -0.16, BBRv3
+  -0.11 against -0.18), which the rules do not use.
+- Scores rose by 0.02 to 0.03 on average over the last 20 iterations, by
+  up to 0.13 in single runs. Training is not done at 120 iterations.
+
+Longer training and more than three seeds are UNRUN. More seeds need
+more clones from the bootstrap. The grounding of the confirmed
+controllers, at each teacher's setting, is the next run
+(`experiments/ground-rl-confirm.json`), UNRUN. It also runs the
+references on the same validation rollouts and sets each width against
+them with intervals over links and the share with a competing flow
+(`experiments/versus_reference.py`).
 
 Two things changed in the trainer for it. A run that the time budget ends
 between evaluations now scores the policy it leaves; before, that policy
@@ -392,7 +459,9 @@ What it shows:
   explains most of the change (0.58 to 0.80 in all runs but one), and
   the path adds 0.04 to 0.15. Why the two teachers differ is not known.
   One candidate is that the window in force at a decision is not always
-  the window the controller last set. That is not checked.
+  the window the controller last set. `ground.py select` now measures
+  that gap, and the grounding of the confirmed controllers will report
+  it (UNRUN).
 - The small network on the whole library scores below the one on eight
   features for several Cubic decisions (down to -0.75). It overfits a
   target this noisy, so that bound is not usable for the decision's
@@ -474,6 +543,7 @@ Limits that remain:
 | `exp-ground-stress-23` | The stress test of the fitter: the rollouts' setup, `stress/stress.json` with every case and `summary.md`. | read above |
 | `exp-ground-teachers-26` | Grounding of the bootstrapped controllers on their own rollouts: probe and select per teacher, widths 1 to 64, three seeds. |
 | `exp-controller-rl-search-29` | The settings search at width 10: 48 run directories with specs and histories, and the ranking of the twelve points per teacher. | read above |
+| `exp-controller-rl-confirm-31` | The confirmation of the two best settings per teacher: 48 run directories with specs, weights, exported policies and histories, at widths 0, 7, 10 and 16. | read above; input of grounding |
 | `exp-ground-rl-27` | Grounding of the controllers after reinforcement learning at widths 1, 2 and 64: latents and decision. |
 | `exp-ground-rl-30` | Grounding of the controllers after reinforcement learning at widths 7, 10 and 16, with the sender's own window held in every fit: latents and the change a decision makes. |
 | `exp-controller-clone-21` | The start taught from the fixed rule: 24 run directories with specs, weights, exported policies and histories. | read above |
