@@ -32,7 +32,7 @@ sends as the teacher did. A reference without an encoder (k 0 in the
 experiment file) is the recurrent network on the raw measurements, its
 window on a measured bandwidth-delay product.
 
-Why these widths: 7 is expliCCit's budget, 10 was the owner's first
+Why these widths: 7 is the number of expliCCit's LCFs, 10 was the owner's first
 proposal, and 64 stands for no constraint. Widths 1 and 2 are there to
 show action collapse.
 

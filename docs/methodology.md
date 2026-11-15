@@ -58,8 +58,10 @@ the teacher by repeating the last window and ignore the measurements. And
 its fit to the teacher's rollouts is not evidence: a clone drifts once it
 drives, so only its closed-loop score says how good the start is.
 
-The controllers that are grounded have 7, 10 and 16 latents: expliCCit's
-budget of seven and a little above it. A wider middle is not used. The
+The controllers that are grounded have 7, 10 and 16 latents. There is
+no budget on the number of concepts: 16 is a loose limit past which they
+are hard to explain well, and a controller may pass it. A wider middle
+is not used. The
 shipped controller will never have one, more room trained no better and
 no more steadily ([status.md](status.md#the-reinforcement-learning-stage)),
 and fewer latents are fewer things to ground. Retrained controllers are
@@ -100,7 +102,7 @@ These follow from the design, before any data. Each has a check.
 | The order is not the order of need | Grounding orders formulas by how much of the decision they explain on logged steps, which is not their worth in the closed loop. | The count is read from closed-loop performance against m. Compare the order with a random one and with the baselines at each m (C3). |
 | The concepts follow the teacher | Reinforcement learning may stay near the controller it started from. | Start from two teachers that work differently, Cubic (loss based) and BBRv3 (model based), and compare the concepts (C5). Measure how far each controller moved from its start. |
 | A weak learner looks like a need for concepts | Reinforcement learning may leave a net2 on few concepts short of comparable for reasons of optimization alone. | Tune before any claim. Compare with the oracle net2 trained the same way on the full set. |
-| No count | The decision may need more concepts than a controller can be retrained on. | Report it. It bears on the two-net design itself. The comparison at seven concepts still stands. |
+| No count | The decision may need more concepts than a controller can be retrained on. | Report it. It bears on the two-net design itself. |
 | The latents fit no short formula | Latents are defined only up to mixing, and narrow layers pack several features into each unit (Locatello et al., ICML 2019). | Report it, and look at what the latents do encode. |
 | The grounding names the action | The window in force and everything it sets predict the latents and the next decision without being concepts. | Hold the sender's own window in every fit, and ground the change a decision makes. Report what the window alone explains. |
 | The vocabulary decides the answer | A person chooses the grounding library. | Refit with each base variable or operator family removed (C4). |
@@ -112,7 +114,7 @@ These follow from the design, before any data. Each has a check.
 |---|---|---|
 | C1 | Count. Closed-loop performance of net1 + net2 on the first m fitted concepts becomes comparable with the discovery controller's at a small m, the same across seeds of the discovery controller, and at that m it is comparable with the oracle net2 on the full set. | No m short of the full set is comparable, or the m differs between seeds. |
 | C2 | Grounding. The best-trained discovery controller's latents and its decision are spanned by a few short closed-form formulas over named variables (a flexible fit on them reaches a flexible fit on the whole library), and those formulas explain the latents of the other seeds nearly as well as their own. | They fit no short formula, or one seed's formulas leave another seed's latents unexplained. |
-| C3 | Budget. net1 + net2 trained on the fitted concepts are comparable with the discovery controller at a number of concepts where concepts chosen another way are not: the hand-picked LCFs, greedy subset search, SHAP-ranked inputs, a random subset. | A baseline is comparable at the same budget. |
+| C3 | Budget. net1 + net2 trained on the fitted concepts are comparable with the discovery controller at a number of concepts where concepts chosen another way are not: the hand-picked LCFs, greedy subset search, SHAP-ranked inputs, a random subset. | A baseline is comparable at the same number of concepts. |
 | C4 | Vocabulary. With one base variable or operator family removed from the library, the selected concepts change only when the removed item was one of them. | The selection follows whatever the library holds. |
 | C5 | Start. The discovery controller yields the same concepts from different teachers. | The concepts describe one teacher. |
 
@@ -217,10 +219,11 @@ the evidence says so.
    ([above](#comparing-controllers)).
    - Train the oracle net2 on the true concept values.
    - Plot the log utility against the number of concepts m, for
-     m = 1, 2, 3, 5, 7 and the full set, taking concepts in the order of
-     the decision's path, and read the count (C1). m = 7 is
-     expliCCit's budget.
-   - Baselines at the same budget: the hand-picked LCFs, a greedy forward
+     m = 1, 2, 3, 5, 7, 10, 16 and every recovered concept, taking
+     concepts in the order of the path, and read the count (C1). There
+     is no budget; a count above 16 is reported as one that is hard to
+     explain.
+   - Baselines at the same number of concepts: the hand-picked LCFs, a greedy forward
      subset search over the base variables, the discovery controller's inputs ranked
      by SHAP, and a random subset.
 
