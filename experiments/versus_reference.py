@@ -3,7 +3,10 @@
 Reads run directories named GROUP-sSEED whose RUN/ground/score holds the
 run's own rollouts on the validation links (experiments/ground.py
 rollouts). A group ref-TEACHER is that teacher's reference without an
-encoder; every other group ctl-TEACHER-kK is set against it. Per link and
+encoder; every group ctl-TEACHER-kK is set against it. A group
+stock-TEACHER is the teacher itself (rollouts --stock); every ref and ctl
+group of that teacher also gets its signed difference from it, with no
+verdict, because the teacher was not trained on this objective. Per link and
 condition, a group's score is the mean over its seeds of the log utility
 the trainer optimizes (trajectories.REWARD), and its share is the
 observed flow's part of what all flows took from the bottleneck
@@ -66,12 +69,28 @@ def by_link(values: dict[Pair, float], want: bool) -> dict[str, float]:
     return {k: statistics.fmean(v) for k, v in out.items()}
 
 
-def interval(x: list[float], rng: np.random.Generator) -> dict[str, Any]:
+def interval(x: list[float], rng: np.random.Generator, margin: bool = True) -> dict[str, Any]:
     a = np.asarray(x, np.float64)
     boot = a[rng.integers(0, a.size, (score.RESAMPLES, a.size))].mean(axis=1)
     lo, hi = float(np.quantile(boot, 0.025)), float(np.quantile(boot, 0.975))
-    verdict = "comparable" if lo > -MARGIN else "not comparable" if hi < -MARGIN else "unresolved"
-    return {"mean": float(a.mean()), "ci95": [lo, hi], "links": int(a.size), "verdict": verdict}
+    out: dict[str, Any] = {"mean": float(a.mean()), "ci95": [lo, hi], "links": int(a.size)}
+    if margin:
+        out["verdict"] = (
+            "comparable" if lo > -MARGIN else "not comparable" if hi < -MARGIN else "unresolved"
+        )
+    return out
+
+
+def teacher_of(group: str) -> tuple[str, str] | None:
+    """(kind, teacher) of a group name: ctl, ref or stock."""
+    for kind, pattern in (
+        ("ctl", r"^ctl-(.+)-k\d+$"),
+        ("ref", r"^ref-(.+)$"),
+        ("stock", r"^stock-(.+)$"),
+    ):
+        if m := re.match(pattern, group):
+            return kind, m[1]
+    return None
 
 
 def compare(groups: dict[str, dict[str, dict[Pair, float]]]) -> dict[str, Any]:
@@ -80,20 +99,23 @@ def compare(groups: dict[str, dict[str, dict[Pair, float]]]) -> dict[str, Any]:
     rng = np.random.default_rng(0)
     out: dict[str, Any] = {}
     for name in sorted(groups):
-        m = re.match(r"^ctl-(?P<teacher>.+)-k\d+$", name)
-        ref = groups.get(f"ref-{m['teacher']}") if m else None
+        who = teacher_of(name)
+        against = {}
+        if who is not None and who[0] == "ctl" and f"ref-{who[1]}" in groups:
+            against["reference"] = (groups[f"ref-{who[1]}"], True)
+        if who is not None and who[0] != "stock" and f"stock-{who[1]}" in groups:
+            against["teacher"] = (groups[f"stock-{who[1]}"], False)
         row: dict[str, Any] = {}
         for kind, want in (("alone", False), ("competing", True)):
             own = {q: by_link(groups[name][q], want) for q in ("score", "share")}
             row[kind] = {q: statistics.fmean(v.values()) for q, v in own.items() if v}
-            if ref is None:
-                continue
-            for q in ("score", "share"):
-                theirs = by_link(ref[q], want)
-                links = sorted(set(own[q]) & set(theirs))
-                if links:
-                    diff = [own[q][k] - theirs[k] for k in links]
-                    row[kind][f"{q}_minus_reference"] = interval(diff, rng)
+            for label, (other, margin) in against.items():
+                for q in ("score", "share"):
+                    theirs = by_link(other[q], want)
+                    links = sorted(set(own[q]) & set(theirs))
+                    if links:
+                        diff = [own[q][k] - theirs[k] for k in links]
+                        row[kind][f"{q}_minus_{label}"] = interval(diff, rng, margin)
         out[name] = row
     return out
 
@@ -105,25 +127,28 @@ def text(result: dict[str, Any], seeds: dict[str, int]) -> str:
         f"bootstrap 95% interval over links and the verdict by the margin of {MARGIN}. "
         "Share: the observed flow's part of what all flows took from the bottleneck.\n",
         "| group | seeds | alone | minus the reference | verdict | with a competing flow "
-        "| minus the reference | verdict | share | share minus the reference |",
-        "|---|---|---|---|---|---|---|---|---|---|",
+        "| minus the reference | verdict | share | share minus the reference "
+        "| alone, minus the teacher | with a competing flow, minus the teacher |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
 
     def d(e: dict[str, Any] | None) -> tuple[str, str]:
         if e is None:
             return "", ""
         lo, hi = e["ci95"]
-        return f"{e['mean']:+.3f} ({lo:+.2f} to {hi:+.2f})", e["verdict"]
+        return f"{e['mean']:+.3f} ({lo:+.2f} to {hi:+.2f})", e.get("verdict", "")
 
     for name, r in result.items():
         a, c = r["alone"], r["competing"]
         ad, av = d(a.get("score_minus_reference"))
         cd, cv = d(c.get("score_minus_reference"))
         sd, _ = d(c.get("share_minus_reference"))
+        at, _ = d(a.get("score_minus_teacher"))
+        ct, _ = d(c.get("score_minus_teacher"))
         lines.append(
             f"| {name} | {seeds[name]} | {a.get('score', float('nan')):+.3f} | {ad} | {av} "
             f"| {c.get('score', float('nan')):+.3f} | {cd} | {cv} "
-            f"| {c.get('share', float('nan')):.3f} | {sd} |"
+            f"| {c.get('share', float('nan')):.3f} | {sd} | {at} | {ct} |"
         )
     return "\n".join(lines) + "\n"
 

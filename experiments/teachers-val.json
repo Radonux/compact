@@ -1,0 +1,17 @@
+{
+  "title": "The teachers on the validation episodes of the confirmed controllers",
+  "description": "Cubic and BBRv3 themselves, the teachers the discovery controllers were cloned from, on the same validation episodes as the grounding of the confirmed controllers (exp-ground-rl-confirm-32): the campaign of the confirmation's setup (release exp-controller-rl-confirm-31, setup/eval/campaign.json), the same pairs and seeds, every step kept, the episode length of the references' spec. ground.py rollouts --stock drives a Linux controller in place of a policy; the training-link rollouts are cut to one episode, because nothing is fitted to a teacher. The plan reports each controller against the teachers themselves (docs/methodology.md, plan step 2); against a controller not trained on this objective the signed difference is reported by kind of condition, with no verdict (comparing controllers, rule 4). A later run sets the references and widths of exp-ground-rl-confirm-32 against these rollouts with experiments/versus_reference.py. One run per teacher: Linux controllers are deterministic up to the episode seeds, which are the same as the grounding's. The test links are not read.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "runs": "release:exp-controller-rl-confirm-31"
+  },
+  "matrix": {
+    "teacher": [
+      "cubic",
+      "bbr3"
+    ]
+  },
+  "run": "case \"$TEACHER\" in cubic) P=\"lr0.0003-c0.2-n0.2\";; bbr3) P=\"lr0.00003-c0.2-n0.1\";; *) exit 2;; esac; R=\"stock-$TEACHER-s1\"; mkdir -p \"$OUT/$R\"; cp \"$IN/runs/ctl-$TEACHER-k0-s1-$P/ppo_spec.json\" \"$OUT/$R/\"; uv run python experiments/ground.py rollouts \"$OUT/$R\" --stock \"$TEACHER\" --links 1 --fit \"$IN/runs/setup/paths/campaign.json\" --score \"$IN/runs/setup/eval/campaign.json\" --build \"$UML\" --workers \"$WORKERS\"",
+  "timeout_minutes": 120
+}

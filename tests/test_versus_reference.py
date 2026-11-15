@@ -35,6 +35,7 @@ def test_a_width_is_set_against_its_teachers_reference_by_link(tmp_path: Path) -
         _run(tmp_path, "ctl-cubic-k7-s1", 0.5, 0.25, 0.75),
         _run(tmp_path, "ctl-cubic-k7-s2", 0.5, 0.25, 0.75),
     ]
+    runs.append(_run(tmp_path, "stock-cubic-s1", 0.25, 0.5, 0.5))
     vr.main(tmp_path / "out", runs)
     result = json.loads((tmp_path / "out" / "versus_reference.json").read_text())
     k7 = result["groups"]["ctl-cubic-k7"]
@@ -47,5 +48,10 @@ def test_a_width_is_set_against_its_teachers_reference_by_link(tmp_path: Path) -
     assert abs(k7["competing"]["share"] - 0.25) < 1e-6
     assert abs(k7["competing"]["share_minus_reference"]["mean"] + 0.25) < 1e-6
     assert "score_minus_reference" not in result["groups"]["ref-cubic"]["alone"]
-    assert result["seeds"] == {"ref-cubic": 2, "ctl-cubic-k7": 2}
+    # The teacher: a signed difference for the reference and each width, no verdict.
+    teacher = k7["alone"]["score_minus_teacher"]
+    assert abs(teacher["mean"] - 0.693) < 1e-3 and "verdict" not in teacher
+    assert "score_minus_teacher" in result["groups"]["ref-cubic"]["competing"]
+    assert "score_minus_reference" not in result["groups"]["stock-cubic"]["alone"]
+    assert result["seeds"] == {"ref-cubic": 2, "ctl-cubic-k7": 2, "stock-cubic": 1}
     assert "| ctl-cubic-k7 | 2 |" in (tmp_path / "out" / "versus-reference.md").read_text()

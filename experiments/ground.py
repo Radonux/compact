@@ -6,13 +6,15 @@ is grounded on its own rollouts: the steps of episodes in which it drove.
 
 Usage: python experiments/ground.py rollouts RUN_DIR --fit CAMPAIGN.json
            --score CAMPAIGN.json --build UML [--workers N] [--links N]
+           [--stock cubic|bbr3]
 
 rollouts runs RUN_DIR's policy.onnx in the closed loop, without
 exploration noise, and keeps every step with its labels: on N (path,
 condition) pairs of the --fit campaign (the training links; the same
 pairs and seeds for every run) into RUN_DIR/ground/fit, and on every pair
 of the --score campaign (the validation links) into RUN_DIR/ground/score.
-Fits are made on the first and scored on the second.
+Fits are made on the first and scored on the second. With --stock, a
+Linux controller drives in place of the policy, on the same episodes.
 
 Usage: python experiments/ground.py probe OUT --runs RUN_DIR...
 
@@ -1243,13 +1245,21 @@ def main() -> None:
     ro.add_argument("--build", type=Path, required=True)
     ro.add_argument("--workers", type=int, default=1)
     ro.add_argument("--links", type=int, default=96)
+    # A Linux controller in place of the run's policy, with the episode
+    # length of the run's ppo_spec.json: the teachers on the same episodes.
+    ro.add_argument("--stock", choices=["cubic", "bbr3"])
     for verb in ("probe", "select"):
         q = sub.add_parser(verb)
         q.add_argument("out", type=Path)
         q.add_argument("--runs", type=Path, nargs="+", required=True)
     a = p.parse_args()
     if a.verb == "rollouts":
-        cc, duration_ms = _own(a.run)
+        cc: AgentCC | StockCC
+        if a.stock is None:
+            cc, duration_ms = _own(a.run)
+        else:
+            spec = PPOSpec.model_validate_json((a.run / "ppo_spec.json").read_text())
+            cc, duration_ms = StockCC(name=a.stock), spec.duration_ms
         drive(
             a.run,
             [cc],
