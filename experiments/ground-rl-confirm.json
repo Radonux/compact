@@ -1,0 +1,29 @@
+{
+  "title": "Grounding the confirmed controllers after reinforcement learning",
+  "description": "Grounding (step 3) on the controllers of experiments/controller-rl-confirm.json, read from its release, at each teacher's setting as that run's rules chose it: Cubic at learning rate 0.0003, clip 0.2, noise 0.2, and BBRv3 at learning rate 0.00003, clip 0.2, noise 0.1; widths 7, 10 and 16 and the reference without an encoder, seeds 1 to 3. The width of the latents is not read as a count of concepts (docs/methodology.md, what the width cannot count). Each cell copies one controller into a directory named for its teacher, width and seed (ref-TEACHER-sSEED for the reference), and runs its exported policy in the closed loop, without exploration noise and with every step kept: on 96 (link, condition) pairs sampled from the training links (the same pairs and seeds for every controller), where the fits are made, and on all 21 validation links under 6 conditions, where they are scored. Collect then runs, once per teacher, experiments/ground.py probe and select on the controllers with latents, as in experiments/ground-rl.json: every fit holds the sender's own window, a path lists what a feature adds to it, the decision is grounded as the change it makes to the window, and the formula search scores a formula after the window is taken out. New in this run: select also reports, per controller, how often the window in force at a decision differs from the window the controller set at its previous decision, and by how much (ground.py held), because the grounding of the decision as a change assumes the two are the same. Collect also runs experiments/versus_reference.py on the scoring rollouts of every controller: each width against its teacher's reference, paired by link over the conditions without and with a competing flow, with a bootstrap 95% interval over links and the verdict by the margin of 0.1, and the observed flow's share of what all flows took with a competing flow. The confirmation's own comparison had intervals over seeds only and no share, and its two verdicts of not comparable (BBRv3 at widths 10 and 16) lie with a competing flow, where a higher score from a larger share is not a gain. What is read: how much of the latents and of the decision's change the window alone explains, which features of the path are added first and how much they add, whether seeds and teachers agree on them, how a small network on the picked features compares with one on the whole library, the held gap, and the comparison with the reference with its share. These controllers are tuned and confirmed, but none reaches the fixed rule, BBRv3's widths 10 and 16 score below their reference with a competing flow in the confirmation and Cubic's width 7, seed 1, failed to train, so this run checks the method on tuned controllers and supports no claim about concepts. The test links are not read.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "runs": "release:exp-controller-rl-confirm-31"
+  },
+  "matrix": {
+    "teacher": [
+      "cubic",
+      "bbr3"
+    ],
+    "k": [
+      0,
+      7,
+      10,
+      16
+    ],
+    "seed": [
+      1,
+      2,
+      3
+    ]
+  },
+  "run": "case \"$TEACHER\" in cubic) P=\"lr0.0003-c0.2-n0.2\";; bbr3) P=\"lr0.00003-c0.2-n0.1\";; *) exit 2;; esac; S=\"$IN/runs/ctl-$TEACHER-k$K-s$SEED-$P\"; if [ \"$K\" -eq 0 ]; then R=\"ref-$TEACHER-s$SEED\"; F=\"ppo_spec.json policy.onnx\"; else R=\"ctl-$TEACHER-k$K-s$SEED\"; F=\"ppo_spec.json net1.pt actor.pt policy.onnx\"; fi; mkdir -p \"$OUT/$R\"; for f in $F; do cp \"$S/$f\" \"$OUT/$R/\"; done; uv run python experiments/ground.py rollouts \"$OUT/$R\" --fit \"$IN/runs/setup/paths/campaign.json\" --score \"$IN/runs/setup/eval/campaign.json\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "for T in cubic bbr3; do uv run python experiments/ground.py probe \"$OUT/probe-$T\" --runs \"$OUT\"/ctl-$T-k*; uv run python experiments/ground.py select \"$OUT/select-$T\" --runs \"$OUT\"/ctl-$T-k*; done; uv run python experiments/versus_reference.py \"$OUT/versus-reference\" \"$OUT\"/ref-* \"$OUT\"/ctl-*",
+  "timeout_minutes": 360
+}

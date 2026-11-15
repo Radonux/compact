@@ -268,7 +268,10 @@ window in force. A variable the window sets alone then adds nothing. A
 variable it sets in part, such as the queue, adds what it tells of the
 path: with the window known, the queue gives the capacity and the other
 flows. No list of what the controller sets is kept, and a later value of
-a variable is no remedy, because the window changes slowly.
+a variable is no remedy, because the window changes slowly. Grounding
+the change assumes that the window in force at a decision is the one
+the controller set at its previous decision, so select also reports how
+often, and by how much, the two differ.
 
 1. Probe (`experiments/ground.py probe`). The decision regressed on the
    latents, which is the action-collapse check. Then linear fits between

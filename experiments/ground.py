@@ -256,6 +256,30 @@ def decisions(s: steps_data.Steps) -> I64:
     return np.concatenate(out)
 
 
+def held_gap(episode: I64, cwnd: npt.NDArray[np.float32], d: I64) -> F64:
+    """For each decision after an episode's first, log2 of the window in
+    force at it minus log2 of the window the previous decision set (read
+    from the step after that decision). The controller asks for that same
+    window at every step between its decisions (train/recurrent.py, Held),
+    so a gap is what the sender did to the window in between."""
+    w = np.log2(np.maximum(cwnd.astype(np.float64), 1))
+    same = episode[d[1:]] == episode[d[:-1]]
+    return (w[d[1:]] - w[d[:-1] + 1])[same]
+
+
+def held(run: Path) -> dict[str, float]:
+    """held_gap on a run's scoring rollouts: how often the window in force
+    at a decision is not the one the controller last set, and by how much."""
+    s = steps_data.load([run / "ground" / "score"], seed=0, val=0.0, test=0.0)
+    a = np.abs(held_gap(s.episode, s.cwnd, decisions(s)))
+    return {
+        "decisions": float(a.size),
+        "changed": float((a > 0).mean()),
+        "changed_by_tenth": float((a > 0.1).mean()),
+        "mean_abs": float(a.mean()),
+    }
+
+
 def _history(v: F64, s: steps_data.Steps, idx: I64) -> F64:
     """[anchor, age in steps, variable]: the variables at the anchor and at
     the steps before it in its own episode; NaN beyond the episode's start
@@ -1032,11 +1056,13 @@ def select(out: Path, runs: list[Path]) -> None:
     }
     # Each run on its own rollouts, one library of its rows at a time.
     moments: dict[str, Moments] = {}
-    for r, c in enumerate(ctls):
+    for r, (run, c) in enumerate(zip(runs, ctls, strict=True)):
         own = lib.rows(fr.own(r), sr.own(r))
         z = (z_of[c.name][0][fr.own(r)], z_of[c.name][1][sr.own(r)])
         u = (fr.change[fr.own(r)][:, None], sr.change[sr.own(r)][:, None])
-        result["runs"][c.name] = {"k": c.k} | _selection(own, z) | {"decision": _selection(own, u)}
+        result["runs"][c.name] = (
+            {"k": c.k, "held": held(run)} | _selection(own, z) | {"decision": _selection(own, u)}
+        )
         moments[c.name] = Moments.of(own, *z)
         print(f"select: {c.name}", file=sys.stderr, flush=True)
     for k in sorted({c.k for c in ctls}):
@@ -1120,6 +1146,19 @@ def select_summary(result: dict[str, Any]) -> str:
                     f"| {run} | {d['own']:.3f} | {path[-1]['mean']:.3f} "
                     f"| {d['flexible']['own']:.3f} | {d['flexible']['formula_picked']:.3f} "
                     f"| {d['flexible']['library']:.3f} | {names} |\n"
+                )
+        lines.append(
+            "\nThe window in force at a decision against the one the controller set at its "
+            "previous decision (log2 packets):\n\n"
+            "| run | decisions | changed | by more than 0.1 | mean absolute change |\n"
+            "|---|---|---|---|---|\n"
+        )
+        for run, r in result["runs"].items():
+            if str(r["k"]) == k:
+                h = r["held"]
+                lines.append(
+                    f"| {run} | {h['decisions']:.0f} | {h['changed']:.3f} "
+                    f"| {h['changed_by_tenth']:.3f} | {h['mean_abs']:.3f} |\n"
                 )
         t = [x["mean"] for x in result["transfer"] if str(x["k"]) == k]
         if t:

@@ -131,6 +131,18 @@ def test_decisions_are_the_graphs_and_leave_out_each_episodes_last_step() -> Non
     assert d.tolist() == [e * 11 + k for e in range(3) for k in (0, 2, 4, 6, 8)]
 
 
+def test_the_held_gap_is_the_window_moved_between_decisions_of_one_episode() -> None:
+    episode = np.array([0, 0, 0, 0, 0, 1, 1, 1, 1], np.int64)
+    cwnd = np.array([4, 8, 8, 8, 16, 2, 4, 4, 4], np.float32)
+    d = np.array([0, 2, 3, 5, 7], np.int64)
+    # Episode 0: decision 0 set 8, in force at 2 is 8; decision 2 set 8, in
+    # force at 3 is 8. Episode 1: decision 5 set 4, in force at 7 is 4. The
+    # pair across the episodes' boundary counts for nothing.
+    assert ground.held_gap(episode, cwnd, d).tolist() == [0.0, 0.0, 0.0]
+    cwnd[2] = 4  # the sender halved the window before decision 2
+    assert ground.held_gap(episode, cwnd, d).tolist() == [-1.0, 0.0, 0.0]
+
+
 def test_the_library_finds_a_windowed_feature_and_drops_repeats() -> None:
     rng = np.random.default_rng(3)
     s = _steps(40, 200, rng)
@@ -256,6 +268,7 @@ def test_a_controllers_latents_are_grounded_on_its_own_rollouts(
     # The decision is grounded as the latents are.
     assert len(sel["runs"]["a"]["decision"]["path"]) >= 1
     assert 0 <= sel["runs"]["a"]["own"] <= 1
+    assert sel["runs"]["a"]["held"]["decisions"] > 0
     assert "in place of its latents" in (tmp_path / "select" / "summary.md").read_text()
     assert {t["from"] for t in sel["transfer"]} == {"a", "b", "c"}
 
