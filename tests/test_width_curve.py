@@ -1,4 +1,4 @@
-"""experiments/width_curve.py: the width curve and its knee."""
+"""experiments/width_curve.py: the width curve."""
 
 import importlib.util
 import json
@@ -19,17 +19,6 @@ def _load() -> ModuleType:
 
 
 wc = _load()
-
-
-def test_the_knee_is_the_smallest_width_within_one_standard_error_of_the_best() -> None:
-    scores = {0: [9.0, 9.0], 1: [-0.5, -0.3], 2: [-0.12, -0.08], 4: [-0.05, -0.01], 8: [0.0, 0.0]}
-    k = wc.knee(scores)
-    # Pooled variance (0.02 + 0.0008 + 0.0008 + 0) / 4 over 2 seeds.
-    assert k["standard_error"] == pytest.approx(math.sqrt(0.0054 / 2))
-    assert k["best"] == 8 and k["knee"] == 4  # width 2 is 0.1 below, the error is 0.052
-    assert 0 not in k["means"]  # the reference takes no part
-    assert wc.knee({1: [0.0, 0.0], 2: [0.0, 0.0]})["knee"] == 1
-    assert wc.knee({1: [0.0], 2: [0.1, 0.2]})["knee"] is None
 
 
 def _run(root: Path, name: str, history: list[dict[str, object]]) -> Path:
@@ -69,5 +58,5 @@ def test_a_run_counts_only_when_the_policy_it_left_is_scored(tmp_path: Path) -> 
     assert (first["start"], first["end"], first["iterations"]) == (-0.2, 0.1, 2)
     assert first["moved"] == pytest.approx(0.2)  # sqrt(2 * 0.5) sigma
     assert first["decision_linear"] == 0.9 and math.isnan(second["decision_linear"])
-    assert result["curves"]["ctl-cubic"]["knee"] == 2
-    assert "Knee: width 2" in (tmp_path / "out" / "width-curve.md").read_text()
+    assert result["curves"]["ctl-cubic"] == {"means": {"2": 0.1}, "seeds": {"2": 2}}
+    assert "| 2 | 2 | +0.100 |" in (tmp_path / "out" / "width-curve.md").read_text()

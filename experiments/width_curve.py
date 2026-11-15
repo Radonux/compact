@@ -1,4 +1,4 @@
-"""The width curve of discovery controllers, and its knee by a fixed rule.
+"""The width curve of discovery controllers.
 
 Reads `expliccit train ppo` run directories whose names end in
 `-kK-sSEED`; the rest of the name is the curve the run belongs to (one per
@@ -11,12 +11,9 @@ rollouts, from PPO's kl_to_start) and, where RUN/probe/probe.json exists
 (experiments/ground.py probe), the R^2 of the decision regressed on the
 latents on held-out rollouts.
 
-The knee is the one-standard-error rule: the smallest width whose mean
-score over seeds is within one standard error of the best width's mean. The
-standard error is pooled over widths: the root of the mean within-width
-variance over seeds, divided by the root of the seeds per width. Width 0
-(a reference without an encoder) is listed and takes no part in the knee.
-A curve with fewer than two seeds at some width has no knee.
+The width is not read as a count of concepts (docs/methodology.md), so the
+curve is given as means over seeds and nothing is picked from it. Width 0 is
+a reference without an encoder.
 
 Writes OUT/width_curve.json and OUT/width-curve.md.
 
@@ -64,19 +61,6 @@ def run_row(run: Path) -> dict[str, Any] | None:
     }
 
 
-def knee(scores: dict[int, list[float]]) -> dict[str, Any]:
-    """The one-standard-error knee of {width: scores over seeds}."""
-    widths = sorted(k for k in scores if k > 0)
-    means = {k: statistics.fmean(scores[k]) for k in widths}
-    if not widths or min(len(scores[k]) for k in widths) < 2:
-        return {"means": means, "knee": None, "standard_error": None, "best": None}
-    seeds = min(len(scores[k]) for k in widths)
-    se = math.sqrt(statistics.fmean(statistics.variance(scores[k]) for k in widths) / seeds)
-    best = max(widths, key=lambda k: means[k])
-    first = next(k for k in widths if means[k] >= means[best] - se)
-    return {"means": means, "knee": first, "standard_error": se, "best": best}
-
-
 def curves(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     out: dict[str, dict[str, Any]] = {}
     for name in sorted({r["curve"] for r in rows}):
@@ -84,9 +68,8 @@ def curves(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         for r in rows:
             if r["curve"] == name:
                 scores.setdefault(r["k"], []).append(r["end"])
-        reference = scores.get(0)
-        out[name] = knee(scores) | {
-            "reference": None if not reference else statistics.fmean(reference),
+        out[name] = {
+            "means": {k: statistics.fmean(v) for k, v in sorted(scores.items())},
             "seeds": {k: len(v) for k, v in sorted(scores.items())},
         }
     return out
@@ -97,23 +80,13 @@ def text(rows: list[dict[str, Any]], result: dict[str, dict[str, Any]], missing:
         "Scores are the mean difference in log utility from the fixed rule,",
         "paired by link and condition, on the validation links. `moved` is the",
         "RMS difference in log2 of the window between a run's last policy and",
-        "its start. The knee is the smallest width within one pooled standard",
-        "error of the best width. It is not a count of concepts: one latent",
-        "can carry the decision itself (docs/methodology.md).",
+        "its start. Width 0 is the reference without an encoder. The width is",
+        "not a count of concepts: one latent can carry the decision itself",
+        "(docs/methodology.md).",
         "",
     ]
     for name, c in result.items():
         lines += [f"## {name}", ""]
-        if c["knee"] is None:
-            lines += ["No knee: some width has fewer than two scored seeds.", ""]
-        else:
-            lines += [
-                f"Knee: width {c['knee']}. Best width {c['best']}, pooled standard error "
-                f"{c['standard_error']:.3f}.",
-                "",
-            ]
-        if c["reference"] is not None:
-            lines += [f"The reference without an encoder: {c['reference']:+.3f}.", ""]
         lines += ["| width | seeds | mean score |", "|---|---|---|"]
         lines += [f"| {k} | {c['seeds'][k]} | {v:+.3f} |" for k, v in c["means"].items()]
         lines += [
