@@ -573,9 +573,16 @@ What it shows:
   force (`experiments/probe-memory.json`, on this release's rollouts).
   Its first run (`exp-probe-memory-33`) could not be read by its rule:
   its quadratic fit is left out at width 16 and was unstable elsewhere
-  (down to -1.13). Linearly, the step explains 0.11 to 0.28 of the change
-  for BBRv3 and -0.16 to 0.83 for Cubic. The rule's reading, with a
-  small network in place of the quadratic fit, is UNRUN.
+  (down to -1.13). The second (`exp-probe-memory-34`) fits a small
+  network in its place. The step explains more than 0.5 of the change in
+  2 of 9 runs from Cubic (0.24 to 0.57) and none of 9 from BBRv3 (0.27
+  to 0.45). By the rule fixed in the file, the change a decision makes
+  comes mostly from the decoder's memory for both teachers, and
+  grounding it from the features of one step is the wrong question.
+  The reading holds with the better of the linear and the network fit
+  for each run (3 of 9 and 0 of 9 above 0.5). The network is one fixed
+  fit and a lower bound; in one Cubic run the linear fit beats it, 0.83
+  against 0.24.
 - A delay signal leads the decision's change in 12 of the 18 runs (4
   from Cubic, 8 from BBRv3): the ratio of RTT to base RTT, the queueing
   delay, or a formula of the base RTT and the queueing delay. Alone it
@@ -661,6 +668,7 @@ Limits that remain:
 | `exp-controller-rl-search-29` | The settings search at width 10: 48 run directories with specs and histories, and the ranking of the twelve points per teacher. | read above |
 | `exp-controller-rl-confirm-31` | The confirmation of the two best settings per teacher: 48 run directories with specs, weights, exported policies and histories, at widths 0, 7, 10 and 16. | read above; input of grounding |
 | `exp-ground-rl-27` | Grounding of the controllers after reinforcement learning at widths 1, 2 and 64: latents and decision. |
+| `exp-probe-memory-34` | The same probe with a small network for the decision's change from the latents and the window in force. | read above |
 | `exp-probe-memory-33` | The probe of the confirmed controllers with the decision's change fitted from the latents and the window in force; its quadratic fit is unreadable. | read above |
 | `exp-ground-rl-confirm-32` | Grounding of the confirmed controllers at widths 7, 10 and 16, the references' rollouts on the same validation episodes, each width against its reference with the share, and the window between decisions. | read above |
 | `exp-ground-rl-30` | Grounding of the controllers after reinforcement learning at widths 7, 10 and 16, with the sender's own window held in every fit: latents and the change a decision makes. |
@@ -722,6 +730,7 @@ in the latents favours it. The count is read in retraining instead
 | Question | Note |
 |---|---|
 | Whether the latents hold more than the decision | Nothing forces them to. The probe reads each base variable from the latents, and the decision is grounded beside them. If the two paths agree and the latents add nothing, the decision's path alone is used. |
+| Which path orders the concepts in retraining | The plan takes the decision's path. For the confirmed controllers the change a decision makes comes mostly from the decoder's memory (`exp-probe-memory-34`), and ground truth of one step explains 0.17 to 0.37 of it, while the latents are explained to 0.80 to 0.86. The latents' path, or ground truth over a longer history for the decision, are the candidates. Not decided. |
 | Whether the order of the decision's path is the order of need | It comes from logged steps. Retraining at each m, against a random order and the baselines, decides. |
 | How far reinforcement learning moves a controller from its teacher | If it barely moves, the concepts are the teacher's. The measure is the RMS difference in log2 of the window from the clone. How small counts as barely is not decided. |
 | How to compare controllers with a competing flow when their shares differ | With a competing flow the references take a larger share than every width, and a higher score from a larger share is not a gain. A comparison at equal share, or a score that does not reward the share, is not decided. |
