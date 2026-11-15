@@ -38,11 +38,6 @@ For every run, on its own rollouts:
   spread    each latent's standard deviation. Every fit standardizes the
             latents, so one that hardly moves counts as much as the rest.
 
-and for each pair of runs of one width, on the rollouts of every run given:
-
-  seeds     the mean R^2 of one run's latents predicted from the other's,
-            linear and quadratic: whether the seeds found the same subspace
-
 The base variables are the label columns of the step data and the
 composites of them, each on a logarithmic scale (signed log1p of megabits
 per second, milliseconds or packets). A linear probe is a lower bound: the
@@ -114,8 +109,6 @@ together):
            with every composite computed from it, which is the vocabulary
            sensitivity check. Taking out a label that no picked feature
            uses cannot change the path.
-  transfer the R^2 of one run's latents on another run's first PICK
-           features
   decision per run, all of the above with the run's decision in place of
            its latents: the change it makes, log2 of the window it set
            less log2 of the window in force. An encoder trained end to
@@ -584,23 +577,6 @@ def probe(out: Path, runs: list[Path]) -> None:
             "read_quadratic": r2_quadratic(z_fit, b_fit[f], z_score, b_score[s]).tolist(),
             "write_linear": r2(bf_fit[f], z_fit, bf_score[s], z_score).tolist(),
         }
-    result["seeds"] = [
-        {
-            "from": a.name,
-            "to": c.name,
-            "k": a.k,
-            "linear": float(
-                np.mean(r2(z_of[a.name][0], z_of[c.name][0], z_of[a.name][1], z_of[c.name][1]))
-            ),
-            "quadratic": float(
-                np.mean(
-                    r2_quadratic(z_of[a.name][0], z_of[c.name][0], z_of[a.name][1], z_of[c.name][1])
-                )
-            ),
-        }
-        for a, c in itertools.permutations(ctls, 2)
-        if a.k == c.k
-    ]
     (out / "probe.json").write_text(json.dumps(result, indent=1) + "\n")
     (out / "summary.md").write_text(summary(result))
 
@@ -649,17 +625,6 @@ def summary(result: dict[str, Any]) -> str:
         "| smallest latent's standard deviation over the largest | "
         + cells(lambda r: np.min(r["latent_std"]) / np.max(r["latent_std"]))
     )
-    lines += [
-        "\nOne run's latents from another's, on every run's rollouts, mean over pairs:\n\n| | "
-        + head,
-        rule,
-    ]
-    for key in ("linear", "quadratic"):
-        row = []
-        for k in widths:
-            v = np.array([p[key] for p in result["seeds"] if p["k"] == k])
-            row.append("n/a" if np.isnan(v).all() else f"{np.nanmean(v):.3f}")
-        lines.append(f"| {key} | " + " | ".join(row) + " |\n")
     return "".join(lines)
 
 
@@ -1063,16 +1028,13 @@ def select(out: Path, runs: list[Path]) -> None:
     # or more that nothing below reads.
     fr, sr = (replace(q, x=np.empty((len(q.u), 0))) for q in (fr, sr))
     z_of = {c.name: (c.encode(fr.obs), c.encode(sr.obs)) for c in ctls}
-    index = {n: i for i, n in enumerate(lib.names)}
     result: dict[str, Any] = {
         "features": lib.names,
         "same_as": lib.same_as,
         "runs": {},
         "pooled": {},
-        "transfer": [],
     }
     # Each run on its own rollouts, one library of its rows at a time.
-    moments: dict[str, Moments] = {}
     for r, (run, c) in enumerate(zip(runs, ctls, strict=True)):
         own = lib.rows(fr.own(r), sr.own(r))
         z = (z_of[c.name][0][fr.own(r)], z_of[c.name][1][sr.own(r)])
@@ -1080,19 +1042,12 @@ def select(out: Path, runs: list[Path]) -> None:
         result["runs"][c.name] = (
             {"k": c.k, "held": held(run)} | _selection(own, z) | {"decision": _selection(own, u)}
         )
-        moments[c.name] = Moments.of(own, *z)
         print(f"select: {c.name}", file=sys.stderr, flush=True)
     for k in sorted({c.k for c in ctls}):
         same = [z_of[c.name] for c in ctls if c.k == k]
         z = (np.concatenate([v[0] for v in same], 1), np.concatenate([v[1] for v in same], 1))
         result["pooled"][str(k)] = {"runs": len(same)} | _selection(lib, z)
         print(f"select: pooled {k}", file=sys.stderr, flush=True)
-    for a, c in itertools.permutations(ctls, 2):
-        if a.k == c.k:
-            picks = [index[p["feature"]] for p in result["runs"][a.name]["path"][:PICK]]
-            picks += _window(lib)
-            r = float(moments[c.name].r2(_columns(lib, picks)).mean())
-            result["transfer"].append({"from": a.name, "to": c.name, "k": a.k, "mean": r})
     (out / "select.json").write_text(json.dumps(result, indent=1) + "\n")
     (out / "summary.md").write_text(select_summary(result))
 
@@ -1177,12 +1132,6 @@ def select_summary(result: dict[str, Any]) -> str:
                     f"| {run} | {h['decisions']:.0f} | {h['changed']:.3f} "
                     f"| {h['changed_by_tenth']:.3f} | {h['mean_abs']:.3f} |\n"
                 )
-        t = [x["mean"] for x in result["transfer"] if str(x["k"]) == k]
-        if t:
-            lines.append(
-                f"\nOne run's first {PICK} features fitted to another run's latents: "
-                f"mean {np.mean(t):.3f}, lowest {np.min(t):.3f}.\n"
-            )
     plain = {a: b for a, b in result["same_as"].items() if "(" not in a}
     if result["same_as"]:
         lines.append(

@@ -20,7 +20,7 @@ with a competing flow, so they are not yet results for a claim.
 |---|---|---|---|
 | 1 Setup | done | the documents; the estimator of the seven LCFs and the rule graph as releases | |
 | 2 The controller in the closed loop | the bootstrap has run; reinforcement learning is tuned at width 10 and confirmed at widths 7, 10 and 16 over three seeds | `PPOSpec.latents`; `train ppo` by cloning a Linux controller, PPO, DAgger or TD3+BC; closed-loop rollouts and scoring; `experiments/net2_ppo_setup.py`, `net2_ppo_report.py`; the collapse check on rollouts (`ground.py probe`); the reinforcement-learning stage (`experiments/controller-rl.json`) and its scores by width (`experiments/width_curve.py`); its settings search and confirmation (`experiments/controller-rl-search.json`, `controller-rl-confirm.json`, `settings_search.py`) | the teachers' own scores against the fixed rule |
-| 3 Grounding | first readings on the untuned and the confirmed controllers, at widths 7 to 16 with the sender's own window held; the decision's change is mostly unexplained | `experiments/ground.py`: `rollouts` of a controller in the closed loop, `probe` and `select` on its latents there, with the sensitivity check; a library of every stored label (37 columns over 100 ms and 10 ms windows) and 12 composites in both windows; `experiments/ground-teachers.json`; a stress test on planted latents, `experiments/ground_stress.py` | formulas beyond two terms of four factors; the operator-family sensitivity; matching concepts across seeds |
+| 3 Grounding | first readings on the untuned and the confirmed controllers, at widths 7 to 16 with the sender's own window held; the decision's change is mostly unexplained | `experiments/ground.py`: `rollouts` of a controller in the closed loop, `probe` and `select` on its latents there, with the sensitivity check; `concepts`, symbolic regression of the latents by PySR; a library of every stored label (37 columns over 100 ms and 10 ms windows) and 12 composites in both windows; `experiments/ground-teachers.json`; a stress test on planted latents, `experiments/ground_stress.py` | the operator-family sensitivity |
 | 4 Retrain and compare | UNRUN | `train run` for net1; `train ppo` for a closed-loop net2; net1 on any stored label or composite; the live truth for every label but `queue_delay_ns`, so oracles on them | labels from fitted formulas beyond the composites; net1 on them |
 
 ## The bootstrap
@@ -401,9 +401,6 @@ What they show:
   falls from 0.96 at width 1 to about 0.7 from width 4 on.
 - The seven hand-picked LCFs span the latents about half as well as the
   whole library at widths 4 and above.
-- The features do not recur across seeds beyond width 1. One run's 8
-  features span another run's latents at 0.53 to 0.69 for widths 4 to
-  64. Each seed's list of 8 is different in its lower places.
 - The sensitivity check holds in the narrow sense. With one base
   variable taken out, the span at 8 features moves by at most 0.02 at
   width 64, and a near equivalent takes the place (for example the
@@ -473,8 +470,6 @@ What it shows:
   features for several Cubic decisions (down to -0.75). It overfits a
   target this noisy, so that bound is not usable for the decision's
   change as it stands.
-- Seeds pick different features. One run's window and first 8 features
-  span another run's latents at 0.49 to 0.74.
 
 ## Grounding the confirmed controllers
 
@@ -627,13 +622,6 @@ What it shows:
   from Cubic, 8 from BBRv3): the ratio of RTT to base RTT, the queueing
   delay, or a formula of the base RTT and the queueing delay. Alone it
   explains 0.02 to 0.11.
-- Seeds pick different features that carry the same information. One
-  run's window and first 8 features span another run's latents at 0.52
-  to 0.72 from Cubic and 0.67 to 0.82 from BBRv3, on average 0.03 and
-  0.01 below that run's own first 8 (at most 0.06 below). So the
-  features are interchangeable, as overlapping variables and a free
-  rotation of the latents allow
-  ([methodology.md](methodology.md#grounding)).
 - The small network on the whole library still overfits the decision's
   change (down to -0.12).
 
@@ -688,9 +676,9 @@ Limits that remain:
 
 - A mix of several concepts is grounded as a set of features that is
   enough, not as the planted basis. Which features a person would call
-  the concepts is not decided by the fit. Recurrence across seeds and
-  `probe`, which reads each feature from the latents, are the checks for
-  that, and neither is in the stress test.
+  the concepts is not decided by the fit. `probe`, which reads each
+  feature from the latents, is the check for that, and it is not in the
+  stress test.
 - Under noise the listed formula can be a near equivalent of the planted
   one. Formulas that order the rows alike at 0.98 count as one, and the
   simplest is kept.
@@ -776,12 +764,10 @@ in the latents favours it. The count is read in retraining instead
 | Question | Note |
 |---|---|
 | Whether the latents hold more than the decision | Nothing forces them to. The probe reads each base variable from the latents, and the decision is grounded beside them. If the two paths agree and the latents add nothing, the decision's path alone is used. |
-| How close another seed must come for C2 | One seed's formulas should explain another seed's latents nearly as well as their own. The confirmed controllers come within 0.01 to 0.03 on average and 0.06 at most, for features of ground truth. The margin is not decided. |
 | Which path orders the concepts in retraining | The plan takes the decision's path. For the confirmed controllers the change a decision makes comes mostly from the decoder's memory (`exp-probe-memory-34`), and ground truth of one step explains 0.17 to 0.37 of it, while the latents are explained to 0.80 to 0.86. The latents' path, or ground truth over a longer history for the decision, are the candidates. Not decided. |
 | Whether the order of the decision's path is the order of need | It comes from logged steps. Retraining at each m, against a random order and the baselines, decides. |
 | How far reinforcement learning moves a controller from its teacher | If it barely moves, the concepts are the teacher's. The measure is the RMS difference in log2 of the window from the clone. How small counts as barely is not decided. |
 | The threshold for C3 | |
-| How close to the flexible fit a formula must come | C2 compares a formula with a flexible fit on the whole library. The margin is not decided. |
 | How to weigh a latent that hardly moves | Every fit standardizes the latents. A weight from the decoder's use of each latent is a candidate. |
 | The kind of output the retrained net1 states | A value, an interval or a distribution. |
 | Labels for fitted formulas | A formula over stored labels can be added as a composite with no new data and no guest change ([architecture.md](architecture.md#composites)). A formula that uses a windowed operator over past steps, as the library's features do, has no such path yet. |

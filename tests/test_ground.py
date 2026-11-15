@@ -205,6 +205,14 @@ def _campaign(d: Path, s: data.Steps) -> None:
     )
 
 
+def _check_concepts(out: Path, runs: list[Path]) -> None:
+    ground.concepts(out, runs)
+    con = json.loads((out / "concepts.json").read_text())
+    assert set(con["runs"]) == {"a", "b", "c"} and len(con["inputs"]) >= 1
+    assert all(len(found) == 2 for found in con["runs"].values())
+    assert "Well recovered" in (out / "concepts.md").read_text()
+
+
 def test_a_controllers_latents_are_grounded_on_its_own_rollouts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -256,9 +264,6 @@ def test_a_controllers_latents_are_grounded_on_its_own_rollouts(
     )
     assert np.isfinite(own["decision_linear"]) and np.isfinite(own["decision_quadratic"])
     assert "capacity_bps" in result["variables"] and "sender_cwnd" in result["variables"]
-    # The copy's latents are the original's; another seed's are not.
-    pair = {(p["from"], p["to"]): p["linear"] for p in result["seeds"]}
-    assert pair["a", "b"] > 0.999 and pair["a", "c"] < pair["a", "b"]
     assert "action collapse" in (tmp_path / "probe" / "summary.md").read_text()
     assert "decoder's memory" in (tmp_path / "probe" / "summary.md").read_text()
     assert {"change_linear", "change_flexible"} <= set(result["runs"]["a"])
@@ -272,16 +277,11 @@ def test_a_controllers_latents_are_grounded_on_its_own_rollouts(
     assert 0 <= sel["runs"]["a"]["own"] <= 1
     assert sel["runs"]["a"]["held"]["decisions"] > 0
     assert "in place of its latents" in (tmp_path / "select" / "summary.md").read_text()
-    assert {t["from"] for t in sel["transfer"]} == {"a", "b", "c"}
 
     # Symbolic regression of the latents, where PySR is installed.
     if importlib.util.find_spec("pysr") is not None:
         monkeypatch.setattr(ground, "CONCEPT_ITERATIONS", 2)
-        ground.concepts(tmp_path / "concepts", runs)
-        con = json.loads((tmp_path / "concepts" / "concepts.json").read_text())
-        assert set(con["runs"]) == {"a", "b", "c"} and len(con["inputs"]) >= 1
-        assert all(len(found) == 2 for found in con["runs"].values())
-        assert "Well recovered" in (tmp_path / "concepts" / "concepts.md").read_text()
+        _check_concepts(tmp_path / "concepts", runs)
 
     # A run without a narrow middle is refused.
     wide = tmp_path / "wide"
