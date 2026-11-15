@@ -289,9 +289,17 @@ What it shows:
   drawn from this release. It now keeps every link and condition.
 - Cubic's width 7, seed 1, fails at both points. It starts at -1.54, as
   the other seeds do (-1.29 and -1.56), and ends at -1.44 and -2.99,
-  while seeds 2 and 3 end at -0.13 to -0.47. Both releases train from
-  the same clones, and in `exp-controller-rl-24` this width diverged too.
-  Its cause is UNRUN.
+  while seeds 2 and 3 end at -0.13 to -0.47. Its training rollouts show
+  a window that stays small. Its clone starts with the smallest window
+  of the three (u of -4.2, against -2.9 and -3.3), and over the last 40
+  iterations its mean u is -3.0 and -5.1 at the two points and the link
+  is 46% and 25% used, against -0.6 to -1.4 and 76% to 89% for the other
+  seeds. It moves far from its start all the same (KL to the start 18
+  and 24, against 3 to 6), so it settles on a small window rather than
+  staying put. Both releases train from the same clones, and in
+  `exp-controller-rl-24` this width diverged too. Why this clone falls
+  into a small window and seed 3, which starts almost as low, does not
+  is UNRUN.
 - The setting chosen for Cubic gives the results of the search again at
   width 10 (-0.17 in both). The references score a little higher with the
   slower learner for both teachers (Cubic -0.13 against -0.16, BBRv3
