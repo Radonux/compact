@@ -104,11 +104,6 @@ together):
            whole library; what that one misses is not a function of the
            library at all (the sender's estimation error, or a variable
            nobody listed).
-  without  for each label behind the first PICK features: the path
-           when that label is taken out of the library in every window,
-           with every composite computed from it, which is the vocabulary
-           sensitivity check. Taking out a label that no picked feature
-           uses cannot change the path.
   decision per run, all of the above with the run's decision in place of
            its latents: the change it makes, log2 of the window it set
            less log2 of the window in force. An encoder trained end to
@@ -985,8 +980,6 @@ def _selection(lib: Library, z: tuple[F64, F64]) -> dict[str, Any]:
         return flexible(lib.fit[:, cols], z[0], lib.score[:, cols], z[1])
 
     lcfs = [*_window(lib), *(index[n] for n in EXPLICCIT_LCFS if n in index)]
-    of = [sources(v) for v in lib.variable]
-    used = sorted(set().union(*(of[index[p["feature"]]] for p in path[:PICK])))
     hidden = [
         f for f in everything if f in _window(lib) or not lib.variable[f].startswith("sender_")
     ]
@@ -1014,9 +1007,6 @@ def _selection(lib: Library, z: tuple[F64, F64]) -> dict[str, Any]:
         "formula_path": formula_path,
         "formulas": made,
         "expliccit_lcfs": float(m.r2(_columns(lib, lcfs)).mean()),
-        "without": {
-            var: _path(lib, m, [f for f in everything if var not in of[f]])[:PICK] for var in used
-        },
     }
 
 
@@ -1085,13 +1075,6 @@ def select_summary(result: dict[str, Any]) -> str:
             )
             for n, p in enumerate(sel[key], 1):
                 lines.append(f"| {n} | {p['feature']} | {p['mean']:.3f} | {p['worst']:.3f} |\n")
-        lines += [
-            f"\nWith one base variable taken out of the library (first {PICK} features):\n\n",
-            f"| taken out | mean at {PICK} | features |\n|---|---|---|\n",
-        ]
-        for var, path in sel["without"].items():
-            names = ", ".join(p["feature"] for p in path)
-            lines.append(f"| {var} | {path[-1]['mean']:.3f} | {names} |\n")
         lines.append(
             f"\nEach run alone, its first {PICK} features:\n\n"
             "| run | mean | features |\n|---|---|---|\n"

@@ -1,8 +1,8 @@
 # Methodology
 
 The question and the idea are in the [README](../README.md#the-question).
-This page gives the design, the ways it can fail, the
-claims, the rules of evidence and the plan. What has run so far is in
+This page gives the design, the ways it can fail, the rules of
+evidence and the plan. What has run so far is in
 [status.md](status.md).
 
 ## The design
@@ -50,7 +50,7 @@ Training has two stages, both in the emulator.
    because the two set contradictory windows in the same state.
 2. Reinforcement learning on the log utility, with no teacher term. This
    is where the controller can develop behaviour its teacher does not
-   have, and the claims rest on this stage.
+   have, and the results rest on this stage.
 
 The bootstrap only makes reinforcement learning start from a controller
 that works. Two details keep it honest. While it learns, the controller
@@ -100,29 +100,13 @@ These follow from the design, before any data. Each has a check.
 | Failure | Why it can happen | Check |
 |---|---|---|
 | The latents hold only the decision | Nothing makes an encoder keep the path's state apart from the decision ([above](#what-the-width-cannot-count)). Formulas that span such latents are formulas for the window, not concepts behind it. | Regress the decision on the latents in every run, and read each base variable from the latents. Ground the decision itself beside the latents, and compare the two paths. |
-| The order is not the order of need | Grounding orders formulas by how much of the decision they explain on logged steps, which is not their worth in the closed loop. | The count is read from closed-loop performance against m. Compare the order with a random one and with the baselines at each m (C3). |
-| The concepts follow the teacher | Reinforcement learning may stay near the controller it started from. | Start from two teachers that work differently, Cubic (loss based) and BBRv3 (model based), and compare the concepts (C5). Measure how far each controller moved from its start. |
-| A weak learner looks like a need for concepts | Reinforcement learning may leave a net2 on few concepts short of comparable for reasons of optimization alone. | Tune before any claim. Compare with the oracle net2 trained the same way on the full set. |
+| The order is not the order of need | Grounding orders formulas by how much of the decision they explain on logged steps, which is not their worth in the closed loop. | The count is read from closed-loop performance against m. Compare the order with a random one and with the baselines at each m. |
+| The concepts follow the teacher | Reinforcement learning may stay near the controller it started from. | Start from two teachers that work differently, Cubic (loss based) and BBRv3 (model based). Measure how far each controller moved from its start. |
+| A weak learner looks like a need for concepts | Reinforcement learning may leave a net2 on few concepts short of comparable for reasons of optimization alone. | Tune before reading a result. Compare with the oracle net2 trained the same way on the full set. |
 | No count | The decision may need more concepts than a controller can be retrained on. | Report it. It bears on the two-net design itself. |
 | The latents fit no short formula | Latents are defined only up to mixing, and narrow layers pack several features into each unit (Locatello et al., ICML 2019). | Report it, and look at what the latents do encode. |
 | The grounding names the action | The window in force and everything it sets predict the latents and the next decision without being concepts. | Hold the sender's own window in every fit, and ground the change a decision makes. Report what the window alone explains. |
-| The vocabulary decides the answer | A person chooses the grounding library. | Refit with each base variable or operator family removed (C4). |
 | Leakage | net1's soft outputs can carry more than the concepts. | Compare net2 on net1's soft outputs with net2 on exact concept values. |
-
-## Claims
-
-| | Claim | How it fails |
-|---|---|---|
-| C1 | Count. Closed-loop performance of net1 + net2 on the first m fitted concepts becomes comparable with the discovery controller's at a small m, and at that m it is comparable with the oracle net2 on the full set. | No m short of the full set is comparable. |
-| C2 | Grounding. Symbolic regression recovers the latents of the best-trained discovery controllers as short closed-form formulas over named variables. | No latent is well recovered. |
-| C3 | Budget. net1 + net2 trained on the fitted concepts are comparable with the discovery controller at a number of concepts where concepts chosen another way are not: the hand-picked LCFs, greedy subset search, SHAP-ranked inputs, a random subset. | A baseline is comparable at the same number of concepts. |
-| C4 | Vocabulary. With one base variable or operator family removed from the library, the selected concepts change only when the removed item was one of them. | The selection follows whatever the library holds. |
-| C5 | Start. The discovery controller yields the same concepts from different teachers. | The concepts describe one teacher. |
-
-Two things are not claimed. A bottleneck does not make a network
-explainable. And a closed-form concept is exact, which does not make it
-readable. Some will match familiar quantities and some will be short,
-unfamiliar formulas, ranked by how much performance drops without them.
 
 ## Rules of evidence
 
@@ -131,10 +115,10 @@ run are fixed in its experiment file before it runs.
 
 | Rule | Meaning |
 |---|---|
-| Closed loop | A claim about a controller rests on rollouts in the emulator. Fit to logged steps is never evidence about a controller, and the discovery model is a controller, never an offline predictor. |
+| Closed loop | A result about a controller rests on rollouts in the emulator. Fit to logged steps is never evidence about a controller, and the discovery model is a controller, never an offline predictor. |
 | Split by link | Data and evaluation are split by link (capacity trace, delay, buffer; `expliccit_env.train.data.link_key`), never by row or episode. A row split puts one path's steps in every split and overstates accuracy. |
 | Score | Log utility, with differences paired by link and 95% bootstrap intervals over links. |
-| Tune first | No claim about a learned model before it is tuned. Read its training diagnostics (critic and actor scales, saturation, actions outside the data). Search the settings that matter on validation links, by a full grid where affordable and successive halving where not. Confirm the winners over several seeds. |
+| Tune first | No result about a learned model before it is tuned. Read its training diagnostics (critic and actor scales, saturation, actions outside the data). Search the settings that matter on validation links, by a full grid where affordable and successive halving where not. Confirm the winners over several seeds. |
 | Decide before running | A count, a threshold or a winner is chosen by a rule written before the run. |
 | Test once | The test links run once per candidate, after every choice is fixed on validation. The report says what was searched. |
 | Failed episodes count for nothing | A failed or invalid episode gives no metrics and no labels. |
@@ -171,7 +155,7 @@ conditions.
    that scores above its reference says the reference is under-trained.
 4. Against a controller that was not trained on this objective (Cubic,
    BBRv3, the fixed rule) the signed difference is reported, by kind of
-   condition. It supports a claim about this objective on these paths. It
+   condition. It is a result about this objective on these paths. It
    does not make either one the better congestion controller: the
    objective is ours and not theirs. None of them is a bar or a ceiling.
 5. No size of result is chosen before it is measured. A run's score is
@@ -210,8 +194,8 @@ the evidence says so.
      encoder runs beside them.
      Report each against the teachers themselves and the fixed rule on
      the seven hand-picked LCFs (`experiments/width_curve.py`).
-   - Compare the two teachers' controllers (C5), and report how far
-     reinforcement learning moved each from its start: the RMS difference
+   - Report how far reinforcement learning moved each controller from
+     its start: the RMS difference
      in log2 of the window between the two policies on the same rollouts.
 3. Grounding, on the discovery controllers' latents and decisions and the
    steps of their own rollouts ([below](#grounding)).
@@ -221,7 +205,7 @@ the evidence says so.
    - Train the oracle net2 on the true concept values.
    - Plot the log utility against the number of concepts m, for
      m = 1, 2, 3, 5, 7, 10, 16 and every recovered concept, taking
-     concepts in the order of the path, and read the count (C1). There
+     concepts in the order of the path, and read the count. There
      is no budget; a count above 16 is reported as one that is hard to
      explain.
    - Baselines at the same number of concepts: the hand-picked LCFs, a greedy forward
@@ -335,8 +319,6 @@ often, and by how much, the two differ.
    ([above](#grounding)): the well-recovered formulas of the single best
    network, or of the best few pooled, where of formulas whose values
    correlate above 0.9 the simplest is kept.
-6. Vocabulary sensitivity (C4). Refit with each base variable or operator
-   family removed. Every grounding result is reported with this check.
 
 How much of the latents a feature spans is not its importance for
 control. Importance is read in step 4, from closed-loop performance with
@@ -393,7 +375,7 @@ compact tests against.
 | bootstrap | Cloning a teacher to give reinforcement learning a start: the teacher drives the rollouts and the controller learns the window that sends as it did (`PPOSpec.algo` `clone`). |
 | fixed rule | A window of 2^0.25 times the believed BDP of the estimator of the seven LCFs. A common reference in evaluations. |
 | believed BDP | net1's mean capacity times twice its mean one-way delay, in 1500-byte packets (`fit.window_target`). |
-| count | Claim C1 ([above](#claims)). |
+| count | The number of concepts at which the log utility of net1 + net2 retrained on them stops rising. |
 | action collapse | [Above](#what-the-width-cannot-count). |
 | grounding | Fitting each latent to a closed-form formula over the library, on held-out links. |
 | library | The candidate terms for grounding: base variables crossed with operators. |

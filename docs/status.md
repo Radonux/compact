@@ -7,14 +7,14 @@ dated entries; its history is in git. The steps are those of the
 
 ## Where the project stands
 
-No claim has evidence yet. The closed-loop runs so far: the start taught
-from the fixed rule
-([below](#the-start-taught-from-the-fixed-rule)), the bootstrap from
-Cubic and BBRv3, the reinforcement-learning stage at one point, its
-settings search and the confirmation of the two best settings per
-teacher. The confirmation gives the first comparisons with the
-reference at tuned settings, over seeds only and without the share
-with a competing flow, so they are not yet results for a claim.
+No result yet. The closed-loop runs so far: the start taught from the
+fixed rule ([below](#the-start-taught-from-the-fixed-rule)), the
+bootstrap from Cubic and BBRv3, the reinforcement-learning stage at one
+point, its settings search, the confirmation of the two best settings
+per teacher and the grounding of the confirmed controllers. None of the
+controllers is trained well yet: none reaches the fixed rule. Longer
+training is running, and the concepts are recovered from the best of
+it.
 
 | Step | State | Built | Not built |
 |---|---|---|---|
@@ -121,7 +121,7 @@ What it does not show: anything about concepts. The runs are untuned, the
 teacher is the hand-built rule, and the decision was not regressed on the
 latents, because these runs kept no rollouts. This start leans toward the
 seven hand-picked LCFs, which is why the Cubic and BBRv3 bootstrap
-replaced it. It stays as a third start for C5.
+replaced it. It stays as a third start.
 
 ## The reinforcement-learning stage
 
@@ -206,7 +206,7 @@ learning rate (0.00003, 0.0001, 0.0003), clip (0.1, 0.2) and exploration
 noise (0.1, 0.2), from both teachers, seeds 1 and 2. The reason for these
 three: over the last 40 iterations the learner at width 10 clipped 23% of
 decisions with a step KL of 0.019, against 11% and 0.009 for the
-references. It chooses candidates and supports no claim. Scores are the
+references. It chooses candidates and nothing more. Scores are the
 log utility minus the fixed rule's, as the mean of two seeds, with the
 spread between them.
 
@@ -354,7 +354,7 @@ without latents is refused.
 with the same paths, formulas and sensitivity check.
 
 Two releases hold the first readings on real controllers. Both sets of
-controllers are untuned, so neither supports a claim about concepts.
+controllers are untuned, so neither says anything yet about concepts.
 `exp-ground-teachers-26` is the bootstrapped controllers: both teachers,
 widths 1 to 64, three seeds, latents only. `exp-ground-rl-27` is the
 controllers after reinforcement learning at widths 1, 2 and 64, latents
@@ -422,7 +422,7 @@ one rollout per link and is not affected.
 held in every fit. It grounds the controllers of `exp-controller-rl-24`
 at widths 7, 10 and 16, both teachers, three seeds. These controllers are
 untuned and two of the Cubic controllers at width 7 diverged, so the
-release checks the method and supports no claim about concepts. All
+release checks the method and says nothing yet about concepts. All
 numbers are R^2 on the validation links.
 
 | Latents, runs of one width pooled | Cubic 7 | Cubic 10 | Cubic 16 | BBRv3 7 | BBRv3 10 | BBRv3 16 |
@@ -477,7 +477,7 @@ What it shows:
 grounds the controllers of `exp-controller-rl-confirm-31` at each
 teacher's setting, widths 7, 10 and 16, three seeds, and runs the
 references without an encoder on the same validation episodes. Every
-episode finished. It checks the method and supports no claim about
+episode finished. It checks the method and says nothing yet about
 concepts.
 
 ### Against the reference, with the share
@@ -727,7 +727,7 @@ the measurements.
 
 Every release made before that commit used the old guest. That covers
 all step data listed above, in the episodes that have cross flows. Data
-for a claim is generated with the fixed guest.
+for a result is generated with the fixed guest.
 
 ## Withdrawn work
 
@@ -735,7 +735,7 @@ Before the discovery controller existed, the project fitted predictors
 to logged steps: one of the flow's own future measurements, and one of
 the logging controllers' window changes, each through k latents, with
 linear grounding of both. None of them is a controller and none ran in
-the closed loop, so none of it is evidence for any claim here. Their
+the closed loop, so none of it is evidence here. Their
 widths, knees and selected features are not used.
 
 The releases remain, each with notes that say what it ran:
@@ -767,7 +767,6 @@ in the latents favours it. The count is read in retraining instead
 | Which path orders the concepts in retraining | The plan takes the decision's path. For the confirmed controllers the change a decision makes comes mostly from the decoder's memory (`exp-probe-memory-34`), and ground truth of one step explains 0.17 to 0.37 of it, while the latents are explained to 0.80 to 0.86. The latents' path, or ground truth over a longer history for the decision, are the candidates. Not decided. |
 | Whether the order of the decision's path is the order of need | It comes from logged steps. Retraining at each m, against a random order and the baselines, decides. |
 | How far reinforcement learning moves a controller from its teacher | If it barely moves, the concepts are the teacher's. The measure is the RMS difference in log2 of the window from the clone. How small counts as barely is not decided. |
-| The threshold for C3 | |
 | How to weigh a latent that hardly moves | Every fit standardizes the latents. A weight from the decoder's use of each latent is a candidate. |
 | The kind of output the retrained net1 states | A value, an interval or a distribution. |
 | Labels for fitted formulas | A formula over stored labels can be added as a composite with no new data and no guest change ([architecture.md](architecture.md#composites)). A formula that uses a windowed operator over past steps, as the library's features do, has no such path yet. |

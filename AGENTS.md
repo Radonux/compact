@@ -13,7 +13,7 @@ Every other file links to the home and does not restate it.
 | File | Holds |
 |---|---|
 | `README.md` | The vision: the question, the idea, the emulator and what it guarantees |
-| `docs/methodology.md` | The research design in full: the design, the claims, the rules of evidence, how controllers are compared, the plan and the terms |
+| `docs/methodology.md` | The research design in full: the design, the rules of evidence, how controllers are compared, the plan and the terms |
 | `docs/status.md` | Everything that changes with time: what has run, results, releases, open questions and dropped directions |
 | `docs/architecture.md` | How an episode runs |
 | `docs/training.md` | The commands |

@@ -1,7 +1,7 @@
 # Validation
 
 What was checked about the emulator and the training pipeline, how, and
-what was not. compact's claims rest on four properties: the ground truth
+what was not. compact's results rest on four properties: the ground truth
 is exact, the TCP stack is the kernel's own, episodes are reproducible,
 and a policy acts in the closed loop exactly as it was trained. This page
 is the evidence for them.

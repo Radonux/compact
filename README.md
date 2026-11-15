@@ -21,7 +21,7 @@ net1 and net2 are then retrained on those formulas, so the controller
 that ships passes every decision through exact, checkable quantities.
 Discovery is data driven, and deployment stays by design.
 
-The design, the claims and the plan are in
+The design and the plan are in
 [docs/methodology.md](docs/methodology.md).
 
 ## The emulator
@@ -101,7 +101,7 @@ outside code need a checkout of it and skip without one.
 
 | Document | Read it for |
 |---|---|
-| [docs/methodology.md](docs/methodology.md) | The design, how it can fail, the claims, the rules of evidence, the plan and the terms |
+| [docs/methodology.md](docs/methodology.md) | The design, how it can fail, the rules of evidence, the plan and the terms |
 | [docs/status.md](docs/status.md) | What has run, what it showed and what is open |
 | [docs/architecture.md](docs/architecture.md) | How an episode runs: the link model, the labels, the policy contract, experiments, limits |
 | [docs/training.md](docs/training.md) | The commands: step data, the estimator, the closed-loop trainer, scoring |
