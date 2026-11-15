@@ -50,6 +50,7 @@ Smaller checks:
 | Linux's controllers are unchanged by the kernel patches | four seeded episodes on the kernel without and with the BBRv3 series, compared byte for byte | identical ([below](#bbrv3-and-stock-controllers)) | by hand: two kernel builds |
 | The policy controllers leave Linux's controllers unchanged | 12 seeded 30 s episodes (Cubic, BBRv1, BBRv3 and Vegas; a stepping link, 1% random loss and a Cubic competitor) on the guest before and after the `agent_cubic`, `agent_pure` and `cc_info` changes, with the same kernel image | all 120 record files byte-identical (local run, 2026-11-09) | by hand: two guest builds |
 | The send-buffer limit leaves Linux's controllers alone | 340 episodes with and without it | 3 changed (Hybla), by at most 0.0003 in utilization ([below](#tcp-buffer-limits)) | by hand |
+| The sender's MSS is 1448 bytes, the constant the clones' window conversion uses (`train/trajectories.py`) | one seeded 3 s episode each of Cubic and BBRv3, on a 20 Mbit/s step link with 20 ms one-way delay and 200 packets of buffer, raw records kept | `tcpi_snd_mss` in every step's `TCP_INFO` and the kernel's `mss_cache` in every sample are 1448 (local run, 2026-11-15) | by hand: `run_episode(..., keep_raw=True)` with `steps=True` |
 | Policies drive only their own sockets | three policies next to Cubic and UDP; ten copies of one policy | each socket follows its own policy; Jain's index above 0.95; each flow's truth equals its labels | `pytest tests/test_multi_agent.py` |
 
 ## A policy acts as it was trained

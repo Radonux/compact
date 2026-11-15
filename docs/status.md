@@ -78,8 +78,8 @@ What to keep in mind when reading it:
 - The label for BBRv3 is its pacing rate times its smoothed RTT, capped
   by its window. That reproduces its sending rate under the `agent`
   controller, not its internal state machine.
-- The MSS in that conversion is a constant, 1448 bytes. It is UNRUN
-  against a recorded `TCP_INFO`.
+- The MSS in that conversion is a constant, 1448 bytes. The recorded
+  `TCP_INFO` agrees ([validation.md](validation.md#the-stack-is-the-kernels-own-and-episodes-are-reproducible)).
 - The estimator of the seven LCFs serves only as the measurement scaler
   and as the rule the evaluations compare with. That estimator and rule
   were fitted on episodes from the guest before the cross-flow fix
