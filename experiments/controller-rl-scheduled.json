@@ -1,0 +1,32 @@
+{
+  "title": "Longer reinforcement learning for the confirmed controllers, with a rate schedule",
+  "description": "The confirmed controllers (experiments/controller-rl-confirm.json, release exp-controller-rl-confirm-31) at each teacher's setting continue by PPO for 240 more iterations, from the actor and value network each run left (init_from), now with a schedule for the actor's learning rate and the best policy kept. The same continuation without them (experiments/controller-rl-longer.json, cancelled) sent Cubic's runs to the smallest window: the first update after the restart was a large step from a fresh optimizer (up to 71% of decisions clipped), and at a rate of 0.0003 the policy drifted to where the reward's floor leaves no gradient back (width 16 seed 1 and width 7 seed 2 from -0.40 and -0.13 to -2.99); BBRv3's first finished run moved little (-0.23 to a best of -0.18 and back). Here the actor's rate ramps up over 5 iterations after the critic's 3-iteration warm-up and falls linearly to a tenth of its start by the last iteration: Cubic 0.0003 to 0.00003 (clip 0.2, noise 0.2), BBRv3 0.00003 to 0.000003 (clip 0.2, noise 0.1). Widths 7, 10 and 16 and the reference without an encoder, seeds 1 to 3: 24 runs. Everything else is as in the confirmation: 8 links with 4 rollouts each per iteration, 30 s episodes, noise held for 20 steps, reward horizon 1 s, no anchor, stopping at 4 h. Evaluation every 20 iterations on the 21 validation links under 6 conditions; each run keeps its best evaluated policy (policy-best.onnx, best.json) and scores as it (docs/methodology.md, comparing controllers). What is read: per teacher and width, the start (the confirmed score), the best and the last, and whether the schedule stops the collapse. The test links are not read.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "estimator": "release:exp-estimator-seven-20",
+    "rule": "release:exp-steps-behaviour-rule-8",
+    "runs": "release:exp-controller-rl-confirm-31"
+  },
+  "matrix": {
+    "teacher": [
+      "cubic",
+      "bbr3"
+    ],
+    "k": [
+      0,
+      7,
+      10,
+      16
+    ],
+    "seed": [
+      1,
+      2,
+      3
+    ]
+  },
+  "prepare": "uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$IN/estimator/estimator/net1.pt\" --models \"$IN/rule/models\" --u 0.25 --paths net2-train-xl",
+  "run": "case \"$TEACHER\" in cubic) LR=0.0003; END=0.00003; CLIP=0.2; NOISE=0.2;; bbr3) LR=0.00003; END=0.000003; CLIP=0.2; NOISE=0.1;; *) exit 2;; esac; R=\"ctl-$TEACHER-k$K-s$SEED\"; T=\"$R-lr$LR-c$CLIP-n$NOISE\"; S=\"$OUT/spec-$T.json\"; jq --arg from \"$IN/runs/$T\" --argjson k \"$K\" --argjson seed \"$SEED\" --argjson lr \"$LR\" --argjson lrend \"$END\" --argjson clip \"$CLIP\" --argjson noise \"$NOISE\" '.algo = \"ppo\" | .init_from = $from | .inputs = \"raw\" | (if $k > 0 then .latents = $k | .action_max = 8 else . end) | .share_k = 0 | .critic_flows = true | .critic_warmup = 3 | .noise_sigma = $noise | .noise_hold_steps = 20 | .tau_s = 1 | .group = 4 | .links_per_iteration = 8 | .lr = $lr | .lr_warmup = 5 | .lr_end = $lrend | .clip = $clip | .copies = [2, 4] | .competition = \"diverse\" | .alone = 0.35 | .compete = 0.6 | .seed = $seed | .iterations = 240 | .eval_every = 20 | .time_budget_s = 14400' \"$OUT/setup/ppo-base.json\" > \"$S\"; uv run expliccit train ppo \"$S\" \"$OUT/$T\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ctl-*; uv run python experiments/settings_search.py \"$OUT\" \"$OUT\"/ctl-*; cat \"$OUT/settings-search.md\" \"$OUT/summary.md\" > \"$OUT/both.md\"; mv \"$OUT/both.md\" \"$OUT/summary.md\"",
+  "timeout_minutes": 360
+}

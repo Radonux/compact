@@ -7,7 +7,8 @@ history is in git. The steps are those of the
 ## Where the project stands
 
 No controller is trained well yet: none reaches the fixed rule. Longer
-training (`experiments/controller-rl-longer.json`) and a first symbolic
+training with a rate schedule (`experiments/controller-rl-scheduled.json`)
+and a first symbolic
 regression of the best confirmed controllers' latents
 (`experiments/concepts-confirm.json`) are running, UNRUN until they
 publish.
@@ -48,8 +49,9 @@ learning rate 0.00003, clip 0.2 and noise 0.1 for BBRv3. Learning rate
 | BBRv3 | -0.11 | -0.20 | -0.28 | -0.28 |
 
 - Scores still rose by 0.02 to 0.03 per 20 iterations at 120, so 240
-  more iterations from each run are running. The first Cubic runs to
-  finish fall: width 16, seed 1, from -0.40 to -2.99 by iteration 60,
+  more iterations from each run were started
+  (`experiments/controller-rl-longer.json`) and cancelled once the
+  first Cubic runs fell: width 16, seed 1, from -0.40 to -2.99 by iteration 60,
   width 7, seed 2, from -0.13 to -2.99 after iteration 100, both to the
   smallest window, and the reference, seed 3, from -0.23 to -0.32. The
   first update after the restart is a large step (a fresh optimizer:
@@ -57,7 +59,9 @@ learning rate 0.00003, clip 0.2 and noise 0.1 for BBRv3. Learning rate
   policy then drifts into the smallest window, where the reward's floor
   of 1% of capacity leaves no gradient back. The trainer now ramps the
   rate up after a restart, can anneal it to a final rate, and keeps the
-  best evaluated policy (`lr_warmup`, `lr_end`, `policy-best.onnx`).
+  best evaluated policy (`lr_warmup`, `lr_end`, `policy-best.onnx`). The
+  same continuation with the rate falling to a tenth is running
+  (`experiments/controller-rl-scheduled.json`), UNRUN.
 - Cubic's width 7, seed 1, fails at both confirmed settings: from the
   clone with the smallest window it settles on a small window, using 25%
   to 46% of the link. Why that clone does is UNRUN.
