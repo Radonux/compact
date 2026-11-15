@@ -126,6 +126,8 @@ def _paired(
         "minus_rule": float(diff.mean()) if keys else math.nan,
         "pairs": len(keys),
         "minus_rule_by_condition": {c: float(np.mean(v)) for c, v in sorted(by.items())},
+        # Each (link, condition) pair, so that intervals over links can be drawn.
+        "minus_rule_by_pair": [[k[0], k[1], d] for k, d in zip(keys, diff.tolist(), strict=True)],
     }
 
 

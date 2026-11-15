@@ -1325,3 +1325,15 @@ def test_a_clone_reads_its_own_previous_decision_while_it_learns() -> None:
     for _ in range(3):
         logs = learner.update([traj(k) for k in range(16)], rng)
     assert logs["teacher_gap_before"] < 0.5 * first["teacher_gap_before"]
+
+
+def test_an_evaluation_keeps_each_pair_so_intervals_over_links_can_be_drawn() -> None:
+    pol = {("a", "alone"): 1.0, ("a", "cubic from 0 s"): 0.5, ("b", "alone"): 2.0}
+    rule = {("a", "alone"): 0.5, ("a", "cubic from 0 s"): 1.0, ("b", "alone"): 1.0, ("c", "x"): 9.0}
+    ev = ppo._paired(pol, rule)
+    assert ev["pairs"] == 3 and ev["minus_rule"] == pytest.approx(1.0 / 3)
+    assert ev["minus_rule_by_pair"] == [
+        ["a", "alone", 0.5],
+        ["a", "cubic from 0 s", -0.5],
+        ["b", "alone", 1.0],
+    ]
