@@ -1,0 +1,13 @@
+{
+  "title": "The confirmed controllers against their teachers on the validation episodes",
+  "description": "experiments/versus_reference.py over the scoring rollouts of the references and widths of exp-ground-rl-confirm-32 and of the teachers themselves (Cubic and BBRv3, exp-teachers-val-35), on the same 21 validation links under 6 conditions with the same seeds. Each width is set against its teacher's reference as in exp-ground-rl-confirm-32 (paired by link, bootstrap 95% interval over links, the verdict by the margin of 0.1), and each reference and width also gets its signed difference from its teacher, over the conditions without a competing flow and over those with one, with no verdict: the teachers were not trained on this objective (docs/methodology.md, comparing controllers, rule 4). The share with a competing flow is given for every controller, the teachers included. What is read: where the controllers stand against the teachers they were cloned from, by kind of condition, and how the teachers' share compares with the references'. The test links are not read.",
+  "uml": false,
+  "train": true,
+  "inputs": {
+    "ground": "release:exp-ground-rl-confirm-32",
+    "teachers": "release:exp-teachers-val-35"
+  },
+  "shards": 1,
+  "run": "uv run python experiments/versus_reference.py \"$OUT/versus-reference\" \"$IN/ground\"/ref-* \"$IN/ground\"/ctl-* \"$IN/teachers\"/stock-*",
+  "timeout_minutes": 120
+}
