@@ -309,8 +309,9 @@ What it shows:
 - Scores rose by 0.02 to 0.03 on average over the last 20 iterations, by
   up to 0.13 in single runs. Training is not done at 120 iterations.
 
-Longer training and more than three seeds are UNRUN. More seeds need
-more clones from the bootstrap. The grounding of the confirmed
+More than three seeds are UNRUN; they need more clones from the
+bootstrap. Longer training, 240 more iterations from where each run
+ended, is the next run (`experiments/controller-rl-longer.json`), UNRUN. The grounding of the confirmed
 controllers has run ([below](#grounding-the-confirmed-controllers)).
 
 Two things changed in the trainer for it. A run that the time budget ends
@@ -517,11 +518,12 @@ What it shows:
   that are not comparable. The references take 0.56 (BBRv3) and 0.65
   (Cubic) of what all flows took, where an even split over these three
   conditions averages 0.44.
-- A higher score from a larger share is not a gain, so these verdicts
-  do not show a cost of the latents. A rough reading, the log of the
-  ratio of the mean shares, puts 0.15 of BBRv3 width 10's 0.35 and 0.23
-  of Cubic width 16's 0.35 in the share. Whether a gap remains at equal
-  share is not settled by these numbers.
+- A rough reading, the log of the ratio of the mean shares, puts 0.15
+  of BBRv3 width 10's 0.35 and 0.23 of Cubic width 16's 0.35 in the
+  share. By the owner's decision the share is not judged while the
+  controllers train, and controllers are not compared until they train
+  well ([methodology.md](methodology.md#comparing-controllers)), so
+  these verdicts are readings for now.
 - These intervals are over links. They agree with the confirmation's,
   which were over seeds.
 
@@ -774,7 +776,6 @@ in the latents favours it. The count is read in retraining instead
 | Which path orders the concepts in retraining | The plan takes the decision's path. For the confirmed controllers the change a decision makes comes mostly from the decoder's memory (`exp-probe-memory-34`), and ground truth of one step explains 0.17 to 0.37 of it, while the latents are explained to 0.80 to 0.86. The latents' path, or ground truth over a longer history for the decision, are the candidates. Not decided. |
 | Whether the order of the decision's path is the order of need | It comes from logged steps. Retraining at each m, against a random order and the baselines, decides. |
 | How far reinforcement learning moves a controller from its teacher | If it barely moves, the concepts are the teacher's. The measure is the RMS difference in log2 of the window from the clone. How small counts as barely is not decided. |
-| How to compare controllers with a competing flow when their shares differ | With a competing flow the references take a larger share than every width, and a higher score from a larger share is not a gain. A comparison at equal share, or a score that does not reward the share, is not decided. |
 | The threshold for C3 | |
 | How close to the flexible fit a formula must come | C2 compares a formula with a flexible fit on the whole library. The margin is not decided. |
 | How to weigh a latent that hardly moves | Every fit standardizes the latents. A weight from the decoder's use of each latent is a candidate. |

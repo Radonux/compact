@@ -147,15 +147,17 @@ conditions.
    its 95% interval over links and seeds. Tuning ranks settings by it,
    because that is what tuning is.
 2. Alone on the link, the objective has one good end: the whole link
-   used, an empty queue and no loss. A higher score there is closer to
-   that end and takes nothing from anyone. With a competing flow the
-   score is the observed flow's own, so taking the competitor's share
-   raises it. So every score is reported twice: over the conditions
-   without a competing flow, and over those with one. With a competing
-   flow, the observed flow's share of the link is reported beside the
-   score. A higher score there, from a larger share, is not a gain.
+   used, an empty queue and no loss. With a competing flow the score is
+   the observed flow's own, so taking the competitor's share raises it.
+   Until the controllers train well, the log utility over all conditions
+   is the target, a larger share included: what a controller takes from
+   others is not judged while it trains, and fairness is judged
+   afterwards, by ccperf. Every score is still reported over the
+   conditions without a competing flow and over those with one, with the
+   observed flow's share beside it.
 3. Between two controllers trained the same way on this objective, a
-   shortfall is what the constraint on one of them costs. This is the
+   shortfall is what the constraint on one of them costs. These
+   comparisons wait until both train well. This is the
    comparison the method rests on: the discovery controller with the reference
    without an encoder, and net1 + net2 on m concepts with both. The
    question is whether the constrained one loses, so the test is one
@@ -177,7 +179,7 @@ the utility's own terms it is about 10% of throughput at equal delay and
 loss, or a queueing delay of 0.2 base RTTs, or 2.5 points of dropped
 packets.
 
-Fairness beyond the share above, and the wider set of paths, are left to
+Fairness, and the wider set of paths, are left to
 ccperf's experiments (`experiments/ccperf.py`). That is the last
 benchmark, for controllers that have trained well, and it is deferred. No
 step of the plan waits for it.
