@@ -473,9 +473,8 @@ What it shows:
   features for several Cubic decisions (down to -0.75). It overfits a
   target this noisy, so that bound is not usable for the decision's
   change as it stands.
-- Seeds still do not agree on the features. One run's window and first 8
-  features span another run's latents at 0.49 to 0.74, and the lists
-  differ.
+- Seeds pick different features. One run's window and first 8 features
+  span another run's latents at 0.49 to 0.74.
 
 ## Grounding the confirmed controllers
 
@@ -628,9 +627,13 @@ What it shows:
   from Cubic, 8 from BBRv3): the ratio of RTT to base RTT, the queueing
   delay, or a formula of the base RTT and the queueing delay. Alone it
   explains 0.02 to 0.11.
-- Seeds agree a little more. One run's window and first 8 features span
-  another run's latents at 0.52 to 0.72 from Cubic and 0.67 to 0.82 from
-  BBRv3, against 0.49 to 0.74 before, and the lists still differ.
+- Seeds pick different features that carry the same information. One
+  run's window and first 8 features span another run's latents at 0.52
+  to 0.72 from Cubic and 0.67 to 0.82 from BBRv3, on average 0.03 and
+  0.01 below that run's own first 8 (at most 0.06 below). So the
+  features are interchangeable, as overlapping variables and a free
+  rotation of the latents allow
+  ([methodology.md](methodology.md#grounding)).
 - The small network on the whole library still overfits the decision's
   change (down to -0.12).
 
@@ -773,6 +776,7 @@ in the latents favours it. The count is read in retraining instead
 | Question | Note |
 |---|---|
 | Whether the latents hold more than the decision | Nothing forces them to. The probe reads each base variable from the latents, and the decision is grounded beside them. If the two paths agree and the latents add nothing, the decision's path alone is used. |
+| How close another seed must come for C2 | One seed's formulas should explain another seed's latents nearly as well as their own. The confirmed controllers come within 0.01 to 0.03 on average and 0.06 at most, for features of ground truth. The margin is not decided. |
 | Which path orders the concepts in retraining | The plan takes the decision's path. For the confirmed controllers the change a decision makes comes mostly from the decoder's memory (`exp-probe-memory-34`), and ground truth of one step explains 0.17 to 0.37 of it, while the latents are explained to 0.80 to 0.86. The latents' path, or ground truth over a longer history for the decision, are the candidates. Not decided. |
 | Whether the order of the decision's path is the order of need | It comes from logged steps. Retraining at each m, against a random order and the baselines, decides. |
 | How far reinforcement learning moves a controller from its teacher | If it barely moves, the concepts are the teacher's. The measure is the RMS difference in log2 of the window from the clone. How small counts as barely is not decided. |

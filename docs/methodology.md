@@ -111,7 +111,7 @@ These follow from the design, before any data. Each has a check.
 | | Claim | How it fails |
 |---|---|---|
 | C1 | Count. Closed-loop performance of net1 + net2 on the first m fitted concepts becomes comparable with the discovery controller's at a small m, the same across seeds of the discovery controller, and at that m it is comparable with the oracle net2 on the full set. | No m short of the full set is comparable, or the m differs between seeds. |
-| C2 | Grounding. The discovery controller's latents and its decision are spanned by a few short closed-form formulas over named variables (a flexible fit on them reaches a flexible fit on the whole library), and the same formulas recur in at least 3 of 5 seeds. | They fit no short formula, or the formulas differ between seeds. |
+| C2 | Grounding. The best-trained discovery controller's latents and its decision are spanned by a few short closed-form formulas over named variables (a flexible fit on them reaches a flexible fit on the whole library), and those formulas explain the latents of the other seeds nearly as well as their own. | They fit no short formula, or one seed's formulas leave another seed's latents unexplained. |
 | C3 | Budget. net1 + net2 trained on the fitted concepts are comparable with the discovery controller at a number of concepts where concepts chosen another way are not: the hand-picked LCFs, greedy subset search, SHAP-ranked inputs, a random subset. | A baseline is comparable at the same budget. |
 | C4 | Vocabulary. With one base variable or operator family removed from the library, the selected concepts change only when the removed item was one of them. | The selection follows whatever the library holds. |
 | C5 | Start. The discovery controller yields the same concepts from different teachers. | The concepts describe one teacher. |
@@ -230,8 +230,17 @@ what was searched, the held-out numbers and what remains UNRUN.
 
 ## Grounding
 
-Grounding is meaningful only for latents that agree across seeds. Two
-things are grounded for each controller, in the same way: its latents,
+Seeds need not pick the same features. The library's variables
+overlap (with the window known, the flow's arrival rate and the RTT say
+much the same), and a network can hold its concepts in any rotation or
+mix, so several sets of concepts can explain the same latents. What
+should agree across seeds is the information: one run's features
+explain another run's latents about as well as that run's own. The
+concepts are taken from the best-trained networks, by validation log
+utility: the single best network's path, or the pooled path of the best
+few, which fits all their latents at once and so keeps one of each
+group of features that say the same thing. Retraining decides between
+them. Two things are grounded for each controller, in the same way: its latents,
 which are all its decoder reads, and its decision, log2 of the window it
 set. The latents' path says what the controller represents. The
 decision's path says what the window depends on, and gives the order in
@@ -391,7 +400,7 @@ compact tests against.
 | action collapse | [Above](#what-the-width-cannot-count). |
 | grounding | Fitting each latent to a closed-form formula over the library, on held-out links. |
 | library | The candidate terms for grounding: base variables crossed with operators. |
-| concept | A grounded formula that recurs across seeds and has been named. Concepts become the LCF labels of the retrained net1. |
+| concept | A grounded formula from the best-trained networks whose information recurs across seeds, once named. Concepts become the LCF labels of the retrained net1. |
 | comparable | [Above](#comparing-controllers). |
 | oracle net2 | net2 trained on and fed the true concept values. A diagnostic only. |
 | log utility | Per 10 ms step, from ground truth: ln(max(receive rate / capacity, 0.01)) - 0.5 queueing delay / base RTT - 4 drop fraction (`train/score.py`). An episode scores its mean over steps, and a controller scores on a link the mean over the link's episodes. The log term makes competing flows settle at proportionally fair shares (Kelly, 1998). |
