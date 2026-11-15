@@ -20,7 +20,7 @@ with a competing flow, so they are not yet results for a claim.
 |---|---|---|---|
 | 1 Setup | done | the documents; the estimator of the seven LCFs and the rule graph as releases | |
 | 2 The controller in the closed loop | the bootstrap has run; reinforcement learning is tuned at width 10 and confirmed at widths 7, 10 and 16 over three seeds | `PPOSpec.latents`; `train ppo` by cloning a Linux controller, PPO, DAgger or TD3+BC; closed-loop rollouts and scoring; `experiments/net2_ppo_setup.py`, `net2_ppo_report.py`; the collapse check on rollouts (`ground.py probe`); the reinforcement-learning stage (`experiments/controller-rl.json`) and its scores by width (`experiments/width_curve.py`); its settings search and confirmation (`experiments/controller-rl-search.json`, `controller-rl-confirm.json`, `settings_search.py`) | the share with a competing flow; intervals over links; the teachers' own scores on the validation links |
-| 3 Grounding | first readings on untuned controllers, at widths 7 to 16 with the sender's own window held; the confirmed controllers UNRUN | `experiments/ground.py`: `rollouts` of a controller in the closed loop, `probe` and `select` on its latents there, with the sensitivity check; a library of every stored label (37 columns over 100 ms and 10 ms windows) and 12 composites in both windows; `experiments/ground-teachers.json`; a stress test on planted latents, `experiments/ground_stress.py` | formulas beyond two terms of four factors; the operator-family sensitivity; matching concepts across seeds |
+| 3 Grounding | first readings on the untuned and the confirmed controllers, at widths 7 to 16 with the sender's own window held; the decision's change is mostly unexplained | `experiments/ground.py`: `rollouts` of a controller in the closed loop, `probe` and `select` on its latents there, with the sensitivity check; a library of every stored label (37 columns over 100 ms and 10 ms windows) and 12 composites in both windows; `experiments/ground-teachers.json`; a stress test on planted latents, `experiments/ground_stress.py` | formulas beyond two terms of four factors; the operator-family sensitivity; matching concepts across seeds |
 | 4 Retrain and compare | UNRUN | `train run` for net1; `train ppo` for a closed-loop net2; net1 on any stored label or composite; the live truth for every label but `queue_delay_ns`, so oracles on them | labels from fitted formulas beyond the composites; net1 on them |
 
 ## The bootstrap
@@ -309,11 +309,7 @@ What it shows:
 
 Longer training and more than three seeds are UNRUN. More seeds need
 more clones from the bootstrap. The grounding of the confirmed
-controllers, at each teacher's setting, is the next run
-(`experiments/ground-rl-confirm.json`), UNRUN. It also runs the
-references on the same validation rollouts and sets each width against
-them with intervals over links and the share with a competing flow
-(`experiments/versus_reference.py`).
+controllers has run ([below](#grounding-the-confirmed-controllers)).
 
 Two things changed in the trainer for it. A run that the time budget ends
 between evaluations now scores the policy it leaves; before, that policy
@@ -466,10 +462,10 @@ What it shows:
 - For the controllers bootstrapped from BBRv3 the window's own history
   explains most of the change (0.58 to 0.80 in all runs but one), and
   the path adds 0.04 to 0.15. Why the two teachers differ is not known.
-  One candidate is that the window in force at a decision is not always
-  the window the controller last set. `ground.py select` now measures
-  that gap, and the grounding of the confirmed controllers will report
-  it (UNRUN).
+  One candidate was that the window in force at a decision is not
+  always the window the controller last set. The grounding of the
+  confirmed controllers rules it out
+  ([below](#the-window-between-decisions)).
 - The small network on the whole library scores below the one on eight
   features for several Cubic decisions (down to -0.75). It overfits a
   target this noisy, so that bound is not usable for the decision's
@@ -477,6 +473,111 @@ What it shows:
 - Seeds still do not agree on the features. One run's window and first 8
   features span another run's latents at 0.49 to 0.74, and the lists
   differ.
+
+## Grounding the confirmed controllers
+
+`exp-ground-rl-confirm-32` (`experiments/ground-rl-confirm.json`)
+grounds the controllers of `exp-controller-rl-confirm-31` at each
+teacher's setting, widths 7, 10 and 16, three seeds, and runs the
+references without an encoder on the same validation episodes. Every
+episode finished. It checks the method and supports no claim about
+concepts.
+
+### Against the reference, with the share
+
+Log utility on the 21 validation links under 6 conditions, each
+controller on its own rollouts, seeds averaged within a link. Minus the
+reference is paired by link, with a bootstrap 95% interval over links
+and the verdict by the margin of 0.1
+([methodology.md](methodology.md#comparing-controllers)). The share is
+the observed flow's part of what all flows took from the bottleneck,
+over the conditions with a competing flow
+(`experiments/versus_reference.py`).
+
+| Teacher | Width | Without a competing flow, minus the reference | Verdict | With one, minus the reference | Verdict | Share | Share minus the reference |
+|---|---|---|---|---|---|---|---|
+| Cubic | none | | | | | 0.65 | |
+| Cubic | 7 | -0.38 (-0.58 to -0.19) | not comparable | -0.47 (-0.64 to -0.32) | not comparable | 0.50 | -0.14 (-0.19 to -0.09) |
+| Cubic | 10 | +0.03 (-0.04 to +0.10) | comparable | -0.05 (-0.15 to +0.06) | unresolved | 0.60 | -0.04 (-0.10 to +0.01) |
+| Cubic | 16 | +0.06 (-0.02 to +0.14) | comparable | -0.35 (-0.52 to -0.20) | not comparable | 0.51 | -0.13 (-0.18 to -0.09) |
+| BBRv3 | none | | | | | 0.56 | |
+| BBRv3 | 7 | -0.03 (-0.09 to +0.02) | comparable | -0.16 (-0.24 to -0.09) | unresolved | 0.53 | -0.04 (-0.06 to -0.01) |
+| BBRv3 | 10 | +0.00 (-0.06 to +0.05) | comparable | -0.35 (-0.49 to -0.21) | not comparable | 0.49 | -0.08 (-0.11 to -0.04) |
+| BBRv3 | 16 | -0.02 (-0.09 to +0.03) | comparable | -0.32 (-0.44 to -0.21) | not comparable | 0.50 | -0.06 (-0.09 to -0.03) |
+
+What it shows:
+
+- Without a competing flow the latents cost nothing measurable. Every
+  width is comparable with its reference but Cubic's width 7, where seed
+  1 failed to train ([above](#the-reinforcement-learning-stage)).
+- With a competing flow every width takes a smaller share than its
+  reference, and the widths with the larger share gaps are the ones
+  that are not comparable. The references take 0.56 (BBRv3) and 0.65
+  (Cubic) of what all flows took, where an even split over these three
+  conditions averages 0.44.
+- A higher score from a larger share is not a gain, so these verdicts
+  do not show a cost of the latents. A rough reading, the log of the
+  ratio of the mean shares, puts 0.15 of BBRv3 width 10's 0.35 and 0.23
+  of Cubic width 16's 0.35 in the share. Whether a gap remains at equal
+  share is not settled by these numbers.
+- These intervals are over links. They agree with the confirmation's,
+  which were over seeds.
+
+### The window between decisions
+
+In all 18 controllers the window in force at a decision is the window
+the controller set at its previous decision, at every one of 65,000 to
+93,000 decisions per controller. The guest reads that window from the
+kernel, so nothing changes the sender's window between decisions in
+these episodes. That rules out the candidate raised by
+`exp-ground-rl-30` ([above](#grounding-beyond-the-senders-own-window)).
+
+### What the latents and the decision hold
+
+R^2 on the validation links.
+
+| Latents, runs of one width pooled | Cubic 7 | Cubic 10 | Cubic 16 | BBRv3 7 | BBRv3 10 | BBRv3 16 |
+|---|---|---|---|---|---|---|
+| The window alone, linear | 0.48 | 0.43 | 0.42 | 0.65 | 0.60 | 0.65 |
+| With the first 8 features of ground truth, linear | 0.65 | 0.65 | 0.66 | 0.78 | 0.76 | 0.74 |
+| With the whole library, linear | 0.71 | 0.73 | 0.73 | 0.82 | 0.80 | 0.79 |
+| The window alone, a small network | 0.52 | 0.53 | 0.52 | 0.67 | 0.65 | 0.73 |
+| With the first 8 features of ground truth, a small network | 0.80 | 0.82 | 0.83 | 0.85 | 0.86 | 0.86 |
+| With the whole library, a small network | 0.86 | 0.86 | 0.86 | 0.85 | 0.87 | 0.87 |
+
+| The change a decision makes, range over runs | Cubic | BBRv3 |
+|---|---|---|
+| The window alone, linear | -0.07 to 0.09 | 0.02 to 0.11 |
+| With the whole library, linear | 0.14 to 0.28 | 0.21 to 0.36 |
+| The window alone, a small network | 0.04 to 0.19 | 0.03 to 0.14 |
+| With the first 8 features and formulas, a small network | 0.18 to 0.34 | 0.17 to 0.37 |
+
+What it shows:
+
+- The latents read as they did before tuning. The window alone gives
+  0.52 to 0.73 by a small network, and eight features of ground truth
+  raise that to 0.80 to 0.86, within 0.06 of the whole library.
+- The first features differ by teacher and agree across widths. From
+  Cubic a drop fraction comes first at every width, then, in varying
+  order, the random drop fraction, the receive rate, the capacity or the
+  BDP and the queueing delay on the ACK path. From BBRv3 the flow's arrival rate
+  comes first at every width (with the window held it gives the RTT),
+  then the base RTT and the queueing delay on the ACK path.
+- The change a decision makes is mostly unexplained for both teachers
+  now. The window alone gives 0.11 or less, where it gave BBRv3's
+  untuned controllers 0.25 to 0.80, so the difference between the
+  teachers seen there does not appear at the confirmed settings. The
+  best fit reaches 0.17 to 0.37. The decoder's memory, which no feature
+  of one step holds, is the candidate left, and is UNRUN.
+- A delay signal leads the decision's change in 12 of the 18 runs (4
+  from Cubic, 8 from BBRv3): the ratio of RTT to base RTT, the queueing
+  delay, or a formula of the base RTT and the queueing delay. Alone it
+  explains 0.02 to 0.11.
+- Seeds agree a little more. One run's window and first 8 features span
+  another run's latents at 0.52 to 0.72 from Cubic and 0.67 to 0.82 from
+  BBRv3, against 0.49 to 0.74 before, and the lists still differ.
+- The small network on the whole library still overfits the decision's
+  change (down to -0.12).
 
 ## A stress test of the fitter
 
@@ -553,6 +654,7 @@ Limits that remain:
 | `exp-controller-rl-search-29` | The settings search at width 10: 48 run directories with specs and histories, and the ranking of the twelve points per teacher. | read above |
 | `exp-controller-rl-confirm-31` | The confirmation of the two best settings per teacher: 48 run directories with specs, weights, exported policies and histories, at widths 0, 7, 10 and 16. | read above; input of grounding |
 | `exp-ground-rl-27` | Grounding of the controllers after reinforcement learning at widths 1, 2 and 64: latents and decision. |
+| `exp-ground-rl-confirm-32` | Grounding of the confirmed controllers at widths 7, 10 and 16, the references' rollouts on the same validation episodes, each width against its reference with the share, and the window between decisions. | read above |
 | `exp-ground-rl-30` | Grounding of the controllers after reinforcement learning at widths 7, 10 and 16, with the sender's own window held in every fit: latents and the change a decision makes. |
 | `exp-controller-clone-21` | The start taught from the fixed rule: 24 run directories with specs, weights, exported policies and histories. | read above |
 | `exp-steps-broad-30s-9` | Logged steps on a broad set of links, 14,400 episodes, with every label. | old guest; regenerate before use |
@@ -614,7 +716,7 @@ in the latents favours it. The count is read in retraining instead
 | Whether the latents hold more than the decision | Nothing forces them to. The probe reads each base variable from the latents, and the decision is grounded beside them. If the two paths agree and the latents add nothing, the decision's path alone is used. |
 | Whether the order of the decision's path is the order of need | It comes from logged steps. Retraining at each m, against a random order and the baselines, decides. |
 | How far reinforcement learning moves a controller from its teacher | If it barely moves, the concepts are the teacher's. The measure is the RMS difference in log2 of the window from the clone. How small counts as barely is not decided. |
-| What the search over the stage's settings covers | Candidates: exploration noise, learning rate, an anchor to the clone, the value warm-up. |
+| How to compare controllers with a competing flow when their shares differ | With a competing flow the references take a larger share than every width, and a higher score from a larger share is not a gain. A comparison at equal share, or a score that does not reward the share, is not decided. |
 | The threshold for C3 | |
 | How close to the flexible fit a formula must come | C2 compares a formula with a flexible fit on the whole library. The margin is not decided. |
 | How to weigh a latent that hardly moves | Every fit standardizes the latents. A weight from the decoder's use of each latent is a candidate. |
