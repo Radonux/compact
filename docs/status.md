@@ -568,8 +568,14 @@ What it shows:
   untuned controllers 0.25 to 0.80, so the difference between the
   teachers seen there does not appear at the confirmed settings. The
   best fit reaches 0.17 to 0.37. The decoder's memory, which no feature
-  of one step holds, is the candidate left. The probe now measures it
-  (`experiments/probe-memory.json`, on this release's rollouts), UNRUN.
+  of one step holds, is the candidate left. The probe fits the change
+  from what the decoder sees at the step, its latents and the window in
+  force (`experiments/probe-memory.json`, on this release's rollouts).
+  Its first run (`exp-probe-memory-33`) could not be read by its rule:
+  its quadratic fit is left out at width 16 and was unstable elsewhere
+  (down to -1.13). Linearly, the step explains 0.11 to 0.28 of the change
+  for BBRv3 and -0.16 to 0.83 for Cubic. The rule's reading, with a
+  small network in place of the quadratic fit, is UNRUN.
 - A delay signal leads the decision's change in 12 of the 18 runs (4
   from Cubic, 8 from BBRv3): the ratio of RTT to base RTT, the queueing
   delay, or a formula of the base RTT and the queueing delay. Alone it
@@ -655,6 +661,7 @@ Limits that remain:
 | `exp-controller-rl-search-29` | The settings search at width 10: 48 run directories with specs and histories, and the ranking of the twelve points per teacher. | read above |
 | `exp-controller-rl-confirm-31` | The confirmation of the two best settings per teacher: 48 run directories with specs, weights, exported policies and histories, at widths 0, 7, 10 and 16. | read above; input of grounding |
 | `exp-ground-rl-27` | Grounding of the controllers after reinforcement learning at widths 1, 2 and 64: latents and decision. |
+| `exp-probe-memory-33` | The probe of the confirmed controllers with the decision's change fitted from the latents and the window in force; its quadratic fit is unreadable. | read above |
 | `exp-ground-rl-confirm-32` | Grounding of the confirmed controllers at widths 7, 10 and 16, the references' rollouts on the same validation episodes, each width against its reference with the share, and the window between decisions. | read above |
 | `exp-ground-rl-30` | Grounding of the controllers after reinforcement learning at widths 7, 10 and 16, with the sender's own window held in every fit: latents and the change a decision makes. |
 | `exp-controller-clone-21` | The start taught from the fixed rule: 24 run directories with specs, weights, exported policies and histories. | read above |
