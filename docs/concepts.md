@@ -1,34 +1,20 @@
 # Candidate concepts from the literature
 
 compact derives a controller's concepts from what a trained controller
-uses. This page is the other way of choosing them: a review of the
-quantities that the literature on congestion control, queue management
-and path measurement defines. It serves compact in three ways.
-
-1. It is a baseline. A concept set picked from this review, at the same
-   budget, is what the derived set must beat
-   ([methodology.md](methodology.md#claims), C3).
-2. It gives names. A fitted formula that matches a quantity defined here
-   gets that quantity's name and citation. One that matches nothing here
-   is an unfamiliar concept, and is reported as such.
-3. It sets the vocabulary. The basic quantities here are the base
-   variables of the grounding library, and the review shows which of them
-   the emulator labels ([below](#what-this-means-for-compact)).
+uses. This page reviews the quantities the literature on congestion
+control, queue management and path measurement defines (78 papers and
+RFCs, searched on 2026-11-11; definitions from the cited sources, the
+judgments about ground truth and the sender ours). It gives a recovered
+formula its name and citation when it matches one here, it is the source
+of the hand-picked baseline, and its basic quantities are the base
+variables of the grounding library.
 
 A concept must have an exact value in emulation at every step, because
-net1 is supervised on it. The sender does not have to be able to measure
-it; estimating what the sender cannot measure directly is net1's job. A
-basic concept is a quantity the link itself determines and the emulator
-logs directly, such as capacity, the queue or a packet's delay. A
-compositional concept is a fixed formula over basic concepts in a short
-window, such as the fraction of capacity in use.
-
-For each concept the page says what it means, how the emulator records
-it, whether the sender can measure it, and how the cited source defines
-it. It reviews 78 papers and RFCs ([method](#how-this-review-was-done)).
-The definitions come from the cited sources. The judgments about ground
-truth and about what the sender can see, and the last section's
-inferences, are ours.
+net1 is supervised on it; the sender need not measure it. A basic concept
+is a quantity the link determines and the emulator logs, such as
+capacity, the queue or a packet's delay. A compositional concept is a
+fixed formula over basic concepts in a short window, such as the fraction
+of capacity in use.
 
 ## In short
 
@@ -459,149 +445,21 @@ is ours:
 
 ## What this means for compact
 
-This section is our inference, not a finding of the review.
+Nearly every compositional concept above is a closed form over a few
+basic ones: capacity, arrival rate, departure rate, queue, sojourn time,
+base RTT, buffer, active flows and the cause of each drop. The emulator
+labels these ([architecture.md](architecture.md#ground-truth-labels)),
+and the twelve that need sums or differences are composites computed
+from the stored labels ([architecture.md](architecture.md#composites)).
 
-### The library's base variables
+Values change with their window. The labels use a trailing 100 ms and a
+trailing 10 ms; at 10 ms a slow link offers only a few delivery
+opportunities, so a concept grounded in a 10 ms label should be checked
+against its 100 ms form.
 
-Nearly every compositional concept
-above is a closed form over a few basic ones: capacity, arrival rate,
-departure rate, queue, sojourn time, base RTT, buffer, active flows and
-the cause of each drop. The emulator labels these
-([architecture.md](architecture.md#ground-truth-labels)), including those
-that expliCCit's seven concepts do not need: the arrival rate of all
-flows and of the observed flow, the number of active flows, the standing
-queue, the flow's own part of the queue, drops by random loss apart from
-drops by the full queue, queueing on the ACK path, and the capacity of
-the window ahead.
-
-Most concepts in the busy-link, queue and other-flow sections are then
-one ratio or product of base variables, which is exactly what the
-library's operators generate. Twelve of them are sums or differences
-too, which a fit by products of powers cannot form, so the library holds
-them as composites, each computed from the stored labels by the formula
-its source gives ([architecture.md](architecture.md#composites)): among
-them the available capacity, the load factor, the fair share, HPCC's
-normalized inflight and PowerTCP's normalized power.
-
-Without the labels of demand and of the other flows, grounding could not return any concept that
-depends on demand or on the number of flows, whatever the latents
-encode. This is the
-vocabulary objection in concrete form, and the sensitivity check (C4) can
-only test variables that are in the library to begin with.
-
-### Windows
-
-Each definition should name its window, as RFC 5136 does
-[32]: these values change with it [23]. The emulator's labels use a
-trailing 100 ms, and a trailing 10 ms beside it, near the timescale a
-controller reacts on. At 10 ms a 12 Mbit/s link offers about ten
-1500-byte delivery opportunities, so utilization moves in steps of 0.1,
-and at 1.2 Mbit/s it offers about one. A 10 ms label on a slow link is
-therefore coarse, and a concept grounded in one should be checked against
-its 100 ms form.
-
-### A composite or its bases, not both
-
-A concept computed exactly from
-other concepts adds nothing net2 could not compute itself, and it puts an
-exact dependency among the set's coordinates. Any per-concept attribution
-then divides credit between them in a way set by the attribution method,
-not by the policy. The sparse basis of step 3 should be chosen with this
-in mind, and so should the hand-picked baseline.
-
-### Where an estimator can beat the published heuristics
-
-The
-cause-of-congestion concepts are plain facts in the emulator, while a
-sender needs seconds of probing or a slow start to infer them. If the
-latents encode one of them, the heuristics here say how hard it is to
-estimate from the sender.
-
-### What the review did not find
-
-No included paper defines a
-congestion-control concept by a formula over path state and checks it
-against ground truth, and none compares candidate concept sets by how
-well a policy on them performs. Those two gaps are compact's question.
-
-## How this review was done
-
-The question and the criteria were fixed before the first search. Papers
-qualified if they defined, measured, estimated or used a quantity of path,
-link, queue or competing-traffic state, or defined concepts to explain or
-verify a learned networking controller, and if they stated the definition.
-
-Excluded were:
-
-- radio-only quantities;
-- application-level metrics only;
-- explainable ML outside networking;
-- theses and magazine pieces;
-- controllers whose quantities were all defined by an earlier included
-  paper (a criterion added during screening, and logged).
-
-The searches ran on 2026-11-11 through the lit-review skill's script, on
-Crossref and arXiv only. OpenAlex's free daily quota for the network was
-spent and Semantic Scholar refused requests without a key. 120 queries were
-logged:
-
-- the seeds (Orca [2], CCmatic, Patel et al. 2024 [1], Agua [4]) and classic
-  sources, looked up by title;
-- topical arXiv queries in cs.NI;
-- one backward snowball cycle through the papers' reference lists.
-
-| Step | Records |
-|---|---|
-| Identified | 197 |
-| Excluded on title and abstract | 116: 45 off topic, 43 redundant controllers, 11 explainable ML outside networking, 11 theses or magazine pieces, 5 duplicates, 1 application-level |
-| Excluded on full text | 3 |
-| Included | 78: 61 read in full, 17 at abstract level |
-
-Extraction ran in eight batches, one per theme. Each batch read its
-papers' full text where a copy could be fetched and recorded every quantity
-with its formula and its location in the paper. The records were then
-reviewed, and RFC 5136's and RFC 8382's formulas were checked against the
-RFC text. Every citation resolves to an included record, and every DOI
-resolves.
-
-Limits:
-
-- The corpus leans toward known work, since most sources were looked up by
-  title, and no forward snowball (papers citing the seeds) was possible.
-- Five USENIX papers have no DOI, so they could not enter the corpus without
-  OpenAlex. They were read in full but carry no number here: CCmatic, Copa,
-  PCC Vivace, Sprout and Mahimahi.
-- Orca's full text could not be fetched [2]; its inputs are known only from
-  its released code. BBR's definitions [12] come from its IETF slides.
-- Some formulas were recovered from PDFs whose text layer lost the symbols:
-  RED [26], Chiu and Jain's fairness index [30] and Cen et al.'s thresholds
-  [51].
-- For some records, the text read was another version of the indexed
-  paper, so the record is held at abstract level:
-  - TCP congestion signatures [20]: the IMC 2017 text;
-  - DECbit [72], BLUE [73], FAST [76] and Westwood [77]: technical reports
-    or related articles;
-  - Jain, Chiu and Hawe's report [78]: a scan, read for 6 of 38 pages.
-
-Gaps in the corpus:
-
-- Among the explanation papers, none defines a congestion control concept
-  by a formula over path state or checks a concept against ground truth.
-- No included paper compares candidate concept sets by how well a policy on
-  them performs.
-- The number of competing flows appears only as a model variable or a
-  router estimate; no included paper estimates it end to end.
-- No included paper evaluates these concepts at a 10 ms window.
-
-## Pending (read, not yet in the corpus)
-
-| Paper | Full text |
-|---|---|
-| Agarwal et al., Towards Provably Performant Congestion Control (CCmatic), NSDI 2024 | https://www.usenix.org/system/files/nsdi24-agarwal-anup.pdf |
-| Arun and Balakrishnan, Copa: Practical Delay-Based Congestion Control for the Internet, NSDI 2018 | https://www.usenix.org/system/files/conference/nsdi18/nsdi18-arun.pdf |
-| Dong et al., PCC Vivace: Online-Learning Congestion Control, NSDI 2018 | https://www.usenix.org/system/files/conference/nsdi18/nsdi18-dong.pdf |
-| Winstein et al., Stochastic Forecasts Achieve High Throughput and Low Delay over Cellular Networks (Sprout), NSDI 2013 | https://www.usenix.org/system/files/conference/nsdi13/nsdi13-final113.pdf |
-| Netravali et al., Mahimahi: Accurate Record-and-Replay for HTTP, USENIX ATC 2015 | https://www.cs.princeton.edu/~ravian/publications/mahimahi_atc.pdf |
+No reviewed paper defines a congestion-control concept by a formula over
+path state checked against ground truth, or compares concept sets by how
+well a policy on them performs.
 
 ## References
 

@@ -12,7 +12,7 @@ Which command serves which step of the [plan](methodology.md#plan):
 |---|---|
 | The discovery controller, and the retrained net2 | `train ppo` |
 | The retrained net1 | `train run` |
-| Grounding | `experiments/ground.py`: `rollouts` runs a controller's `policy.onnx` in the closed loop into `RUN/ground`, then `probe` and `select` read the latents on those steps; the library holds every stored label and composite |
+| Grounding | `experiments/ground.py`: `rollouts` runs a controller's `policy.onnx` in the closed loop into `RUN/ground`, then `probe` and `select` read the latents on those steps, and `concepts` fits each latent by PySR (`uv run --with pysr==2.7.2`); the library holds every stored label and composite |
 
 ## Step data
 
@@ -115,8 +115,7 @@ over a bandwidth-delay product: net1's believed one, or for `raw` a
 measured one (the maximum delivery rate over 2 s times the min RTT). With
 it, u is log2 of the window over a fixed 2^7 packets, so no measurement
 reaches the window except through the latents
-([methodology.md](methodology.md#the-discovery-controller)). A width of
-64 stands for no constraint.
+([methodology.md](methodology.md#the-discovery-controller)).
 
 Output: `policy.onnx`, `actor.pt`, `critic.pt` and `history.json`, which
 holds each iteration's rollouts and diagnostics and each evaluation

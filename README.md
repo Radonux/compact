@@ -101,7 +101,7 @@ outside code need a checkout of it and skip without one.
 
 | Document | Read it for |
 |---|---|
-| [docs/methodology.md](docs/methodology.md) | The design, how it can fail, the rules of evidence, the plan and the terms |
+| [docs/methodology.md](docs/methodology.md) | The design, the rules of evidence, the plan and the terms |
 | [docs/status.md](docs/status.md) | What has run, what it showed and what is open |
 | [docs/architecture.md](docs/architecture.md) | How an episode runs: the link model, the labels, the policy contract, experiments, limits |
 | [docs/training.md](docs/training.md) | The commands: step data, the estimator, the closed-loop trainer, scoring |
