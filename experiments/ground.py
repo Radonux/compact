@@ -1193,6 +1193,164 @@ def select_summary(result: dict[str, Any]) -> str:
     return "".join(lines)
 
 
+# Symbolic regression of the latents (concepts): rows per target, the
+# held-out R^2 that makes a formula well recovered, the largest formula,
+# and how alike two formulas' values must be to count once.
+CONCEPT_ROWS, RECOVERED, MAXSIZE, SAME = 4000, 0.8, 20, 0.9
+CONCEPT_ITERATIONS = 60  # PySR's niterations per latent
+
+
+def physical(x: F64) -> F64:
+    """A feature's values back from base_variables' signed log scale, in
+    its _factor units (ms, Mbit/s, kB, or none)."""
+    return np.sign(x) * np.expm1(np.abs(x))
+
+
+def recovered(
+    x_fit: F64, z_fit: F64, x: F64, z: F64, names: list[str], *, seed: int, x_all: F64
+) -> tuple[list[dict[str, Any]], list[F64]]:
+    """Per column of z, the PySR formula on x that scores best on the held-out
+    rows, the simplest within 0.01 of the best on its Pareto front, with
+    its R^2 there, and its values on x_all. ponytail: one fixed search per
+    latent and no units; a search with SI units (PySR's X_units) if
+    formulas mix dimensions."""
+    # Not a dependency of the package: the experiment runs it with
+    # `uv run --with pysr==2.7.2`, which fetches Julia on first use.
+    from pysr import PySRRegressor  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+
+    out, values = [], []
+    for j in range(z.shape[1]):
+        reg = PySRRegressor(
+            niterations=CONCEPT_ITERATIONS,
+            populations=16,
+            maxsize=MAXSIZE,
+            binary_operators=["+", "-", "*", "/"],
+            unary_operators=[],
+            random_state=seed + j,
+            progress=False,
+            verbosity=0,
+            temp_equation_file=True,
+        )
+        reg.fit(x_fit, z_fit[:, j], variable_names=[f"x{i}" for i in range(x.shape[1])])
+        front = []
+        for i in range(len(reg.equations_)):
+            with np.errstate(all="ignore"):
+                pred = np.asarray(reg.predict(x, index=i), dtype=np.float64)
+            ok = np.isfinite(pred)
+            r2 = (
+                1 - np.mean((pred[ok] - z[ok, j]) ** 2) / np.var(z[ok, j])
+                if ok.mean() > 0.99
+                else -np.inf
+            )
+            front.append((int(reg.equations_.iloc[i]["complexity"]), float(r2), i))
+        best = max(r for _, r, _ in front)
+        size, r2, i = min(f for f in front if f[1] >= best - 0.01)
+        formula = str(reg.sympy(i))
+        for k in reversed(range(len(names))):  # x10 before x1
+            formula = formula.replace(f"x{k}", f"[{names[k]}]")
+        out.append({"latent": j, "formula": formula, "complexity": size, "r2": r2})
+        with np.errstate(all="ignore"):
+            values.append(np.asarray(reg.predict(x_all, index=i), dtype=np.float64))
+    return out, values
+
+
+def distinct(found: list[dict[str, Any]], values: list[F64]) -> list[dict[str, Any]]:
+    """Of formulas whose values correlate above SAME in absolute value, the
+    one with the lowest complexity, then the highest R^2."""
+    order = sorted(range(len(found)), key=lambda i: (found[i]["complexity"], -found[i]["r2"]))
+    kept: list[int] = []
+    for i in order:
+        a = values[i]
+        alike = False
+        for k in kept:
+            ok = np.isfinite(a) & np.isfinite(values[k])
+            if ok.sum() > 2 and abs(np.corrcoef(a[ok], values[k][ok])[0, 1]) > SAME:
+                alike = True
+                break
+        if not alike:
+            kept.append(i)
+    return [found[i] for i in kept]
+
+
+def concepts(out: Path, runs: list[Path]) -> None:
+    """Symbolic regression of each run's latents, with the sender's own
+    window taken out, on the features of the runs' pooled path without the
+    sender's measurements; a formula is well recovered at RECOVERED held-out
+    R^2. The well-recovered formulas of all runs are pooled, and of
+    formulas whose values correlate above SAME the simplest is kept."""
+    out.mkdir(parents=True, exist_ok=True)
+    ctls, names, variables, fr, sr = _setup(runs)
+    lib = Library.of(names, variables, fr.x, sr.x)
+    z_of = {c.name: (c.encode(fr.obs), c.encode(sr.obs)) for c in ctls}
+    pooled = (
+        np.concatenate([v[0] for v in z_of.values()], 1),
+        np.concatenate([v[1] for v in z_of.values()], 1),
+    )
+    hidden = [
+        f
+        for f in range(len(lib.names))
+        if f in _window(lib) or not lib.variable[f].startswith("sender_")
+    ]
+    path = [p["feature"] for p in _path(lib, Moments.of(lib, *pooled), hidden)[:PICK]]
+    col = {n: j for j, n in enumerate(names)}
+    x_fit, x_score = (physical(q.x[:, [col[n] for n in path]]) for q in (fr, sr))
+    held_fit = lib.fit[:, _columns(lib, _window(lib))]
+    held_score = lib.score[:, _columns(lib, _window(lib))]
+    rng = np.random.default_rng(0)
+    every = x_score[np.isfinite(x_score).all(1)]
+    result: dict[str, Any] = {"inputs": path, "runs": {}, "concepts": []}
+    good: list[dict[str, Any]] = []
+    good_values: list[F64] = []
+    for r, c in enumerate(ctls):
+        f, s = fr.own(r), sr.own(r)
+        z_fit, z_score = z_of[c.name][0][f], z_of[c.name][1][s]
+        w, *_ = np.linalg.lstsq(held_fit[f], z_fit, rcond=None)
+        e_fit, e_score = z_fit - held_fit[f] @ w, z_score - held_score[s] @ w
+        scale = e_fit.std(0) + 1e-12
+        e_fit, e_score = e_fit / scale, e_score / scale
+        a, b = x_fit[f], x_score[s]
+        ok_a, ok_b = np.isfinite(a).all(1), np.isfinite(b).all(1)
+        pick = rng.choice(np.flatnonzero(ok_a), min(ok_a.sum(), CONCEPT_ROWS), replace=False)
+        found, values = recovered(
+            a[pick], e_fit[pick], b[ok_b], e_score[ok_b], path, seed=r, x_all=every
+        )
+        result["runs"][c.name] = found
+        for g, v in zip(found, values, strict=True):
+            if g["r2"] >= RECOVERED:
+                good.append({"run": c.name} | g)
+                good_values.append(v)
+        print(f"concepts: {c.name}", file=sys.stderr, flush=True)
+    result["concepts"] = distinct(good, good_values)
+    result["recovered"] = len(good)
+    (out / "concepts.json").write_text(json.dumps(result, indent=1) + "\n")
+    (out / "concepts.md").write_text(concepts_summary(result))
+
+
+def _concept_row(run: str, g: dict[str, Any]) -> str:
+    return f"| {run} | {g['latent']} | {g['r2']:.3f} | {g['complexity']} | `{g['formula']}` |\n"
+
+
+def concepts_summary(result: dict[str, Any]) -> str:
+    lines = [
+        "Symbolic regression (PySR) of each latent, with the sender's own window taken "
+        "out, on the inputs below in ms, Mbit/s or kB. R^2 on the validation links; "
+        f"well recovered at {RECOVERED} or more.\n\nInputs: "
+        + ", ".join(result["inputs"])
+        + "\n\n| run | latent | R^2 | complexity | formula |\n|---|---|---|---|---|\n"
+    ]
+    for run, found in result["runs"].items():
+        for g in found:
+            lines.append(_concept_row(run, g))
+    lines.append(
+        f"\nWell recovered: {result['recovered']} formulas; once those whose values "
+        f"correlate above {SAME} count once, {len(result['concepts'])}:\n\n"
+        "| run | latent | R^2 | complexity | formula |\n|---|---|---|---|---|\n"
+    )
+    for g in result["concepts"]:
+        lines.append(_concept_row(g["run"], g))
+    return "".join(lines)
+
+
 def drive(  # noqa: PLR0917  (one caller per verb, each naming what it passes)
     out: Path,
     ccs: Sequence[AgentCC | StockCC],
@@ -1248,7 +1406,7 @@ def main() -> None:
     # A Linux controller in place of the run's policy, with the episode
     # length of the run's ppo_spec.json: the teachers on the same episodes.
     ro.add_argument("--stock", choices=["cubic", "bbr3"])
-    for verb in ("probe", "select"):
+    for verb in ("probe", "select", "concepts"):
         q = sub.add_parser(verb)
         q.add_argument("out", type=Path)
         q.add_argument("--runs", type=Path, nargs="+", required=True)
@@ -1271,7 +1429,7 @@ def main() -> None:
             links=a.links,
         )
     else:
-        (probe if a.verb == "probe" else select)(a.out, a.runs)
+        {"probe": probe, "select": select, "concepts": concepts}[a.verb](a.out, a.runs)
 
 
 if __name__ == "__main__":

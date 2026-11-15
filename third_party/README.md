@@ -82,3 +82,14 @@ until expliCCit is published.
 | `actor.pth` (net2) | `e6f1032aad21a479be68acd723519ed8f1fbfe728f862a00db3a455f7a55c66b` |
 | `x_scaler_params.json` | `456859d70c5a01424f2f84a018f8d5006c7cfaa6dd1f01f6c260e428429c1c5e` |
 | `y_scaler_params.json` | `e0eb72cb760729b7986a2da6ae9115c6f4651188e79602714e41a3d367d612bd` |
+
+## Packages fetched at run time
+
+Not vendored and not dependencies of the package: an experiment that
+needs one fetches it at a pinned version.
+
+| Package | Version | Used for | License |
+|---|---|---|---|
+| PySR (`pysr` on PyPI) | 2.7.2 | symbolic regression of the latents (`experiments/ground.py concepts`), run with `uv run --with pysr==2.7.2` | Apache-2.0 |
+| SymbolicRegression.jl | 2.7.2, fetched by PySR | PySR's search, in Julia | Apache-2.0 |
+| `juliacall` | 0.9.36, fetched with PySR | PySR's bridge to Julia; it installs Julia itself on first use | MIT |

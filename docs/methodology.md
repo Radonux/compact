@@ -318,26 +318,23 @@ often, and by how much, the two differ.
    reaches the flexible fit on the whole library. What the flexible fit
    on the whole library misses is no function of the library: the
    sender's estimation error, or a variable nobody listed.
-4. Search for formulas over the stored labels behind the selected
-   features, so that a concept nobody listed can still be written:
-   products of two or three labels or their inverses, and sums and
-   differences of two such terms. Two terms are added only when they
-   have the same dimension in SI units, so no coefficient is fitted.
-   This is the form of the composites in the literature. Formulas of
-   two factors are tried over every stored label, because a difference
-   of two nearly equal variables shows in no linear fit on either, so
-   the selected features need not lead to it. Longer formulas are tried
-   over the labels of the best of those and of the selected features. A
-   formula is scored by how well the latents predict it, since what the
-   decoder can read from the latents is what they hold. The sender's own
-   window is taken out of both first. Of formulas that order
-   the rows alike, the simplest is kept. The kept formulas join the
-   library and the path is selected again. A formula that is chosen
-   becomes a composite in the code, and from then on is in the library
-   under every operator. PySR on the selected labels is the next step
-   only where the flexible fit shows a form beyond these.
-5. Keep the concepts that recur in at least 3 of 5 seeds, matching
-   formulas by a correlation above 0.9 on shared held-out traces.
+4. Recover the concepts by symbolic regression (PySR,
+   `experiments/ground.py concepts`). For each latent of the chosen
+   networks, with the sender's own window taken out, PySR searches for a
+   formula over the features of the networks' pooled path, in physical
+   units (ms, Mbit/s, kB), with addition, subtraction, multiplication
+   and division and at most 20 nodes. The formula kept for a latent is
+   the simplest on PySR's front within 0.01 of the best R^2 on the
+   validation links. A concept is well recovered when that R^2 is 0.8 or
+   more. Before it, a search over products of two or three stored labels
+   and sums of two such terms of one SI dimension
+   (`experiments/ground.py select`) proposes composites for the
+   library, so that a formula over labels that no single feature shows
+   can still enter the path.
+5. Take the concepts from the best-trained networks
+   ([above](#grounding)): the well-recovered formulas of the single best
+   network, or of the best few pooled, where of formulas whose values
+   correlate above 0.9 the simplest is kept.
 6. Vocabulary sensitivity (C4). Refit with each base variable or operator
    family removed. Every grounding result is reported with this check.
 

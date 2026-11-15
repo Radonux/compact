@@ -274,6 +274,15 @@ def test_a_controllers_latents_are_grounded_on_its_own_rollouts(
     assert "in place of its latents" in (tmp_path / "select" / "summary.md").read_text()
     assert {t["from"] for t in sel["transfer"]} == {"a", "b", "c"}
 
+    # Symbolic regression of the latents, where PySR is installed.
+    if importlib.util.find_spec("pysr") is not None:
+        monkeypatch.setattr(ground, "CONCEPT_ITERATIONS", 2)
+        ground.concepts(tmp_path / "concepts", runs)
+        con = json.loads((tmp_path / "concepts" / "concepts.json").read_text())
+        assert set(con["runs"]) == {"a", "b", "c"} and len(con["inputs"]) >= 1
+        assert all(len(found) == 2 for found in con["runs"].values())
+        assert "Well recovered" in (tmp_path / "concepts" / "concepts.md").read_text()
+
     # A run without a narrow middle is refused.
     wide = tmp_path / "wide"
     wide.mkdir()
@@ -373,3 +382,28 @@ def test_a_path_lists_what_a_variable_adds_to_the_senders_own_window() -> None:
         assert sel["own"] < first["mean"] and first["mean"] > 0.95
         assert all(p["feature"] != "sender_cwnd" for p in sel["path"])
         assert sel["hidden_path"][0] == first and sel["flexible"]["own"] < 0.95
+
+
+def test_alike_formulas_count_once_and_the_simplest_is_kept() -> None:
+    x = np.linspace(1, 2, 50)
+    found = [
+        {"formula": "a*b", "complexity": 5, "r2": 0.9},
+        {"formula": "a*b + 0", "complexity": 7, "r2": 0.95},
+        {"formula": "c", "complexity": 1, "r2": 0.85},
+    ]
+    values = [x, 2 * x + 1, np.sin(9 * x)]
+    kept = ground.distinct(found, values)
+    assert [g["formula"] for g in kept] == ["c", "a*b"]
+
+
+def test_symbolic_regression_recovers_a_planted_formula(monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("pysr")
+    monkeypatch.setattr(ground, "CONCEPT_ITERATIONS", 20)
+    rng = np.random.default_rng(0)
+    x = rng.uniform(1, 3, (600, 3))
+    z = (x[:, 0] * x[:, 1] / x[:, 2])[:, None]
+    found, values = ground.recovered(
+        x[:400], z[:400], x[400:], z[400:], ["a", "b", "c"], seed=0, x_all=x
+    )
+    assert found[0]["r2"] > 0.99 and "[a]" in found[0]["formula"]
+    assert np.allclose(values[0], z[:, 0], atol=1e-3)
