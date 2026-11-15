@@ -568,7 +568,8 @@ What it shows:
   untuned controllers 0.25 to 0.80, so the difference between the
   teachers seen there does not appear at the confirmed settings. The
   best fit reaches 0.17 to 0.37. The decoder's memory, which no feature
-  of one step holds, is the candidate left, and is UNRUN.
+  of one step holds, is the candidate left. The probe now measures it
+  (`experiments/probe-memory.json`, on this release's rollouts), UNRUN.
 - A delay signal leads the decision's change in 12 of the 18 runs (4
   from Cubic, 8 from BBRv3): the ratio of RTT to base RTT, the queueing
   delay, or a formula of the base RTT and the queueing delay. Alone it

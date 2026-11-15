@@ -260,6 +260,8 @@ def test_a_controllers_latents_are_grounded_on_its_own_rollouts(
     pair = {(p["from"], p["to"]): p["linear"] for p in result["seeds"]}
     assert pair["a", "b"] > 0.999 and pair["a", "c"] < pair["a", "b"]
     assert "action collapse" in (tmp_path / "probe" / "summary.md").read_text()
+    assert "decoder's memory" in (tmp_path / "probe" / "summary.md").read_text()
+    assert {"change_linear", "change_quadratic"} <= set(result["runs"]["a"])
 
     ground.select(tmp_path / "select", runs)
     sel = json.loads((tmp_path / "select" / "select.json").read_text())

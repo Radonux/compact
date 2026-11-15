@@ -274,7 +274,10 @@ the controller set at its previous decision, so select also reports how
 often, and by how much, the two differ.
 
 1. Probe (`experiments/ground.py probe`). The decision regressed on the
-   latents, which is the action-collapse check. Then linear fits between
+   latents, which is the action-collapse check. The change a decision
+   makes regressed on what the decoder sees at that step, the latents and
+   the window in force: what they leave comes from the decoder's memory,
+   which no feature of one step can hold. Then linear fits between
    the latents and the base variables, in both directions, and between
    the latents of two seeds. They show which variables the latents carry,
    how much of a latent the vocabulary can express at all, and whether

@@ -563,6 +563,11 @@ def probe(out: Path, runs: list[Path]) -> None:
         f, s = fr.own(r), sr.own(r)
         z_fit, z_score = z_of[c.name][0][f], z_of[c.name][1][s]
         u_fit, u_score = fr.u[f][:, None], sr.u[s][:, None]
+        # The change from what the decoder sees at this step: the latents
+        # and the window in force. What they leave is the decoder's memory.
+        now_fit = np.concatenate([z_fit, (fr.u - fr.change)[f][:, None]], axis=1)
+        now_score = np.concatenate([z_score, (sr.u - sr.change)[s][:, None]], axis=1)
+        d_fit, d_score = fr.change[f][:, None], sr.change[s][:, None]
         result["runs"][c.name] = {
             "k": c.k,
             "fit": int(f.sum()),
@@ -570,6 +575,8 @@ def probe(out: Path, runs: list[Path]) -> None:
             "latent_std": z_fit.std(0).tolist(),
             "decision_linear": float(r2(z_fit, u_fit, z_score, u_score)[0]),
             "decision_quadratic": float(r2_quadratic(z_fit, u_fit, z_score, u_score)[0]),
+            "change_linear": float(r2(now_fit, d_fit, now_score, d_score)[0]),
+            "change_quadratic": float(r2_quadratic(now_fit, d_fit, now_score, d_score)[0]),
             "read_linear": r2(z_fit, b_fit[f], z_score, b_score[s]).tolist(),
             "read_quadratic": r2_quadratic(z_fit, b_fit[f], z_score, b_score[s]).tolist(),
             "write_linear": r2(bf_fit[f], z_fit, bf_score[s], z_score).tolist(),
@@ -619,6 +626,13 @@ def summary(result: dict[str, Any]) -> str:
     ]
     for key in ("linear", "quadratic"):
         lines.append(f"| {key} | " + cells(lambda r, key=key: r[f"decision_{key}"]))
+    lines += [
+        "\nThe change the decision makes, from the latents and the window in force: what "
+        "the decoder sees at this step. What they leave is the decoder's memory:\n\n| | " + head,
+        rule,
+    ]
+    for key in ("linear", "quadratic"):
+        lines.append(f"| {key} | " + cells(lambda r, key=key: r[f"change_{key}"]))
     lines.append("\n")
     for key, title in (("read_linear", "linear"), ("read_quadratic", "quadratic")):
         lines += [f"Base variable from the latents, {title}:\n\n| variable | " + head, rule]
