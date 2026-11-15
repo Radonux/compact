@@ -19,7 +19,7 @@ with a competing flow, so they are not yet results for a claim.
 | Step | State | Built | Not built |
 |---|---|---|---|
 | 1 Setup | done | the documents; the estimator of the seven LCFs and the rule graph as releases | |
-| 2 The controller in the closed loop | the bootstrap has run; reinforcement learning is tuned at width 10 and confirmed at widths 7, 10 and 16 over three seeds | `PPOSpec.latents`; `train ppo` by cloning a Linux controller, PPO, DAgger or TD3+BC; closed-loop rollouts and scoring; `experiments/net2_ppo_setup.py`, `net2_ppo_report.py`; the collapse check on rollouts (`ground.py probe`); the reinforcement-learning stage (`experiments/controller-rl.json`) and its scores by width (`experiments/width_curve.py`); its settings search and confirmation (`experiments/controller-rl-search.json`, `controller-rl-confirm.json`, `settings_search.py`) | the teachers' own scores on the validation links (`experiments/teachers-val.json`, UNRUN) |
+| 2 The controller in the closed loop | the bootstrap has run; reinforcement learning is tuned at width 10 and confirmed at widths 7, 10 and 16 over three seeds | `PPOSpec.latents`; `train ppo` by cloning a Linux controller, PPO, DAgger or TD3+BC; closed-loop rollouts and scoring; `experiments/net2_ppo_setup.py`, `net2_ppo_report.py`; the collapse check on rollouts (`ground.py probe`); the reinforcement-learning stage (`experiments/controller-rl.json`) and its scores by width (`experiments/width_curve.py`); its settings search and confirmation (`experiments/controller-rl-search.json`, `controller-rl-confirm.json`, `settings_search.py`) | the teachers' own scores against the fixed rule |
 | 3 Grounding | first readings on the untuned and the confirmed controllers, at widths 7 to 16 with the sender's own window held; the decision's change is mostly unexplained | `experiments/ground.py`: `rollouts` of a controller in the closed loop, `probe` and `select` on its latents there, with the sensitivity check; a library of every stored label (37 columns over 100 ms and 10 ms windows) and 12 composites in both windows; `experiments/ground-teachers.json`; a stress test on planted latents, `experiments/ground_stress.py` | formulas beyond two terms of four factors; the operator-family sensitivity; matching concepts across seeds |
 | 4 Retrain and compare | UNRUN | `train run` for net1; `train ppo` for a closed-loop net2; net1 on any stored label or composite; the live truth for every label but `queue_delay_ns`, so oracles on them | labels from fitted formulas beyond the composites; net1 on them |
 
@@ -63,9 +63,11 @@ stands out, and the spread across seeds is as large as any difference
 between widths.
 
 What this does not say: whether the clones drive like their teachers.
-The teachers' own scores on the validation links are UNRUN, so a clone at
--1.3 may be a faithful copy of a teacher that scores -1.3 against the
-rule, or a poor copy of a better one. The teacher drove every training
+The teachers' own scores against the fixed rule are UNRUN, so a clone
+at -1.3 may be a faithful copy of a teacher that scores -1.3 against the
+rule, or a poor copy of a better one. Their log utility on the
+validation links has been measured since, against the controllers after
+reinforcement learning ([below](#against-the-teachers)). The teacher drove every training
 rollout, so the clone never saw the states its own mistakes lead to.
 Nothing is chosen from this run, and its width curve is not a count,
 because a teacher's window is one number. Every width goes on to
@@ -523,6 +525,43 @@ What it shows:
 - These intervals are over links. They agree with the confirmation's,
   which were over seeds.
 
+### Against the teachers
+
+`exp-teachers-val-35` runs Cubic and BBRv3 themselves on the same
+validation episodes (`experiments/teachers-val.json`, every episode
+finished), and `exp-versus-teachers-36` sets each reference and width
+against its teacher (`experiments/versus-teachers.json`). The teachers
+were not trained on this objective, so the difference is signed, with a
+bootstrap 95% interval over links and no verdict
+([methodology.md](methodology.md#comparing-controllers)).
+
+| Teacher | Controller | Without a competing flow, minus the teacher | With one, minus the teacher | Share |
+|---|---|---|---|---|
+| Cubic | the teacher | | | 0.53 |
+| Cubic | reference | +1.18 (+0.95 to +1.43) | +0.06 (-0.06 to +0.17) | 0.65 |
+| Cubic | 7 | +0.81 (+0.51 to +1.12) | -0.41 (-0.60 to -0.22) | 0.50 |
+| Cubic | 10 | +1.21 (+0.93 to +1.50) | +0.02 (-0.15 to +0.16) | 0.60 |
+| Cubic | 16 | +1.24 (+0.96 to +1.52) | -0.29 (-0.50 to -0.08) | 0.51 |
+| BBRv3 | the teacher | | | 0.53 |
+| BBRv3 | reference | +0.31 (+0.25 to +0.37) | +0.06 (-0.04 to +0.16) | 0.56 |
+| BBRv3 | 7 | +0.28 (+0.18 to +0.37) | -0.10 (-0.25 to +0.04) | 0.53 |
+| BBRv3 | 10 | +0.31 (+0.21 to +0.40) | -0.28 (-0.49 to -0.10) | 0.49 |
+| BBRv3 | 16 | +0.28 (+0.19 to +0.38) | -0.26 (-0.45 to -0.07) | 0.50 |
+
+What it shows:
+
+- Without a competing flow every controller scores above the teacher it
+  was cloned from: 0.28 to 0.31 above BBRv3 and 0.81 to 1.24 above
+  Cubic. Cubic alone fills the buffer, and the objective charges for the
+  delay.
+- With a competing flow the references score about as their teachers do
+  (+0.06), while taking a larger share: 0.65 against Cubic's 0.53. The
+  widths that fall short of their reference there also fall short of
+  their teacher, by 0.26 to 0.41.
+- Every one of these is a statement about this objective on these
+  paths. None makes a controller a better congestion controller than its
+  teacher.
+
 ### The window between decisions
 
 In all 18 controllers the window in force at a decision is the window
@@ -668,6 +707,8 @@ Limits that remain:
 | `exp-controller-rl-search-29` | The settings search at width 10: 48 run directories with specs and histories, and the ranking of the twelve points per teacher. | read above |
 | `exp-controller-rl-confirm-31` | The confirmation of the two best settings per teacher: 48 run directories with specs, weights, exported policies and histories, at widths 0, 7, 10 and 16. | read above; input of grounding |
 | `exp-ground-rl-27` | Grounding of the controllers after reinforcement learning at widths 1, 2 and 64: latents and decision. |
+| `exp-versus-teachers-36` | Each reference and width of `exp-ground-rl-confirm-32` against its teacher, with the share. | read above |
+| `exp-teachers-val-35` | Cubic and BBRv3 on the validation episodes of `exp-ground-rl-confirm-32`, every step kept. | read above; input of `exp-versus-teachers-36` |
 | `exp-probe-memory-34` | The same probe with a small network for the decision's change from the latents and the window in force. | read above |
 | `exp-probe-memory-33` | The probe of the confirmed controllers with the decision's change fitted from the latents and the window in force; its quadratic fit is unreadable. | read above |
 | `exp-ground-rl-confirm-32` | Grounding of the confirmed controllers at widths 7, 10 and 16, the references' rollouts on the same validation episodes, each width against its reference with the share, and the window between decisions. | read above |
