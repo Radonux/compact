@@ -67,7 +67,9 @@ net1 can output only the fitted formulas.
   loss), not comparable when it lies below, and unresolved otherwise.
 - Against a controller not trained on this objective (Cubic, BBRv3, the
   fixed rule) the signed difference is reported, with no verdict.
-- A run's score is that of the policy it leaves.
+- A run keeps its best evaluated policy on the validation links, and
+  scores as that policy. Since it is chosen on those links, the test
+  links give the unbiased number.
 
 ## Plan
 

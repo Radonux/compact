@@ -131,6 +131,26 @@ def _paired(
     }
 
 
+def _keep_best(out: Path, it_dir: Path, it: int, score: float, best: float) -> float:
+    """Copy iteration ``it``'s evaluated policy and actor to OUT/policy-best.onnx
+    and OUT/actor-best.pt when it scores above ``best``; the best score."""
+    if score <= best:
+        return best
+    shutil.copyfile(it_dir / "policy-updated.onnx", out / "policy-best.onnx")
+    shutil.copyfile(it_dir / "actor.pt", out / "actor-best.pt")
+    (out / "best.json").write_text(json.dumps({"iteration": it, "minus_rule": score}))
+    return score
+
+
+def actor_lr(spec: PPOSpec, it: int) -> float:
+    """The actor's learning rate at iteration ``it`` (PPOSpec.lr_warmup, lr_end)."""
+    ramp = min(1.0, (it - spec.critic_warmup + 1) / spec.lr_warmup) if spec.lr_warmup else 1.0
+    if spec.lr_end is None or spec.iterations < 2:
+        return spec.lr * max(ramp, 0.0)
+    frac = it / (spec.iterations - 1)
+    return max(ramp, 0.0) * (spec.lr + (spec.lr_end - spec.lr) * frac)
+
+
 def _record(out: Path, history: list[dict[str, Any]], entry: dict[str, Any]) -> None:
     history.append(entry)
     (out / "history.json").write_text(json.dumps(history, indent=2, default=float))
@@ -145,7 +165,7 @@ def _last(spec: PPOSpec, it: int, elapsed: float, slowest: float) -> bool:
     )
 
 
-def run_ppo(
+def run_ppo(  # noqa: PLR0915  (the training loop, read top to bottom)
     spec: PPOSpec, out: Path, build: UmlBuild, *, workers: int, scratch: Path | None = None
 ) -> dict[str, Any]:
     out.mkdir(parents=True, exist_ok=True)
@@ -180,6 +200,9 @@ def run_ppo(
         start = _export(out / "initial" / "policy.onnx", net1, learner.actor, spec)
         pol = _evaluate(out / "initial" / "eval", start, eval_arms, spec, run)
         _record(out, history, {"iteration": -1, "eval": _paired(pol, rule_scores)})
+    # The best evaluated policy, on the validation links: a run that falls
+    # late keeps the policy it had before.
+    best = history[-1]["eval"]["minus_rule"] if history else -math.inf
     began_all, slowest = time.monotonic(), 0.0
     for it in range(spec.iterations):
         began = time.monotonic()
@@ -190,6 +213,8 @@ def run_ppo(
         trs = from_rollouts(it_dir / "rollouts", groups, net1, spec, rivals, teacher=teacher)
         entry: dict[str, Any] = {"iteration": it, "rollouts": summary}
         if trs:
+            for group in learner.opt_a.param_groups:
+                group["lr"] = actor_lr(spec, it)
             entry["learner"] = learner.update(trs, rng, actor=it >= spec.critic_warmup)
         if not spec.keep_rollouts:
             shutil.rmtree(it_dir / "rollouts" / "shards", ignore_errors=True)
@@ -200,6 +225,7 @@ def run_ppo(
             pol = _evaluate(it_dir / "eval", updated, eval_arms, spec, run)
             entry["eval"] = _paired(pol, rule_scores)
             torch.save(learner.actor.state_dict(), it_dir / "actor.pt")
+            best = _keep_best(out, it_dir, it, entry["eval"]["minus_rule"], best)
         entry["wall_s"] = time.monotonic() - began
         slowest = max(slowest, entry["wall_s"])
         _record(out, history, entry)

@@ -1337,3 +1337,27 @@ def test_an_evaluation_keeps_each_pair_so_intervals_over_links_can_be_drawn() ->
         ["a", "cubic from 0 s", -0.5],
         ["b", "alone", 1.0],
     ]
+
+
+def test_the_actor_learning_rate_ramps_after_the_critic_warmup_and_falls_to_its_end() -> None:
+    spec = ppo.PPOSpec.model_validate(
+        {"net1_from": "x", "paths_from": "y", "lr": 1e-3, "critic_warmup": 3, "iterations": 11}
+    )
+    assert [ppo.actor_lr(spec, it) for it in (0, 5, 10)] == [1e-3] * 3  # no schedule
+    sched = spec.model_copy(update={"lr_warmup": 2, "lr_end": 0.0})
+    lrs = [ppo.actor_lr(sched, it) for it in range(11)]
+    assert lrs[:3] == [0.0, 0.0, 0.0]  # the critic learns alone
+    assert lrs[3] == pytest.approx(0.5 * 1e-3 * 0.7) and lrs[4] == pytest.approx(1e-3 * 0.6)
+    assert lrs[10] == 0.0
+
+
+def test_a_run_keeps_its_best_evaluated_policy(tmp_path: Path) -> None:
+    it_dir = tmp_path / "iter004"
+    it_dir.mkdir()
+    (it_dir / "policy-updated.onnx").write_bytes(b"p4")
+    (it_dir / "actor.pt").write_bytes(b"a4")
+    assert ppo._keep_best(tmp_path, it_dir, 4, -0.3, -0.2) == -0.2  # worse: nothing kept
+    assert not (tmp_path / "policy-best.onnx").exists()
+    assert ppo._keep_best(tmp_path, it_dir, 4, -0.1, -0.2) == -0.1
+    assert (tmp_path / "policy-best.onnx").read_bytes() == b"p4"
+    assert json.loads((tmp_path / "best.json").read_text()) == {"iteration": 4, "minus_rule": -0.1}

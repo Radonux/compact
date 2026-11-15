@@ -107,6 +107,7 @@ min RTT (clamped to 10 to 50 ms) and holds its decision u in between.
 | `alone`, `compete`, `copies`, `competition` | 0, 0.5, (2, 3, 4), `at-start` | the mixture of training links: the flow alone, with Linux competitors, or with copies of itself, and when competitors start |
 | `iterations`, `links_per_iteration`, `group` | 40, 8, 4 | rollouts per iteration are links times group |
 | `noise_sigma`, `noise_hold_steps`, `tau_s`, `lr` | 0.1, 1, 3.0, 3e-4 | exploration, the reward's time constant, the actor's learning rate |
+| `lr_warmup`, `lr_end` | 0, none | the actor's rate ramps up over this many iterations after `critic_warmup`, then falls linearly to `lr_end` |
 | `eval_every` | 5 | score the noise-free controller on the validation set every this many iterations |
 | `time_budget_s` | none | stop before an iteration would cross it |
 
@@ -117,7 +118,9 @@ it, u is log2 of the window over a fixed 2^7 packets, so no measurement
 reaches the window except through the latents
 ([methodology.md](methodology.md#the-discovery-controller)).
 
-Output: `policy.onnx`, `actor.pt`, `critic.pt` and `history.json`, which
+Output: `policy.onnx`, `actor.pt`, `critic.pt` and `history.json`, and
+`policy-best.onnx`, `actor-best.pt` and `best.json` for the evaluation
+that scored best. `history.json`
 holds each iteration's rollouts and diagnostics and each evaluation
 against the rule. Read the diagnostics before any closed-loop result.
 

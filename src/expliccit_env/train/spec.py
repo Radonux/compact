@@ -294,6 +294,12 @@ class PPOSpec(BaseModel):
     tau_s: Annotated[float, Field(gt=0)] = 3.0
     gae_lambda: Annotated[float, Field(ge=0, le=1)] = 0.95
     lr: Annotated[float, Field(gt=0)] = 3e-4
+    # The actor's learning rate ramps from 0 to lr over lr_warmup iterations
+    # after critic_warmup (a run that continues another starts with a fresh
+    # optimizer, whose first steps are large), then falls linearly to
+    # lr_end at the last iteration when it is set.
+    lr_warmup: Annotated[int, Field(ge=0)] = 0
+    lr_end: Annotated[float, Field(ge=0)] | None = None
     critic_lr: Annotated[float, Field(gt=0)] = 1e-3
     clip: Annotated[float, Field(gt=0, lt=1)] = 0.2
     epochs: PositiveInt = 4
