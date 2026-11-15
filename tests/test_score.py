@@ -23,9 +23,14 @@ def spec_json(link: int, loss: float = 0.0, cross: list[dict[str, object]] | Non
 
 
 def shard(
-    root: Path, name: str, episodes: list[tuple[str, str, str, str, list[float]]], done: bool = True
+    root: Path,
+    name: str,
+    episodes: list[tuple[str, str, str, str, list[float]]],
+    done: bool = True,
+    cross: float = 0.0,
 ) -> None:
-    """episodes: id, controller, spec_json, status, and each step's share of capacity."""
+    """episodes: id, controller, spec_json, status, and each step's share of
+    capacity; cross is every step's cross_traffic_share."""
     d = root / "shards" / name
     d.mkdir(parents=True)
     pq.write_table(
@@ -48,6 +53,7 @@ def shard(
                 "label_queue_delay_mean_ns": np.zeros(n, np.float32),
                 "label_base_rtt_ns": np.full(n, 40e6, np.float32),
                 "label_drop_fraction": np.zeros(n, np.float32),
+                "label_cross_traffic_share": np.full(n, cross, np.float32),
             }
         ),
         d / "steps.parquet",
@@ -110,3 +116,10 @@ def test_an_incomplete_shard_is_an_error_not_a_smaller_sample(tmp_path: Path) ->
     shard(tmp_path, "00001-of-00002", [("a1", "A", spec_json(1), "ok", [1.0])], done=False)
     with pytest.raises(ValueError, match="incomplete"):
         score.episode_scores([tmp_path], LOG)
+
+
+def test_the_share_is_the_observed_flows_part_of_what_all_flows_took(tmp_path: Path) -> None:
+    shard(tmp_path, "00000-of-00001", [("a", "A", spec_json(0), "ok", [0.6, 0.2])], cross=0.2)
+    eps = score.episode_means([tmp_path], score.SHARE_LABELS, score.share)
+    # 0.6 / 0.8 and 0.2 / 0.4.
+    assert list(eps.values()) == [[pytest.approx(0.625)]]

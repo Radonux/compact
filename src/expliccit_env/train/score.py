@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -70,6 +71,26 @@ def condition(spec_json: str) -> str:
 
 def episode_scores(dirs: list[Path], spec: Net2Spec) -> dict[Key, list[float]]:
     """Each ok episode's mean reward, grouped by controller, link and condition."""
+    return episode_means(dirs, LABELS, lambda labels: utility(labels, spec))
+
+
+def share(labels: dict[str, F32]) -> F32:
+    """Per step: the observed flow's part of what all flows took from the
+    bottleneck, its receive rate over capacity against cross_traffic_share;
+    NaN where nothing was taken or the capacity is 0."""
+    with np.errstate(divide="ignore", invalid="ignore"):
+        used = labels["receive_rate_bps"] / labels["capacity_bps"]
+        return (used / (used + labels["cross_traffic_share"])).astype(np.float32)
+
+
+SHARE_LABELS = ("receive_rate_bps", "capacity_bps", "cross_traffic_share")
+
+
+def episode_means(
+    dirs: list[Path], labels: tuple[str, ...], per_step: Callable[[dict[str, F32]], F32]
+) -> dict[Key, list[float]]:
+    """Each ok episode's mean of per_step over its steps where it is finite,
+    grouped by controller, link and condition."""
     shards = [s for d in dirs for s in sorted((d / "shards").glob("*"))]
     if missing := [str(s) for s in shards if not (s / "DONE").exists()]:
         raise ValueError(f"incomplete shards: {missing}")
@@ -87,16 +108,16 @@ def episode_scores(dirs: list[Path], spec: Net2Spec) -> dict[Key, list[float]]:
                     condition(e["spec_json"]),
                 )
         f = pq.ParquetFile(shard / "steps.parquet")
-        columns = ["episode_id", *(f"label_{k}" for k in LABELS)]
+        columns = ["episode_id", *(f"label_{k}" for k in labels)]
         for g in range(f.metadata.num_row_groups):
             t = f.read_row_group(g, columns=columns)  # pyright: ignore[reportUnknownMemberType]
             ids, which = np.unique(
                 t["episode_id"].to_numpy(zero_copy_only=False), return_inverse=True
             )
-            labels = {
-                k: t[f"label_{k}"].to_numpy(zero_copy_only=False).astype(np.float32) for k in LABELS
+            values = {
+                k: t[f"label_{k}"].to_numpy(zero_copy_only=False).astype(np.float32) for k in labels
             }
-            r = utility(labels, spec).astype(np.float64)
+            r = per_step(values).astype(np.float64)
             ok = np.isfinite(r)
             total = np.bincount(which[ok], r[ok], minlength=ids.size)
             count = np.bincount(which[ok], minlength=ids.size)
