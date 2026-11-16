@@ -128,9 +128,7 @@ per width, R^2 of a small network on the validation links:
 
 PySR on the three best confirmed networks per teacher, run on the
 session's machine and published through the runner
-(`experiments/concepts-confirm.json` and
-`experiments/concepts-beyond-window.json`; their releases are the queued
-runs 42 and 43, UNRUN until they publish):
+(`exp-concepts-confirm-42`, `exp-concepts-beyond-window-43`):
 
 - The latents are mostly the sender's own window, which the encoder
   reads from the packets in flight. A network on the window's features
@@ -171,6 +169,8 @@ basis; nothing is found in noise.
 | `exp-probe-memory-33`, `exp-probe-memory-34` | The decision's change from the step's latents and window. |
 | `exp-teachers-val-35` | Cubic and BBRv3 on the grounding's validation episodes. |
 | `exp-versus-teachers-36` | Each controller against its teacher. |
+| `exp-concepts-confirm-42` | PySR on the best confirmed controllers' latents, the window an input. |
+| `exp-concepts-beyond-window-43` | PySR on what those latents hold beyond the window. |
 | `exp-steps-broad-30s-9`, `exp-phase0-teachers-1`, `exp-phase0-steps-2` | Old guest; not used. |
 
 ## A fault in earlier episodes
