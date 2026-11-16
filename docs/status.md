@@ -21,13 +21,13 @@ delay, the RTT and the arrival rate are recovered ([grounding](#grounding)).
 Whether they close step 3, so that step 4 retrains on them, is the
 owner's call. Longer
 training with a falling rate did not pay: the best policies come early
-and most runs end below their start ([below](#longer-training)). Cubic's
-continuation at BBRv3's lower rate is running, UNRUN.
+and most runs end below their start; at a tenth of the rate Cubic's
+drift less and gain no more ([below](#longer-training)).
 
 | Step | State |
 |---|---|
 | 1 Setup | done: the estimator of the seven LCFs and the rule graph as releases |
-| 2 Train | bootstrapped from Cubic and BBRv3; reinforcement learning tuned at width 10 and confirmed at widths 7, 10 and 16 over three seeds; against BBRv3 Cubic's width 10 is trained well; longer training did not pay; a slower continuation for Cubic is running |
+| 2 Train | bootstrapped from Cubic and BBRv3; reinforcement learning tuned at width 10 and confirmed at widths 7, 10 and 16 over three seeds; against BBRv3 Cubic's width 10 is trained well; longer training did not pay, at either rate |
 | 3 Ground | result in, the owner's call: the latents carry the decision, whether or not the encoder sees the window; beyond it, five formulas over delay and rate |
 | 4 Retrain | UNRUN. Built: `train run` for net1 on any stored label or composite, `train ppo` for net2, live truth for oracles. Not built: labels from fitted formulas beyond the composites. |
 
@@ -102,9 +102,13 @@ links; its number on the test links is UNRUN.
 - Cubic's reference, seed 3, fell to -2.67 by the end.
 - Where a width falls short, it is with a competing flow, as
   [below](#against-bbrv3).
-- Cubic's continuation from these best policies at BBRv3's rate
-  (0.00003 falling to 0.000003, 240 iterations,
-  `experiments/controller-rl-cubic-slow.json`) is running, UNRUN.
+- Cubic's continuation from these best policies at BBRv3's rate,
+  0.00003 falling to 0.000003 over 240 iterations
+  (`exp-controller-rl-cubic-slow-45`): the best gains 0.00 to 0.04 over
+  the start (none, 0.03, 0.03, 0.04 for the reference and widths 7, 10,
+  16), and the last ends at +0.10, -0.07, +0.17, -0.02, against -0.77,
+  -0.29, +0.04, -0.71 at the higher rate. 10 of 12 still end below their
+  start, by less. Seeds trained well at their best: 3, 2, 3 and 1.
 
 ### The window hidden from the encoder
 
@@ -258,6 +262,7 @@ basis; nothing is found in noise.
 | `exp-concepts-confirm-42` | PySR on the best confirmed controllers' latents, the window an input. |
 | `exp-concepts-beyond-window-43` | PySR on what those latents hold beyond the window. |
 | `exp-controller-hidden-window-44` | The controllers trained with the window hidden from the encoder, against BBRv3, their grounding and PySR beyond the window. |
+| `exp-controller-rl-cubic-slow-45` | Cubic's controllers continued from their best policies at a tenth of the rate. |
 | `exp-steps-broad-30s-9`, `exp-phase0-teachers-1`, `exp-phase0-steps-2` | Old guest; not used. |
 
 ## A fault in earlier episodes
