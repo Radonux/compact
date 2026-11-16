@@ -323,8 +323,18 @@ def test_the_pipeline_runs_for_every_net1_in_uml(
             "anchor": 1.0,
         },
     }
-    # The controller with a narrow middle: cloned from BBRv3, continued by PPO.
-    narrow = base | {"inputs": "raw", "latents": 3, "encoder_hidden": 16, "action_max": 8.0}
+    # The controller with a narrow middle: cloned from BBRv3, continued by PPO,
+    # its encoder blind to the window's own columns.
+    hides = [
+        f"unacked_kpkts_{w}_{s}" for w in ("short", "mid", "long") for s in ("avg", "min", "max")
+    ]
+    narrow = base | {
+        "inputs": "raw",
+        "latents": 3,
+        "encoder_hidden": 16,
+        "action_max": 8.0,
+        "encoder_hides": [*hides, "max_delivered_bdp_over_cwnd", "prev_action"],
+    }
     stages |= {
         "clone": narrow | {"algo": "clone", "teacher_cc": "bbr3", "group": 1},
         "clone-rl": narrow | {"algo": "ppo", "init_from": str(tmp_path / "clone")},

@@ -17,7 +17,7 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from expliccit_env import spec as espec  # noqa: E402
-from expliccit_env.policy import OBS_DIM  # noqa: E402
+from expliccit_env.policy import OBS_COLUMNS, OBS_DIM  # noqa: E402
 from expliccit_env.spec import AgentCC, EpisodeSpec, OnnxPolicy, TcpCross  # noqa: E402
 from expliccit_env.train import actors, data, fit, handoff, learners, mixture, ppo, trajectories  # noqa: E402
 from expliccit_env.train.export import to_onnx  # noqa: E402
@@ -359,6 +359,34 @@ def test_a_narrow_controller_sets_its_window_from_the_latents_alone() -> None:
     with pytest.raises(ValueError, match="narrow middle"):
         ppo.PPOSpec(paths_from=Path("u"), net1_from=Path("u"), latents=3)
     assert handoff.mismatch(spec, _narrow_spec(latents=4), handoff.ACTOR_FIELDS) == ["latents"]
+
+
+def test_a_narrow_controller_reads_nothing_it_hides() -> None:
+    steps, net1 = _bdp_net1()
+    read = [OBS_COLUMNS[c] for c in net1.scaler.cols.tolist()]
+    hidden = tuple(read[:2])
+    spec = _narrow_spec(encoder_hides=hidden)
+    assert actors.width(net1, spec) == len(read) - 2
+    actor = actors.new_actor(actors.width(net1, spec), spec)
+    obs = torch.from_numpy(steps.obs[steps.episode == 0][:6].copy())
+    changed = obs.clone()
+    changed[:, [OBS_COLUMNS.index(n) for n in hidden]] += 1.0
+    whole, front = actors.front(net1, _narrow_spec()), actors.front(net1, spec)
+    graph = ppo.policy_graph(net1, actor, spec)
+    state, cwnd = torch.zeros(1, graph.state_dim), torch.tensor([[10.0]])
+    with torch.no_grad():
+        torch.nn.init.normal_(actor.head.weight)
+        assert not torch.equal(whole(obs)[1], whole(changed)[1])  # a change it would see
+        assert torch.equal(actor.encode(front(obs)[1]), actor.encode(front(changed)[1]))
+        a, _ = graph.step(obs[:1], state, cwnd=cwnd)
+        b, _ = graph.step(changed[:1], state, cwnd=cwnd)
+        assert torch.equal(a, b)
+    onnx.load_from_string(to_onnx(graph))
+    assert handoff.mismatch(spec, _narrow_spec(), handoff.ACTOR_FIELDS) == ["encoder_hides"]
+    with pytest.raises(ValueError, match="not message columns"):
+        _narrow_spec(encoder_hides=("no_such_column",))
+    with pytest.raises(ValueError, match="encoder of latents"):
+        ppo.PPOSpec(paths_from=Path("u"), net1_from=Path("u"), encoder_hides=hidden)
 
 
 def test_a_narrow_controller_learns_the_teachers_window_itself() -> None:

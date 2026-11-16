@@ -1,0 +1,32 @@
+{
+  "title": "The discovery controller with the window hidden from its encoder",
+  "description": "Grounding found the confirmed controllers' latents mostly the sender's own window (exp-concepts-confirm-42, exp-concepts-beyond-window-43): the encoder reads it from the packets in flight and the window's ratios, and the latents carry little of the path beyond it. By the owner's choice the discovery controller is trained again in full with those columns hidden from its encoder (PPOSpec.encoder_hides: the nine unacked_kpkts columns, max_delivered_bdp_over_cwnd and prev_action; 59 of net1's 70 inputs remain; the decoder still reads its own previous decision), so that whatever the window depends on must pass through the path. Everything else is as before, so the one change is what the encoder reads. Per teacher (Cubic, BBRv3), width (7, 10, 16) and seed (1 to 3), one cell: the bootstrap as experiments/controller-teachers.json (40 iterations of cloning the teacher), then reinforcement learning as experiments/controller-rl-confirm.json at each teacher's confirmed setting (Cubic learning rate 0.0003, clip 0.2, noise 0.2; BBRv3 0.00003, 0.2, 0.1; 120 iterations), with BBRv3 the reference of every evaluation and the best evaluated policy kept, then the grounding rollouts of that best policy as experiments/ground-rl-confirm.json. The references without an encoder read no latents and are not trained again. Collect: the training report; every width against BBRv3 on the same validation episodes as exp-teachers-val-35 (experiments/versus_reference.py); probe and select per teacher; and PySR beyond the window (experiments/ground.py concepts) on the three runs per teacher whose best evaluation is highest against BBRv3 over all conditions. Rules fixed before the run: trained well is within 0.1 of BBRv3 both alone and with a competing flow (docs/methodology.md); a concept is recovered as experiments/concepts-beyond-window.json sets it. The runner's own Julia cannot load its system image, so a stub julia that fails stands first on PATH and PySR installs the Julia it pins. The test links are not read.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "estimator": "release:exp-estimator-seven-20",
+    "rule": "release:exp-steps-behaviour-rule-8",
+    "teachers": "release:exp-teachers-val-35"
+  },
+  "prepare": "uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$IN/estimator/estimator/net1.pt\" --models \"$IN/rule/models\" --u 0.25 --paths net2-train-xl",
+  "matrix": {
+    "teacher": [
+      "cubic",
+      "bbr3"
+    ],
+    "k": [
+      7,
+      10,
+      16
+    ],
+    "seed": [
+      1,
+      2,
+      3
+    ]
+  },
+  "run": "H='[\"unacked_kpkts_short_avg\",\"unacked_kpkts_short_min\",\"unacked_kpkts_short_max\",\"unacked_kpkts_mid_avg\",\"unacked_kpkts_mid_min\",\"unacked_kpkts_mid_max\",\"unacked_kpkts_long_avg\",\"unacked_kpkts_long_min\",\"unacked_kpkts_long_max\",\"max_delivered_bdp_over_cwnd\",\"prev_action\"]'; case \"$TEACHER\" in cubic) LR=0.0003; CLIP=0.2; NOISE=0.2;; bbr3) LR=0.00003; CLIP=0.2; NOISE=0.1;; *) exit 2;; esac; R=\"ctl-$TEACHER-k$K-s$SEED\"; jq --arg teacher \"$TEACHER\" --argjson k \"$K\" --argjson seed \"$SEED\" --argjson hides \"$H\" '.algo = \"clone\" | .teacher_cc = $teacher | .inputs = \"raw\" | .latents = $k | .action_max = 8 | .encoder_hides = $hides | .share_k = 0 | .critic_warmup = 0 | .critic_flows = true | .lr = 0.001 | .updates_per_iteration = 100 | .replay_iterations = 16 | .tau_s = 1 | .group = 1 | .links_per_iteration = 32 | .copies = [2, 4] | .competition = \"diverse\" | .alone = 0.35 | .compete = 0.6 | .reference_cc = \"bbr3\" | .seed = $seed | .iterations = 40 | .eval_every = 10 | .time_budget_s = 7200' \"$OUT/setup/ppo-base.json\" > \"$OUT/spec-clone-$R.json\"; uv run expliccit train ppo \"$OUT/spec-clone-$R.json\" \"$OUT/clone-$R\" --build \"$UML\" --workers \"$WORKERS\"; jq --arg from \"$OUT/clone-$R\" --argjson k \"$K\" --argjson seed \"$SEED\" --argjson hides \"$H\" --argjson lr \"$LR\" --argjson clip \"$CLIP\" --argjson noise \"$NOISE\" '.algo = \"ppo\" | .init_from = $from | .inputs = \"raw\" | .latents = $k | .action_max = 8 | .encoder_hides = $hides | .share_k = 0 | .critic_flows = true | .critic_warmup = 3 | .noise_sigma = $noise | .noise_hold_steps = 20 | .tau_s = 1 | .group = 4 | .links_per_iteration = 8 | .lr = $lr | .clip = $clip | .copies = [2, 4] | .competition = \"diverse\" | .alone = 0.35 | .compete = 0.6 | .reference_cc = \"bbr3\" | .seed = $seed | .iterations = 120 | .eval_every = 20 | .time_budget_s = 8100' \"$OUT/setup/ppo-base.json\" > \"$OUT/spec-rl-$R.json\"; uv run expliccit train ppo \"$OUT/spec-rl-$R.json\" \"$OUT/rl-$R\" --build \"$UML\" --workers \"$WORKERS\"; mkdir -p \"$OUT/$R\"; cp \"$OUT/rl-$R/ppo_spec.json\" \"$OUT/rl-$R/net1.pt\" \"$OUT/$R/\"; cp \"$OUT/rl-$R/policy-best.onnx\" \"$OUT/$R/policy.onnx\"; cp \"$OUT/rl-$R/actor-best.pt\" \"$OUT/$R/actor.pt\"; uv run python experiments/ground.py rollouts \"$OUT/$R\" --fit \"$OUT/setup/paths/campaign.json\" --score \"$OUT/setup/eval/campaign.json\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/rl-ctl-*; uv run python experiments/versus_reference.py \"$OUT/versus-bbr3\" \"$OUT\"/ctl-* \"$IN/teachers\"/stock-*; NJ=\"$(mktemp -d)\"; printf \"#!/bin/sh\\nexit 1\\n\" > \"$NJ/julia\"; chmod +x \"$NJ/julia\"; for T in cubic bbr3; do uv run python experiments/ground.py probe \"$OUT/probe-$T\" --runs \"$OUT\"/ctl-$T-k*; uv run python experiments/ground.py select \"$OUT/select-$T\" --runs \"$OUT\"/ctl-$T-k*; B=$(for d in \"$OUT\"/rl-ctl-$T-*; do printf \"%s %s\\n\" \"$(jq .score \"$d/best.json\")\" \"${d##*/rl-}\"; done | sort -gr | head -3 | cut -d\" \" -f2); PATH=\"$NJ:$PATH\" uv run --with pysr==2.7.2 python experiments/ground.py concepts \"$OUT/concepts-$T\" --runs $(for r in $B; do printf \"%s \" \"$OUT/$r\"; done); done",
+  "collect_inputs": true,
+  "timeout_minutes": 360
+}

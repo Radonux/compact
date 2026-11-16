@@ -57,9 +57,11 @@ class Front(nn.Module):
     output first ("both"). ``take``: which LCFs come from y when it is
     given. ``fault``: a wrong belief injected after that. ``deployed``:
     expliCCit's deployed rounding of a point net1's beliefs. ``traffic``: a
-    head on the scaled measurements stating the other traffic's class."""
+    head on the scaled measurements stating the other traffic's class.
+    ``keep``: the measurement columns read, all when None."""
 
     take: torch.Tensor | None
+    keep: torch.Tensor | None
 
     def __init__(
         self,
@@ -73,9 +75,11 @@ class Front(nn.Module):
         fault: nn.Module | None = None,
         deployed: nn.Module | None = None,
         traffic: nn.Module | None = None,
+        keep: Sequence[int] | None = None,
     ) -> None:
         super().__init__()
         self.scaler, self.net1, self.kind, self.view = scaler, net1, kind, view
+        self.register_buffer("keep", None if keep is None else torch.tensor(keep, dtype=torch.long))
         self.reads: Reads = reads
         self.fault, self.deployed, self.traffic = fault, deployed, traffic
         if take is not None and not any(take):
@@ -101,6 +105,8 @@ class Front(nn.Module):
         self, obs: torch.Tensor, y: torch.Tensor | None = None
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
         m = self.scaler(obs)
+        if self.keep is not None:
+            m = m.index_select(1, self.keep)
         if self.reads == "measurements":
             return m, m, None
         z = self.beliefs(obs, y)

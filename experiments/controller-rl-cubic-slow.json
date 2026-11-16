@@ -1,0 +1,29 @@
+{
+  "title": "Cubic's controllers continued at a tenth of the learning rate",
+  "description": "In the longer training of the confirmed controllers (experiments/controller-rl-scheduled.json, release exp-controller-rl-scheduled-39), Cubic's controllers with an encoder drifted at learning rate 0.0003: a fifth to two fifths of decisions clipped, the policy far from where it began, and the window falling toward its smallest, so their best evaluations came by iteration 40. By the owner's choice they continue in full at BBRv3's rate: per width (0, the reference without an encoder, then 7, 10, 16) and seed (1 to 3), from the best evaluated policy of that run (actor-best.pt; where the start stayed best, which that run kept no file of, the start itself from exp-controller-rl-confirm-31) and that run's last critic, PPO at learning rate 0.00003 ramped over 5 iterations and falling to 0.000003, clip 0.2, noise 0.2, for 240 iterations, every evaluation against BBRv3 and the best evaluated policy kept. Rules fixed before the run: a run's result is its best evaluation; trained well is within 0.1 of BBRv3 both alone and with a competing flow (docs/methodology.md). The test links are not read.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "estimator": "release:exp-estimator-seven-20",
+    "rule": "release:exp-steps-behaviour-rule-8",
+    "runs": "release:exp-controller-rl-scheduled-39",
+    "start": "release:exp-controller-rl-confirm-31"
+  },
+  "prepare": "uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$IN/estimator/estimator/net1.pt\" --models \"$IN/rule/models\" --u 0.25 --paths net2-train-xl",
+  "matrix": {
+    "k": [
+      0,
+      7,
+      10,
+      16
+    ],
+    "seed": [
+      1,
+      2,
+      3
+    ]
+  },
+  "run": "R=\"ctl-cubic-k$K-s$SEED\"; P=\"$R-lr0.0003-c0.2-n0.2\"; F=\"$OUT/from-$R\"; mkdir -p \"$F\"; for f in ppo_spec.json net1.pt actor.pt critic.pt; do cp \"$IN/runs/$P/$f\" \"$F/\"; done; if [ -f \"$IN/runs/$P/actor-best.pt\" ]; then cp \"$IN/runs/$P/actor-best.pt\" \"$F/actor.pt\"; else cp \"$IN/start/$P/actor.pt\" \"$F/actor.pt\"; fi; T=\"$R-lr0.00003-c0.2-n0.2\"; jq --arg from \"$F\" --argjson k \"$K\" --argjson seed \"$SEED\" '.algo = \"ppo\" | .init_from = $from | .inputs = \"raw\" | (if $k > 0 then .latents = $k | .action_max = 8 else . end) | .share_k = 0 | .critic_flows = true | .critic_warmup = 3 | .noise_sigma = 0.2 | .noise_hold_steps = 20 | .tau_s = 1 | .group = 4 | .links_per_iteration = 8 | .lr = 0.00003 | .lr_warmup = 5 | .lr_end = 0.000003 | .clip = 0.2 | .copies = [2, 4] | .competition = \"diverse\" | .alone = 0.35 | .compete = 0.6 | .reference_cc = \"bbr3\" | .seed = $seed | .iterations = 240 | .eval_every = 20 | .time_budget_s = 14400' \"$OUT/setup/ppo-base.json\" > \"$OUT/spec-$T.json\"; uv run expliccit train ppo \"$OUT/spec-$T.json\" \"$OUT/$T\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/ctl-*",
+  "timeout_minutes": 360
+}

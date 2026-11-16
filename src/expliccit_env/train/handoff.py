@@ -38,6 +38,7 @@ ACTOR_FIELDS: Final = (
     "inputs",
     "latents",
     "encoder_hidden",
+    "encoder_hides",
     "action_max",
 )
 CRITIC_FIELDS: Final = ("critic_truth", "critic_flows", "critic_hidden")

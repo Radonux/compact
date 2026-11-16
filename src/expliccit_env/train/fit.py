@@ -21,7 +21,7 @@ import numpy.typing as npt
 import torch
 from torch import nn
 
-from expliccit_env.policy import EXPLICCIT_OBS_COLS, OBS_DIM
+from expliccit_env.policy import EXPLICCIT_OBS_COLS, OBS_COLUMNS, OBS_DIM
 from expliccit_env.train import beliefs
 from expliccit_env.train.beliefs import Beliefs, Bins, Interval, MeansView, PoolBins
 from expliccit_env.train.data import Split, Steps
@@ -739,13 +739,14 @@ def front(
     faults: dict[str, tuple[str, float]] | None = None,
     deployed: tuple[bool, ...] | None = None,
     traffic: nn.Module | None = None,
+    hides: frozenset[str] = frozenset(),
 ) -> Front:
     """net2's front end on net1 (graph.Front): the one module both the
     exported graph and training read net2's input through. ``inputs``
     "truth" takes every LCF from the truth, ``truth`` names some to
     take (a patched net1); ``faults`` (parse_faults) makes beliefs wrong on
     purpose; ``deployed`` names the LCFs expliCCit's deployed controller
-    rounds."""
+    rounds; ``hides`` names message columns the measurements leave out."""
     if inputs == "truth":
         truth = frozenset(net1.lcfs)
     if inputs in ("raw", "net1+raw") and truth:
@@ -764,6 +765,10 @@ def front(
             [faults.get(n, ("", 0.0))[0] == "pin" for n in net1.lcfs],
         )
     reads = _READS[inputs]
+    read = [OBS_COLUMNS[c] for c in net1.scaler.cols.tolist()]
+    if unread := sorted(hides - set(read)):
+        raise ValueError(f"cannot hide {unread}: net1 does not read them")
+    keep = [j for j, n in enumerate(read) if n not in hides] if hides else None
     return Front(
         net1.scaler,
         net1.net,
@@ -774,6 +779,7 @@ def front(
         fault=fault,
         deployed=None if deployed is None else Deployed(net1.kind, deployed),
         traffic=traffic,
+        keep=keep,
     ).eval()
 
 

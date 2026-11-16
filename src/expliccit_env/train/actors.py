@@ -172,6 +172,7 @@ def front(net1: fit.Net1, spec: PPOSpec, *, traffic: nn.Module | None = None) ->
         view=spec.view,
         input_bins=spec.input_bins if spec.view == "bins" else None,
         traffic=traffic,
+        hides=frozenset(spec.encoder_hides),
     )
 
 

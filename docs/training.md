@@ -12,7 +12,7 @@ Which command serves which step of the [plan](methodology.md#plan):
 |---|---|
 | The discovery controller, and the retrained net2 | `train ppo` |
 | The retrained net1 | `train run` |
-| Grounding | `experiments/ground.py`: `rollouts` runs a controller's `policy.onnx` in the closed loop into `RUN/ground`, then `probe` and `select` read the latents on those steps, and `concepts` fits each latent by PySR (`uv run --with pysr==2.7.2`); the library holds every stored label and composite |
+| Grounding | `experiments/ground.py`: `rollouts` runs a controller's `policy.onnx` in the closed loop into `RUN/ground`, then `probe` and `select` read the latents on those steps, and `concepts` fits what each latent holds beyond the window by PySR (`uv run --with pysr==2.7.2`); the library holds every stored label and composite |
 
 ## Step data
 
@@ -100,6 +100,7 @@ min RTT (clamped to 10 to 50 ms) and holds its decision u in between.
 | `teacher_cc` | none | `clone` only: the Linux controller to clone, for example `cubic` or `bbr3` |
 | `inputs` | `net1` | what the actor reads: net1's beliefs, the `truth` (an oracle), or `raw` measurements through net1's input scaler |
 | `latents` | none | `raw` only. The discovery controller: an encoder maps each step's scaled measurements to this many latents, and the actor reads the latents and its previous u alone |
+| `encoder_hides` | none | with `latents`: message columns the encoder does not read, so the latents cannot pass them on |
 | `encoder_hidden` | 256 | the width of the encoder's two hidden layers |
 | `action_max` | 3 | the bound on u; 8 for the discovery controller |
 | `init_actor`, `init_critic`, `init_from` | none | start from saved networks, or continue an earlier run's directory |

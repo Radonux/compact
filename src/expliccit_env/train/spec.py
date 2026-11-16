@@ -7,7 +7,7 @@ from typing import Annotated, Final, Literal, Self
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, PositiveInt, model_validator
 
-from expliccit_env.policy import EXPLICCIT_OBS_COLS, OBS_DIM
+from expliccit_env.policy import EXPLICCIT_OBS_COLS, OBS_COLUMNS, OBS_DIM
 from expliccit_env.spec import StockName
 from expliccit_env.train.lcfs import LCF_UNITS
 
@@ -441,6 +441,9 @@ class PPOSpec(BaseModel):
     # window depends on goes through them. None: no encoder.
     latents: PositiveInt | None = None
     encoder_hidden: PositiveInt = 256
+    # Message columns (policy.OBS_COLUMNS names) the encoder does not read,
+    # so the latents cannot pass them on; with latents only.
+    encoder_hides: tuple[str, ...] = ()
     share_k: Annotated[float, Field(ge=0)] = 0.5
     alpha: Annotated[float, Field(gt=0)] = 20.0
     updates_per_iteration: PositiveInt = 200
@@ -468,6 +471,14 @@ class PPOSpec(BaseModel):
             # A teacher's rollouts carry no exploration noise, so a group's
             # members would be one episode run again under one id.
             raise ValueError('algo "clone" takes group 1: a teacher\'s rollouts do not differ')
+        return self
+
+    @model_validator(mode="after")
+    def _hidden_from_the_encoder(self) -> PPOSpec:
+        if self.encoder_hides and self.latents is None:
+            raise ValueError("encoder_hides names what the encoder of latents does not read")
+        if unknown := sorted(set(self.encoder_hides) - set(OBS_COLUMNS)):
+            raise ValueError(f"encoder_hides: {unknown} are not message columns")
         return self
 
     @model_validator(mode="after")
