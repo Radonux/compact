@@ -8,9 +8,14 @@ history is in git. The steps are those of the
 
 Against BBRv3, Cubic's width 10 is trained well over three seeds, as are
 both references without an encoder and the fixed rule; the other widths
-fall short with a competing flow ([below](#against-bbrv3)). The latents
-of the best confirmed controllers are mostly the sender's own window,
-with little of the path beyond it ([grounding](#grounding)). Longer
+fall short with a competing flow ([below](#against-bbrv3)).
+
+Step 3 is open. The latents of the best confirmed controllers are mostly
+the sender's own window, which the encoder reads from the packets in
+flight, with little of the path beyond it ([grounding](#grounding)).
+Whether path concepts can be recovered at all is decided by the same
+controllers trained with those columns hidden from the encoder
+(`experiments/controller-hidden-window.json`), running, UNRUN. Longer
 training with a rate schedule (`experiments/controller-rl-scheduled.json`)
 is running, UNRUN.
 
@@ -18,7 +23,7 @@ is running, UNRUN.
 |---|---|
 | 1 Setup | done: the estimator of the seven LCFs and the rule graph as releases |
 | 2 Train | bootstrapped from Cubic and BBRv3; reinforcement learning tuned at width 10 and confirmed at widths 7, 10 and 16 over three seeds; against BBRv3 Cubic's width 10 is trained well; longer training running |
-| 3 Ground | the confirmed controllers grounded; PySR on the best of them finds the window and little of the path |
+| 3 Ground | open: the best confirmed controllers' latents are mostly the window; the controllers with the window hidden from the encoder are training |
 | 4 Retrain | UNRUN. Built: `train run` for net1 on any stored label or composite, `train ppo` for net2, live truth for oracles. Not built: labels from fitted formulas beyond the composites. |
 
 ## Training the discovery controller
@@ -197,7 +202,6 @@ the fault in episodes with cross flows.
 | Which path orders the concepts in retraining | The decision's change comes mostly from the decoder's memory, while the latents are explained to 0.80 to 0.86. The latents' path, or ground truth over a longer history, are the candidates. |
 | Labels for fitted formulas | A formula over stored labels becomes a composite with no new data ([architecture.md](architecture.md#composites)). One with a windowed operator over past steps has no such path yet. |
 | The kind of output the retrained net1 states | A value, an interval or a distribution. |
-| How to make the latents carry the path | The encoder sees the window through the packets in flight, and the latents carry it. Hiding the window's proxies from the encoder is the candidate. |
 
 ## Checks
 
