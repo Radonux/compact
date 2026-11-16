@@ -72,9 +72,7 @@ learning rate 0.00003, clip 0.2 and noise 0.1 for BBRv3. Learning rate
 
 The confirmed controllers, their references without an encoder, the
 fixed rule and the teachers on the same validation episodes
-(`experiments/versus-bbr3.json`, run on the session's machine while the
-runners were busy; its release is the queued run 41, UNRUN until it
-publishes). Log utility minus BBRv3's, the mean of three seeds per link,
+(`exp-versus-bbr3-41`). Log utility minus BBRv3's, the mean of three seeds per link,
 with a 95% interval over 21 links; trained well is within 0.1 both alone
 and with a competing flow. The share is the observed flow's part of what
 all flows took, with a competing flow.
@@ -169,6 +167,7 @@ basis; nothing is found in noise.
 | `exp-probe-memory-33`, `exp-probe-memory-34` | The decision's change from the step's latents and window. |
 | `exp-teachers-val-35` | Cubic and BBRv3 on the grounding's validation episodes. |
 | `exp-versus-teachers-36` | Each controller against its teacher. |
+| `exp-versus-bbr3-41` | Every controller, the fixed rule and the teachers against BBRv3. |
 | `exp-concepts-confirm-42` | PySR on the best confirmed controllers' latents, the window an input. |
 | `exp-concepts-beyond-window-43` | PySR on what those latents hold beyond the window. |
 | `exp-steps-broad-30s-9`, `exp-phase0-teachers-1`, `exp-phase0-steps-2` | Old guest; not used. |
