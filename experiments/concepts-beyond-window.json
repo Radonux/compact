@@ -1,0 +1,17 @@
+{
+  "title": "What the best confirmed controllers' latents hold beyond the window",
+  "description": "The concepts of compact's discovery controllers beyond the sender's own window (experiments/ground.py concepts, PySR 2.7.2), from the grounding of the confirmed controllers (release exp-ground-rl-confirm-32, their own rollouts, no new rollouts). Symbolic regression with the window as an input (exp-concepts-confirm-42) found the latents mostly the window: the encoder sees it through the packets in flight and the window's ratios, and path quantities showed only as small parts. By the owner's choice this run grounds what remains. The same networks as there, the three best per teacher on the validation links: from Cubic ctl-cubic-k7-s2, ctl-cubic-k16-s2 and ctl-cubic-k10-s1; from BBRv3 ctl-bbr3-k7-s2, ctl-bbr3-k7-s1 and ctl-bbr3-k7-s3. For each latent, standardized, a small network on the window's features (the window in force and its history, as places) takes the window out; PySR fits the rest over the window in force, in packets, and the 8 features of the three networks' pooled path without the sender's measurements, in ms, Mbit/s or kB, with +, -, *, / and log, at most 20 nodes, 60 iterations, on 4000 rows of the training links' rollouts; the formula kept is the simplest on PySR's front within 0.01 of the best R^2 on the validation links. The ceiling is the same network on the window's and the path's features, fitted to the rest. Rules fixed before the run: a formula is recovered when it uses a path feature, the ceiling's R^2 on the validation links is at least 0.1, and PySR's R^2 there is at least 0.8 of the ceiling's; the pooled concepts per teacher are the recovered formulas of its three networks, where of formulas whose values correlate above 0.9 in absolute value the simplest is kept; the window itself is the first concept of every set. PySR's search is multithreaded and so not bit-reproducible; the seed is fixed per latent. The runner's own Julia cannot load its system image, so a stub julia that fails stands first on PATH and PySR installs the Julia it pins. The test links are not read.",
+  "uml": false,
+  "train": true,
+  "inputs": {
+    "runs": "release:exp-ground-rl-confirm-32"
+  },
+  "matrix": {
+    "teacher": [
+      "cubic",
+      "bbr3"
+    ]
+  },
+  "run": "case \"$TEACHER\" in cubic) R=\"ctl-cubic-k7-s2 ctl-cubic-k16-s2 ctl-cubic-k10-s1\";; bbr3) R=\"ctl-bbr3-k7-s2 ctl-bbr3-k7-s1 ctl-bbr3-k7-s3\";; *) exit 2;; esac; NJ=\"$(mktemp -d)\"; printf \"#!/bin/sh\\nexit 1\\n\" > \"$NJ/julia\"; chmod +x \"$NJ/julia\"; PATH=\"$NJ:$PATH\" uv run --with pysr==2.7.2 python experiments/ground.py concepts \"$OUT/concepts-$TEACHER\" --runs $(for r in $R; do printf \"%s \" \"$IN/runs/$r\"; done)",
+  "timeout_minutes": 360
+}

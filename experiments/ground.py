@@ -703,15 +703,12 @@ def pruned(lib: Library, m: Moments, order: list[int], held: Sequence[int] = ())
     return [*keep, *reversed(gone)]
 
 
-def flexible(x_fit: F64, z_fit: F64, x: F64, z: F64) -> float:
-    """The mean over latents of the held-out R^2 of a small network fitted
-    to z on x. It can overfit the few links of the fit rows, so it is a
-    lower bound on what any function of x explains.
+def network(x_fit: F64, y_fit: F64) -> Callable[[F64], F64]:
+    """A small network fitted to the columns of y on x, as a function of new
+    rows of x. Give it inputs on a common scale (places, standardized).
     ponytail: one fixed network, a tuned one if its numbers decide a claim."""
     torch.manual_seed(0)
-    zf, zs = ranked(z_fit, z_fit), ranked(z_fit, z)  # as Moments scores them
-    scale = zf.std(0) + 1e-12
-    a, b, t, v = (torch.tensor(q, dtype=torch.float32) for q in (x_fit, zf / scale, x, zs / scale))
+    a, b = (torch.tensor(q, dtype=torch.float32) for q in (x_fit, y_fit))
     net = torch.nn.Sequential(
         torch.nn.Linear(a.shape[1], 128),
         torch.nn.SiLU(),
@@ -728,8 +725,26 @@ def flexible(x_fit: F64, z_fit: F64, x: F64, z: F64) -> float:
         loss.backward()
         opt.step()
         sched.step()
-    with torch.no_grad():
-        return float((1 - ((net(t) - v) ** 2).mean(0) / v.var(0)).mean())
+
+    def predict(x: F64) -> F64:
+        with torch.no_grad():
+            return net(torch.tensor(x, dtype=torch.float32)).numpy().astype(np.float64)
+
+    return predict
+
+
+def held_out_r2(pred: F64, y: F64) -> F64:
+    """Per column, 1 - the mean squared error over the variance."""
+    return 1 - ((pred - y) ** 2).mean(0) / y.var(0)
+
+
+def flexible(x_fit: F64, z_fit: F64, x: F64, z: F64) -> float:
+    """The mean over latents of the held-out R^2 of a small network fitted
+    to z on x. It can overfit the few links of the fit rows, so it is a
+    lower bound on what any function of x explains."""
+    zf, zs = ranked(z_fit, z_fit), ranked(z_fit, z)  # as Moments scores them
+    scale = zf.std(0) + 1e-12
+    return float(held_out_r2(network(x_fit, zf / scale)(x), zs / scale).mean())
 
 
 def _path(lib: Library, m: Moments, allowed: list[int]) -> list[dict[str, Any]]:
@@ -1125,10 +1140,11 @@ def select_summary(result: dict[str, Any]) -> str:
     return "".join(lines)
 
 
-# Symbolic regression of the latents (concepts): rows per target, the
-# held-out R^2 that makes a formula well recovered, the largest formula,
-# and how alike two formulas' values must be to count once.
-CONCEPT_ROWS, RECOVERED, MAXSIZE, SAME = 4000, 0.8, 20, 0.9
+# Symbolic regression of the latents beyond the window (concepts): rows per
+# target, the largest formula, how alike two formulas' values must be to
+# count once, and when a formula is recovered.
+CONCEPT_ROWS, MAXSIZE, SAME = 4000, 20, 0.9
+FLOOR, RECOVERED = 0.1, 0.8  # the ceiling's least R^2; PySR's least share of it
 CONCEPT_ITERATIONS = 60  # PySR's niterations per latent
 WINDOW = "window_pkts"  # the window in force, the first input of every formula
 
@@ -1212,13 +1228,16 @@ def window_pkts(q: Rows) -> F64:
 
 
 def concepts(out: Path, runs: list[Path]) -> None:
-    """Symbolic regression of each run's latents on the window in force and
-    the features of the runs' pooled path without the sender's measurements.
-    The window is an input of every formula rather than taken out first: its
-    effect on the latents is far from linear. A formula is well recovered at
-    RECOVERED held-out R^2, and reads the path when it uses a path feature.
-    The well-recovered formulas of all runs are pooled, and of formulas whose
-    values correlate above SAME the simplest is kept."""
+    """Symbolic regression of what each run's latents hold beyond the
+    sender's own window. A network on the window's features (the window in
+    force and its history) takes the window out of each latent; PySR fits
+    what remains over the window in force and the features of the runs'
+    pooled path without the sender's measurements. The ceiling is a network
+    on the window's and the path's features, fitted to the remainder. A
+    formula is recovered when it reads the path, the ceiling reaches FLOOR
+    and PySR reaches RECOVERED of it. The recovered formulas of all runs are
+    pooled, and of formulas whose values correlate above SAME the simplest
+    is kept."""
     out.mkdir(parents=True, exist_ok=True)
     ctls, names, variables, fr, sr = _setup(runs)
     lib = Library.of(names, variables, fr.x, sr.x)
@@ -1239,6 +1258,8 @@ def concepts(out: Path, runs: list[Path]) -> None:
         np.concatenate([window_pkts(q)[:, None], physical(q.x[:, [col[n] for n in path]])], 1)
         for q in (fr, sr)
     )
+    own = _columns(lib, _window(lib))[1:]
+    both = own + _columns(lib, [lib.names.index(n) for n in path])[1:]
     rng = np.random.default_rng(0)
     every = x_score[np.isfinite(x_score).all(1)]
     result: dict[str, Any] = {"inputs": inputs, "runs": {}, "concepts": []}
@@ -1249,19 +1270,31 @@ def concepts(out: Path, runs: list[Path]) -> None:
         z_fit, z_score = z_of[c.name][0][f], z_of[c.name][1][s]
         mean, scale = z_fit.mean(0), z_fit.std(0) + 1e-12
         z_fit, z_score = (z_fit - mean) / scale, (z_score - mean) / scale
+        window = network(lib.fit[f][:, own], z_fit)
+        e_fit = z_fit - window(lib.fit[f][:, own])
+        e_score = z_score - window(lib.score[s][:, own])
+        ceiling = held_out_r2(network(lib.fit[f][:, both], e_fit)(lib.score[s][:, both]), e_score)
         a, b = x_fit[f], x_score[s]
         ok_a, ok_b = np.isfinite(a).all(1), np.isfinite(b).all(1)
         pick = rng.choice(np.flatnonzero(ok_a), min(ok_a.sum(), CONCEPT_ROWS), replace=False)
         found, values = recovered(
-            a[pick], z_fit[pick], b[ok_b], z_score[ok_b], inputs, seed=r, x_all=every
+            a[pick], e_fit[pick], b[ok_b], e_score[ok_b], inputs, seed=r, x_all=every
         )
-        for g in found:
-            g["path"] = any(f"[{n}]" in g["formula"] for n in path)
-        result["runs"][c.name] = found
+        of_window = held_out_r2(z_score - e_score, z_score)
         for g, v in zip(found, values, strict=True):
-            if g["r2"] >= RECOVERED:
+            j = g["latent"]
+            g |= {
+                "window": float(of_window[j]),
+                "ceiling": float(ceiling[j]),
+                "path": any(f"[{n}]" in g["formula"] for n in path),
+            }
+            g["recovered"] = bool(
+                g["path"] and g["ceiling"] >= FLOOR and g["r2"] >= RECOVERED * g["ceiling"]
+            )
+            if g["recovered"]:
                 good.append({"run": c.name} | g)
                 good_values.append(v)
+        result["runs"][c.name] = found
         print(f"concepts: {c.name}", file=sys.stderr, flush=True)
     result["concepts"] = distinct(good, good_values)
     result["recovered"] = len(good)
@@ -1270,24 +1303,26 @@ def concepts(out: Path, runs: list[Path]) -> None:
 
 
 def _concept_row(run: str, g: dict[str, Any]) -> str:
-    path = "yes" if g["path"] else "no"
     return (
-        f"| {run} | {g['latent']} | {g['r2']:.3f} | {g['complexity']} | {path} "
-        f"| `{g['formula']}` |\n"
+        f"| {run} | {g['latent']} | {g['window']:.2f} | {g['ceiling']:.2f} | {g['r2']:.2f} "
+        f"| {g['complexity']} | {'yes' if g['recovered'] else 'no'} | `{g['formula']}` |\n"
     )
 
 
 TABLE = (
-    "| run | latent | R^2 | complexity | reads the path | formula |\n|---|---|---|---|---|---|\n"
+    "| run | latent | the window's R^2 | ceiling of the rest | PySR's R^2 of the rest "
+    "| complexity | recovered | formula |\n|---|---|---|---|---|---|---|---|\n"
 )
 
 
 def concepts_summary(result: dict[str, Any]) -> str:
     lines = [
-        "Symbolic regression (PySR) of each latent on the window in force and the "
-        "inputs below, in packets, ms, Mbit/s or kB, with + - * / and log. R^2 on the "
-        f"validation links; well recovered at {RECOVERED} or more. A formula reads the "
-        "path when it uses more than the window.\n\nInputs: "
+        "What each latent holds beyond the sender's own window. The window's R^2: a "
+        "network on the window's features. The rest is fitted by PySR over the window in "
+        "force and the inputs below, in packets, ms, Mbit/s or kB, with + - * / and log; "
+        "its ceiling is a network on the window's and the inputs' features. R^2 on the "
+        f"validation links. Recovered: the formula reads the path, the ceiling is at least "
+        f"{FLOOR} and PySR reaches {RECOVERED} of it.\n\nInputs: "
         + ", ".join(result["inputs"])
         + "\n\n"
         + TABLE
@@ -1296,8 +1331,8 @@ def concepts_summary(result: dict[str, Any]) -> str:
         for g in found:
             lines.append(_concept_row(run, g))
     lines.append(
-        f"\nWell recovered: {result['recovered']} formulas; once those whose values "
-        f"correlate above {SAME} count once, {len(result['concepts'])}:\n\n" + TABLE
+        f"\nRecovered: {result['recovered']} formulas; once those whose values correlate "
+        f"above {SAME} count once, {len(result['concepts'])}:\n\n" + TABLE
     )
     for g in result["concepts"]:
         lines.append(_concept_row(g["run"], g))

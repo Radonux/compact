@@ -210,8 +210,11 @@ def _check_concepts(out: Path, runs: list[Path]) -> None:
     assert set(con["runs"]) == {"a", "b", "c"} and con["inputs"][0] == ground.WINDOW
     assert len(con["inputs"]) >= 2
     assert all(len(found) == 2 for found in con["runs"].values())
-    assert all(isinstance(g["path"], bool) for found in con["runs"].values() for g in found)
-    assert "Well recovered" in (out / "concepts.md").read_text()
+    for g in (g for found in con["runs"].values() for g in found):
+        assert isinstance(g["path"], bool) and isinstance(g["recovered"], bool)
+        assert g["window"] <= 1 and g["ceiling"] <= 1
+        assert not g["recovered"] or (g["path"] and g["ceiling"] >= ground.FLOOR)
+    assert "Recovered:" in (out / "concepts.md").read_text()
 
 
 def test_a_controllers_latents_are_grounded_on_its_own_rollouts(
