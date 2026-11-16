@@ -1,0 +1,37 @@
+{
+  "title": "A seed search for a discovery controller whose latents decompose",
+  "description": "By the owner's choice the concepts come from a search over networks: no seed is expected to give latents that fit well, but among many seeds one may give a network whose decision-relevant latents, after a linear change of basis, are each a short formula, and one such network is all that is needed (docs/methodology.md, grounding: one set that works is enough). This batch trains new seeds (101 to 108) at each teacher's better recipe so far: BBRv3 with the window hidden from the encoder, as experiments/controller-hidden-window.json (more path formulas, no loss of control), and Cubic with the window seen, as experiments/controller-teachers.json and experiments/controller-rl-confirm.json at its confirmed setting (its width 10 is trained well); widths 7 and 10. Per cell: 40 iterations of cloning the teacher, 120 of reinforcement learning (Cubic learning rate 0.0003, clip 0.2, noise 0.2; BBRv3 0.00003, 0.2, 0.1), BBRv3 the reference of every evaluation, the best evaluated policy kept, then the grounding rollouts of that policy as experiments/ground-rl-confirm.json. At most five cells run at once, so the search leaves the other runners free. Collect: the training report, and every draw against BBRv3 on the validation episodes of exp-teachers-val-35 (experiments/versus_reference.py). Rule fixed before the run: a draw is a hit when (1) it is trained well (the whole 95% interval of its log utility minus BBRv3's above -0.1, alone and with a competing flow) and (2) its latents decompose: after the window is taken out and the rest is rotated toward the sparsest map from the path's features, each direction is fitted by PySR (three PySR seeds, the best kept), and the decoder fed the latents rebuilt from the window and the fitted formulas reproduces the change of its decisions on the validation links with R^2 at least 0.8, using at least three path formulas. The decomposition is scored after this run, by experiments/ground.py on these rollouts. A hit is then run in the closed loop on its formulas, and retrained in step 4; only then are the test links read, once. The test links are not read here.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "estimator": "release:exp-estimator-seven-20",
+    "rule": "release:exp-steps-behaviour-rule-8",
+    "teachers": "release:exp-teachers-val-35"
+  },
+  "prepare": "uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$IN/estimator/estimator/net1.pt\" --models \"$IN/rule/models\" --u 0.25 --paths net2-train-xl",
+  "matrix": {
+    "teacher": [
+      "cubic",
+      "bbr3"
+    ],
+    "k": [
+      7,
+      10
+    ],
+    "seed": [
+      101,
+      102,
+      103,
+      104,
+      105,
+      106,
+      107,
+      108
+    ]
+  },
+  "run": "case \"$TEACHER\" in cubic) H='[]'; LR=0.0003; CLIP=0.2; NOISE=0.2;; bbr3) H='[\"unacked_kpkts_short_avg\",\"unacked_kpkts_short_min\",\"unacked_kpkts_short_max\",\"unacked_kpkts_mid_avg\",\"unacked_kpkts_mid_min\",\"unacked_kpkts_mid_max\",\"unacked_kpkts_long_avg\",\"unacked_kpkts_long_min\",\"unacked_kpkts_long_max\",\"max_delivered_bdp_over_cwnd\",\"prev_action\"]'; LR=0.00003; CLIP=0.2; NOISE=0.1;; *) exit 2;; esac; R=\"ctl-$TEACHER-k$K-s$SEED\"; jq --arg teacher \"$TEACHER\" --argjson k \"$K\" --argjson seed \"$SEED\" --argjson hides \"$H\" '.algo = \"clone\" | .teacher_cc = $teacher | .inputs = \"raw\" | .latents = $k | .action_max = 8 | .encoder_hides = $hides | .share_k = 0 | .critic_warmup = 0 | .critic_flows = true | .lr = 0.001 | .updates_per_iteration = 100 | .replay_iterations = 16 | .tau_s = 1 | .group = 1 | .links_per_iteration = 32 | .copies = [2, 4] | .competition = \"diverse\" | .alone = 0.35 | .compete = 0.6 | .reference_cc = \"bbr3\" | .seed = $seed | .iterations = 40 | .eval_every = 10 | .time_budget_s = 7200' \"$OUT/setup/ppo-base.json\" > \"$OUT/spec-clone-$R.json\"; uv run expliccit train ppo \"$OUT/spec-clone-$R.json\" \"$OUT/clone-$R\" --build \"$UML\" --workers \"$WORKERS\"; jq --arg from \"$OUT/clone-$R\" --argjson k \"$K\" --argjson seed \"$SEED\" --argjson hides \"$H\" --argjson lr \"$LR\" --argjson clip \"$CLIP\" --argjson noise \"$NOISE\" '.algo = \"ppo\" | .init_from = $from | .inputs = \"raw\" | .latents = $k | .action_max = 8 | .encoder_hides = $hides | .share_k = 0 | .critic_flows = true | .critic_warmup = 3 | .noise_sigma = $noise | .noise_hold_steps = 20 | .tau_s = 1 | .group = 4 | .links_per_iteration = 8 | .lr = $lr | .clip = $clip | .copies = [2, 4] | .competition = \"diverse\" | .alone = 0.35 | .compete = 0.6 | .reference_cc = \"bbr3\" | .seed = $seed | .iterations = 120 | .eval_every = 20 | .time_budget_s = 8100' \"$OUT/setup/ppo-base.json\" > \"$OUT/spec-rl-$R.json\"; uv run expliccit train ppo \"$OUT/spec-rl-$R.json\" \"$OUT/rl-$R\" --build \"$UML\" --workers \"$WORKERS\"; mkdir -p \"$OUT/$R\"; cp \"$OUT/rl-$R/ppo_spec.json\" \"$OUT/rl-$R/net1.pt\" \"$OUT/$R/\"; cp \"$OUT/rl-$R/policy-best.onnx\" \"$OUT/$R/policy.onnx\"; cp \"$OUT/rl-$R/actor-best.pt\" \"$OUT/$R/actor.pt\"; uv run python experiments/ground.py rollouts \"$OUT/$R\" --fit \"$OUT/setup/paths/campaign.json\" --score \"$OUT/setup/eval/campaign.json\" --build \"$UML\" --workers \"$WORKERS\"",
+  "collect": "uv run python experiments/net2_ppo_report.py \"$OUT\" \"$OUT\"/rl-ctl-*; uv run python experiments/versus_reference.py \"$OUT/versus-bbr3\" \"$OUT\"/ctl-* \"$IN/teachers\"/stock-*",
+  "collect_inputs": true,
+  "parallel": 5,
+  "timeout_minutes": 360
+}
