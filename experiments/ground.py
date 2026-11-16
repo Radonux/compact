@@ -421,11 +421,15 @@ class Library:
 
 @dataclass(frozen=True, slots=True)
 class Controller:
-    """A trained discovery controller: its width and its encoder."""
+    """A trained discovery controller: its width, its encoder and its decoder."""
 
     name: str
     k: int
     encode: Callable[[F32], F64]  # [n, 78] step messages -> [n, k] latents
+    # ([t, k] latents, [t] the window in force) -> [t] the decisions u, one
+    # episode's decisions in order from a zero state, each reading the
+    # window in force as its previous u (as Held does)
+    decide: Callable[[F64, F64], F64]
 
     @staticmethod
     def load(run: Path) -> Controller:
@@ -444,7 +448,16 @@ class Controller:
             z = [actor.encode(front(o, None)[1]) for o in torch.from_numpy(obs).split(65_536)]
             return torch.cat(z).numpy().astype(np.float64)
 
-        return Controller(run.name, spec.latents, encode)
+        if not actor.memory:
+            raise SystemExit(f"{run}: a decoder without memory")
+
+        @torch.no_grad()
+        def decide(z: F64, prev: F64) -> F64:
+            x = np.concatenate([z, prev[:, None] / spec.action_max], 1)
+            h, _ = actor.gru(torch.tensor(x, dtype=torch.float32)[None])
+            return (torch.tanh(actor.head(h))[0, :, 0] * spec.action_max).numpy().astype(np.float64)
+
+        return Controller(run.name, spec.latents, encode, decide)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1187,12 +1200,35 @@ def recovered(
     its R^2 there, and its values on x_all. With units (one per column of
     x, the values in them), only a dimensionless formula with dimensionless
     constants is kept. ponytail: one fixed search per latent."""
+    out, values = [], []
+    for j in range(z.shape[1]):
+        g, predict = formula_of(
+            x_fit, z_fit[:, j], x, z[:, j], names, seeds=[seed + j], units=units
+        )
+        out.append({"latent": j} | g)
+        values.append(predict(x_all))
+    return out, values
+
+
+def formula_of(
+    x_fit: F64,
+    y_fit: F64,
+    x: F64,
+    y: F64,
+    names: list[str],
+    *,
+    seeds: Sequence[int],
+    units: Sequence[str] | None = None,
+) -> tuple[dict[str, Any], Callable[[F64], F64]]:
+    """The PySR formula for y on x (see ``recovered``), searched once per
+    seed: of every Pareto front, the simplest within 0.01 of the best R^2 on
+    the held-out rows x, y. Its entry and its values on new rows."""
     # Not a dependency of the package: the experiment runs it with
     # `uv run --with pysr==2.7.2`, which fetches Julia on first use.
     from pysr import PySRRegressor  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
 
-    out, values = [], []
-    for j in range(z.shape[1]):
+    front: list[tuple[int, float, int, Any]] = []
+    for seed in seeds:
         dims = (
             {"dimensional_constraint_penalty": UNIT_PENALTY, "dimensionless_constants_only": True}
             if units
@@ -1205,18 +1241,17 @@ def recovered(
             maxsize=MAXSIZE,
             binary_operators=["+", "-", "*", "/"],
             unary_operators=["log"],
-            random_state=seed + j,
+            random_state=seed,
             progress=False,
             verbosity=0,
             temp_equation_file=True,
         )
         reg.fit(
             x_fit,
-            z_fit[:, j],
+            y_fit,
             variable_names=[f"x{i}" for i in range(x.shape[1])],
             **({"X_units": list(units), "y_units": "1"} if units else {}),
         )
-        front = []
         for i in range(len(reg.equations_)):
             if units and reg.equations_.iloc[i]["loss"] >= UNIT_PENALTY:
                 continue
@@ -1224,20 +1259,22 @@ def recovered(
                 pred = np.asarray(reg.predict(x, index=i), dtype=np.float64)
             ok = np.isfinite(pred)
             r2 = (
-                1 - np.mean((pred[ok] - z[ok, j]) ** 2) / np.var(z[ok, j])
+                1 - np.mean((pred[ok] - y[ok]) ** 2) / np.var(y[ok])
                 if ok.mean() > 0.99
                 else -np.inf
             )
-            front.append((int(reg.equations_.iloc[i]["complexity"]), float(r2), i))
-        best = max(r for _, r, _ in front)
-        size, r2, i = min(f for f in front if f[1] >= best - 0.01)
-        formula = str(reg.sympy(i))
-        for k in reversed(range(len(names))):  # x10 before x1
-            formula = formula.replace(f"x{k}", f"[{names[k]}]")
-        out.append({"latent": j, "formula": formula, "complexity": size, "r2": r2})
+            front.append((int(reg.equations_.iloc[i]["complexity"]), float(r2), i, reg))
+    best = max(f[1] for f in front)
+    size, r2, i, reg = min((f for f in front if f[1] >= best - 0.01), key=lambda f: f[:2])
+    formula = str(reg.sympy(i))
+    for k in reversed(range(len(names))):  # x10 before x1
+        formula = formula.replace(f"x{k}", f"[{names[k]}]")
+
+    def predict(rows: F64) -> F64:
         with np.errstate(all="ignore"):
-            values.append(np.asarray(reg.predict(x_all, index=i), dtype=np.float64))
-    return out, values
+            return np.asarray(reg.predict(rows, index=i), dtype=np.float64)
+
+    return {"formula": formula, "complexity": size, "r2": r2}, predict
 
 
 def distinct(found: list[dict[str, Any]], values: list[F64]) -> list[dict[str, Any]]:
@@ -1354,6 +1391,218 @@ def concepts(out: Path, runs: list[Path], *, units: bool = False) -> None:
     (out / "concepts.md").write_text(concepts_summary(result))
 
 
+HIT_FORMULAS = 3  # a decomposed network's distinct formulas, at least
+
+
+def varimax(loadings: F64, steps: int = 200) -> F64:
+    """The rotation R (columns x columns) under which ``loadings @ R`` has the
+    most variance of squared loadings per column: each column loads on as
+    few rows as it can (Kaiser's varimax)."""
+    p, k = loadings.shape
+    rot, gain = np.eye(k), 0.0
+    for _ in range(steps):
+        lr = loadings @ rot
+        u, sv, vt = np.linalg.svd(loadings.T @ (lr**3 - lr * (lr**2).sum(0) / p))
+        rot, last, gain = u @ vt, gain, float(sv.sum())
+        if last and gain < last * (1 + 1e-9):
+            break
+    return rot
+
+
+def _ordered(run: Path, names: list[str], budget: int) -> tuple[F32, F64, F64, I64, F64]:
+    """Every decision of whole episodes of a run's score rollouts, in order,
+    episodes drawn until ``budget`` decisions: (the step messages, the window
+    in force and the decision, both log2 over FixedWindow's packets, the
+    episode, the library's features)."""
+    s = steps_data.load([run / "ground" / "score"], seed=0, val=0.0, test=0.0)
+    labels, b = base_variables(s)
+    d = decisions(s)
+    eps = np.random.default_rng(0).permutation(np.unique(s.episode[d]))
+    sizes = np.array([np.sum(s.episode[d] == e) for e in eps])
+    d = d[np.isin(s.episode[d], eps[: max(1, int(np.searchsorted(np.cumsum(sizes), budget)))])]
+    own, x = features([*labels, *SENDER], np.concatenate([b, sender_variables(s)], 1), s, d)
+    if own != names:
+        raise SystemExit(f"{run}: its score rollouts hold other labels than its fit rollouts")
+    w = np.log2(np.maximum(s.cwnd.astype(np.float64), 1)) - FixedWindow.LOG2_PACKETS
+    return s.obs[d], w[d], w[d + 1], s.episode[d], x
+
+
+BASES = ("axes", "varimax")  # the latents as they are, and rotated
+
+
+def decomposed(run: Path, seeds: int, basis: str) -> dict[str, Any]:  # noqa: PLR0915  (one test, in order)
+    """Whether a run's latents are short formulas, after a change of basis.
+    The window is taken out as in ``concepts``; what remains is fitted along
+    the latents' own axes, or (basis "varimax") whitened and rotated toward
+    the sparsest linear map from the path's features (``varimax``): the
+    decoder reads the latents through a linear map, and any invertible one
+    is the same controller. PySR fits each direction whose ceiling reaches
+    FLOOR, once per seed. Decomposed: every such direction recovered, with
+    at least HIT_FORMULAS distinct formulas. Reported beside it and not part
+    of it: the decoder fed the latents rebuilt from the window, the formulas
+    or a network on the path's features (other directions at their mean)
+    and each decision's window in force, against the same decoder on the
+    true latents, over every decision of whole episodes of the validation
+    links, as R^2 of the change of the decision. It is no test: the frozen
+    decoder turns the rebuilt latents' small errors into errors in u larger
+    than the change itself (on exp-controller-hidden-window-44's BBRv3
+    width 10 seed 3 a network on the whole library scores -2.9), so the
+    test of the formulas is a decoder retrained on them, in step 4."""
+    ctls, names, variables, fr, _ = _setup([run])
+    c = ctls[0]
+    obs, prev, u, episode, x_seq = _ordered(run, names, SCORE)
+    lib = Library.of(names, variables, fr.x, x_seq)
+    z_fit, z_seq = c.encode(fr.obs), c.encode(obs)
+    mean, scale = z_fit.mean(0), z_fit.std(0) + 1e-12
+    zf, zs = (z_fit - mean) / scale, (z_seq - mean) / scale
+    own = _columns(lib, _window(lib))[1:]
+    window = network(lib.fit[:, own], zf)
+    w_seq = window(lib.score[:, own])
+    e_fit, e_seq = zf - window(lib.fit[:, own]), zs - w_seq
+    hidden = [
+        f
+        for f in range(len(lib.names))
+        if f in _window(lib) or not lib.variable[f].startswith("sender_")
+    ]
+    path = [p["feature"] for p in _path(lib, Moments.of(lib, z_fit, z_seq), hidden)[:PICK]]
+    cols = _columns(lib, [lib.names.index(n) for n in path])[1:]
+    centre = e_fit.mean(0)
+    rot = np.eye(c.k)
+    if basis == "axes":
+        white = back = rot
+    else:
+        _, sv, vt = np.linalg.svd(e_fit - centre, full_matrices=False)
+        keep = sv > sv[0] * 1e-3
+        white = vt[keep].T / sv[keep] * np.sqrt(len(e_fit))
+        back = sv[keep, None] * vt[keep] / np.sqrt(len(e_fit))
+    d_fit, d_seq = (e_fit - centre) @ white, (e_seq - centre) @ white
+    if basis == "varimax":
+        a = np.c_[np.ones(len(d_fit)), lib.fit[:, cols]]
+        rot = varimax(np.linalg.lstsq(a, d_fit, rcond=None)[0][1:])
+    d_fit, d_seq = d_fit @ rot, d_seq @ rot
+    both = own + cols
+    nets = network(lib.fit[:, both], d_fit)
+    ceiling = held_out_r2(nets(lib.score[:, both]), d_seq)
+    col = {n: j for j, n in enumerate(names)}
+    inputs = [WINDOW, *path]
+    x_fit = np.c_[window_pkts(fr), physical(fr.x[:, [col[n] for n in path]])]
+    x_all = np.c_[
+        2.0 ** (prev + FixedWindow.LOG2_PACKETS), physical(x_seq[:, [col[n] for n in path]])
+    ]
+    rng = np.random.default_rng(0)
+    ok_a, ok_b = np.isfinite(x_fit).all(1), np.isfinite(x_all).all(1)
+    pick = rng.choice(np.flatnonzero(ok_a), min(ok_a.sum(), CONCEPT_ROWS), replace=False)
+    held = rng.choice(np.flatnonzero(ok_b), min(ok_b.sum(), 4 * CONCEPT_ROWS), replace=False)
+    found: list[dict[str, Any]] = []
+    values: list[F64] = []
+    d_hat = np.zeros_like(d_seq)
+    for j in range(d_seq.shape[1]):
+        g: dict[str, Any] = {"direction": j, "ceiling": float(ceiling[j])}
+        if ceiling[j] >= FLOOR:
+            g |= {"seeds": seeds}
+            f, predict = formula_of(
+                x_fit[pick],
+                d_fit[pick, j],
+                x_all[held],
+                d_seq[held, j],
+                inputs,
+                seeds=range(100 * j, 100 * j + seeds),
+            )
+            g |= f
+            g["path"] = any(f"[{n}]" in g["formula"] for n in path)
+            g["recovered"] = bool(g["path"] and g["r2"] >= RECOVERED * g["ceiling"])
+            if g["recovered"]:
+                v = np.nan_to_num(predict(x_all), nan=0.0, posinf=0.0, neginf=0.0)
+                d_hat[:, j] = v
+                values.append(v)
+        found.append(g)
+        print(f"decompose: {c.name} direction {j}: {json.dumps(g)}", file=sys.stderr, flush=True)
+
+    def latents(d: F64) -> F64:
+        return (w_seq + d @ rot.T @ back + centre) * scale + mean
+
+    def decisions_of(z: F64) -> F64:
+        out = np.empty(len(z))
+        for e in np.unique(episode):
+            i = episode == e
+            out[i] = c.decide(z[i], prev[i])
+        return out
+
+    truth = decisions_of(z_seq)
+    useful = ceiling >= FLOOR
+    substituted = {
+        "window": np.zeros_like(d_seq),
+        "formulas": d_hat,
+        "networks": np.where(useful, nets(lib.score[:, both]), 0.0),
+    }
+    test = {
+        name: float(
+            held_out_r2((decisions_of(latents(d)) - prev)[:, None], (truth - prev)[:, None])[0]
+        )
+        for name, d in substituted.items()
+    }
+    recovered_found = [g for g in found if g.get("recovered")]
+    count = len(distinct(recovered_found, values))
+    return {
+        "run": c.name,
+        "basis": basis,
+        "k": c.k,
+        "directions": d_seq.shape[1],
+        "decisions": len(prev),
+        "episodes": len(np.unique(episode)),
+        "inputs": inputs,
+        "replays": float(held_out_r2((truth - prev)[:, None], (u - prev)[:, None])[0]),
+        "found": found,
+        "formulas": count,
+        "substituted": test,
+        "decomposed": bool(
+            count >= HIT_FORMULAS
+            and all(g.get("recovered") for g in found if g["ceiling"] >= FLOOR)
+        ),
+    }
+
+
+def decompose(out: Path, runs: list[Path], *, seeds: int, bases: Sequence[str]) -> None:
+    """``decomposed`` per run and basis, into OUT/decompose.json and .md."""
+    out.mkdir(parents=True, exist_ok=True)
+    result = [decomposed(r, seeds, b) for r in runs for b in bases]
+    (out / "decompose.json").write_text(json.dumps(result, indent=1) + "\n")
+    (out / "decompose.md").write_text(decompose_summary(result))
+
+
+def decompose_summary(result: list[dict[str, Any]]) -> str:
+    text = (
+        "Each run's latents beyond the window, along their own axes or whitened and rotated toward "
+        "the sparsest map from the path's features, each direction fitted by PySR. Not a test: "
+        "the decoder fed the latents rebuilt from the window alone, from the window and the "
+        "recovered formulas, and from the window and a network on the path's features, against "
+        "the same decoder on the true latents: R^2 of the change of the decision on the "
+        "validation links. Replays: the decoder on the true "
+        "latents against the decisions the rollouts recorded. Decomposed: every direction whose "
+        f"ceiling reaches {FLOOR} recovered, with at least {HIT_FORMULAS} distinct formulas.\n\n"
+        "| run | basis | directions | recovered | window | formulas | networks | replays "
+        "| decomposed |\n|---|---|---|---|---|---|---|---|---|\n"
+    )
+    for r in result:
+        t = r["substituted"]
+        text += (
+            f"| {r['run']} | {r['basis']} | {r['directions']} | {r['formulas']} "
+            f"| {t['window']:.2f} | {t['formulas']:.2f} | {t['networks']:.2f} | {r['replays']:.2f} "
+            f"| {'yes' if r['decomposed'] else 'no'} |\n"
+        )
+    for r in result:
+        text += (
+            f"\n{r['run']}, {r['basis']}:\n\n| direction | ceiling | R^2 | recovered | formula |\n"
+        )
+        text += "|---|---|---|---|---|\n"
+        for g in r["found"]:
+            text += (
+                f"| {g['direction']} | {g['ceiling']:.2f} | {g.get('r2', float('nan')):.2f} "
+                f"| {'yes' if g.get('recovered') else 'no'} | `{g.get('formula', '')}` |\n"
+            )
+    return text
+
+
 def _concept_row(run: str, g: dict[str, Any]) -> str:
     return (
         f"| {run} | {g['latent']} | {g['window']:.2f} | {g['ceiling']:.2f} | {g['r2']:.2f} "
@@ -1457,12 +1706,15 @@ def main() -> None:
     # A Linux controller in place of the run's policy, with the episode
     # length of the run's ppo_spec.json: the teachers on the same episodes.
     ro.add_argument("--stock", choices=["cubic", "bbr3"])
-    for verb in ("probe", "select", "concepts"):
+    for verb in ("probe", "select", "concepts", "decompose"):
         q = sub.add_parser(verb)
         q.add_argument("out", type=Path)
         q.add_argument("--runs", type=Path, nargs="+", required=True)
         if verb == "concepts":
             q.add_argument("--units", action="store_true", help="dimensionless, in SI units")
+        if verb == "decompose":
+            q.add_argument("--seeds", type=int, default=3, help="PySR searches per direction")
+            q.add_argument("--bases", nargs="+", choices=BASES, default=list(BASES))
     a = p.parse_args()
     if a.verb == "rollouts":
         cc: AgentCC | StockCC
@@ -1483,6 +1735,8 @@ def main() -> None:
         )
     elif a.verb == "concepts":
         concepts(a.out, a.runs, units=a.units)
+    elif a.verb == "decompose":
+        decompose(a.out, a.runs, seeds=a.seeds, bases=a.bases)
     else:
         {"probe": probe, "select": select}[a.verb](a.out, a.runs)
 

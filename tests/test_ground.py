@@ -441,3 +441,15 @@ def test_symbolic_regression_with_units_keeps_dimensionless_formulas(
     )
     assert found[0]["r2"] > 0.99
     assert all(f"[{n}]" in found[0]["formula"] for n in "abc")
+
+
+def test_varimax_undoes_a_rotation_of_sparse_loadings() -> None:
+    rng = np.random.default_rng(0)
+    load = np.zeros((8, 3))
+    load[[0, 1], 0], load[[2, 3, 4], 1], load[[5, 6], 2] = 1.0, 1.0, 1.0
+    load += 0.05 * rng.normal(size=load.shape)
+    q, _ = np.linalg.qr(rng.normal(size=(3, 3)))
+    mixed = load @ q
+    m = mixed @ ground.varimax(mixed)
+    blocks = sorted(tuple(np.flatnonzero(np.abs(m[:, j]) > 0.5).tolist()) for j in range(3))
+    assert blocks == [(0, 1), (2, 3, 4), (5, 6)]
