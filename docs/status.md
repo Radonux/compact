@@ -6,23 +6,19 @@ history is in git. The steps are those of the
 
 ## Where the project stands
 
-No controller is known to be trained well yet: BBRv3 is now the
-reference, and a controller is trained well when it is within 0.1 of
-BBRv3 both alone and with a competing flow
-([methodology.md](methodology.md#comparing-controllers)). The confirmed
-controllers' standing against BBRv3 (`experiments/versus-bbr3.json`),
-longer training with a rate schedule
-(`experiments/controller-rl-scheduled.json`) and a first symbolic
-regression of the best confirmed controllers' latents
-(`experiments/concepts-confirm.json`) are running, UNRUN until they
-publish. The scores below that were measured against the fixed rule
-stay as they ran.
+Against BBRv3, Cubic's width 10 is trained well over three seeds, as are
+both references without an encoder and the fixed rule; the other widths
+fall short with a competing flow ([below](#against-bbrv3)). The latents
+of the best confirmed controllers are mostly the sender's own window,
+with little of the path beyond it ([grounding](#grounding)). Longer
+training with a rate schedule (`experiments/controller-rl-scheduled.json`)
+is running, UNRUN.
 
 | Step | State |
 |---|---|
 | 1 Setup | done: the estimator of the seven LCFs and the rule graph as releases |
-| 2 Train | bootstrapped from Cubic and BBRv3; reinforcement learning tuned at width 10 and confirmed at widths 7, 10 and 16 over three seeds; longer training running |
-| 3 Ground | the confirmed controllers grounded; PySR on the best of them running |
+| 2 Train | bootstrapped from Cubic and BBRv3; reinforcement learning tuned at width 10 and confirmed at widths 7, 10 and 16 over three seeds; against BBRv3 Cubic's width 10 is trained well; longer training running |
+| 3 Ground | the confirmed controllers grounded; PySR on the best of them finds the window and little of the path |
 | 4 Retrain | UNRUN. Built: `train run` for net1 on any stored label or composite, `train ppo` for net2, live truth for oracles. Not built: labels from fitted formulas beyond the composites. |
 
 ## Training the discovery controller
@@ -72,33 +68,34 @@ learning rate 0.00003, clip 0.2 and noise 0.1 for BBRv3. Learning rate
   to 46% of the link. Why that clone does is UNRUN.
 - More than three seeds need more clones from the bootstrap.
 
-### Against the reference and the teachers
+### Against BBRv3
 
-The confirmed controllers and their teachers on the same validation
-episodes (`exp-ground-rl-confirm-32`, `exp-teachers-val-35`,
-`exp-versus-teachers-36`). Differences in log utility, paired by link;
-the share is the observed flow's part of what all flows took, with a
-competing flow. These are readings: controllers are not compared until
-they train well ([methodology.md](methodology.md#comparing-controllers)).
+The confirmed controllers, their references without an encoder, the
+fixed rule and the teachers on the same validation episodes
+(`experiments/versus-bbr3.json`, run on the session's machine while the
+runners were busy; its release is the queued run 41, UNRUN until it
+publishes). Log utility minus BBRv3's, the mean of three seeds per link,
+with a 95% interval over 21 links; trained well is within 0.1 both alone
+and with a competing flow. The share is the observed flow's part of what
+all flows took, with a competing flow.
 
-| Teacher | Controller | Minus the reference, alone | With a competing flow | Minus the teacher, alone | With a competing flow | Share |
-|---|---|---|---|---|---|---|
-| Cubic | the teacher | | | | | 0.53 |
-| Cubic | reference | | | +1.18 | +0.06 | 0.65 |
-| Cubic | 7 | -0.38 | -0.47 | +0.81 | -0.41 | 0.50 |
-| Cubic | 10 | +0.03 | -0.05 | +1.21 | +0.02 | 0.60 |
-| Cubic | 16 | +0.06 | -0.35 | +1.24 | -0.29 | 0.51 |
-| BBRv3 | the teacher | | | | | 0.53 |
-| BBRv3 | reference | | | +0.31 | +0.06 | 0.56 |
-| BBRv3 | 7 | -0.03 | -0.16 | +0.28 | -0.10 | 0.53 |
-| BBRv3 | 10 | +0.00 | -0.35 | +0.31 | -0.28 | 0.49 |
-| BBRv3 | 16 | -0.02 | -0.32 | +0.28 | -0.26 | 0.50 |
+| Controller | Alone | With a competing flow | Trained well | Share |
+|---|---|---|---|---|
+| Cubic, width 7 | -0.20 (-0.42 to +0.01) | -0.38 (-0.58 to -0.19) | no | 0.50 |
+| Cubic, width 10 | +0.20 (+0.07 to +0.32) | +0.04 (-0.08 to +0.17) | yes | 0.60 |
+| Cubic, width 16 | +0.23 (+0.13 to +0.34) | -0.26 (-0.47 to -0.06) | no | 0.51 |
+| Cubic, reference | +0.17 (+0.08 to +0.27) | +0.09 (-0.03 to +0.20) | yes | 0.65 |
+| BBRv3, width 7 | +0.28 (+0.17 to +0.38) | -0.10 (-0.25 to +0.04) | no | 0.53 |
+| BBRv3, width 10 | +0.31 (+0.21 to +0.40) | -0.28 (-0.49 to -0.09) | no | 0.49 |
+| BBRv3, width 16 | +0.28 (+0.18 to +0.37) | -0.26 (-0.44 to -0.08) | no | 0.50 |
+| BBRv3, reference | +0.31 (+0.25 to +0.37) | +0.06 (-0.04 to +0.15) | yes | 0.56 |
+| The fixed rule | +0.45 (+0.40 to +0.52) | +0.13 (+0.00 to +0.24) | yes | 0.62 |
+| Cubic itself | -1.01 (-1.21 to -0.81) | +0.03 (-0.04 to +0.10) | no | 0.53 |
+| BBRv3 itself | | | | 0.53 |
 
-- Alone on the link the latents cost nothing measurable: every width is
-  within the margin of its reference (95% intervals over links above
-  -0.1), but Cubic's width 7. Every controller beats its teacher there.
-- With a competing flow the widths score below the reference and take a
-  smaller share; the references take more than the teachers do.
+- Alone, every controller but Cubic's width 7 is above BBRv3.
+- With a competing flow, of the widths only Cubic's 10 is within 0.1;
+  the others take a smaller share than their references.
 
 ## Grounding
 
@@ -129,8 +126,26 @@ per width, R^2 of a small network on the validation links:
   at its previous decision, in all 18 controllers.
 - The two-term formula search adds 0.01 to 0.02 over single variables.
 
-PySR on the three best confirmed networks per teacher
-(`experiments/concepts-confirm.json`) is running, UNRUN.
+PySR on the three best confirmed networks per teacher, run on the
+session's machine and published through the runner
+(`experiments/concepts-confirm.json` and
+`experiments/concepts-beyond-window.json`; their releases are the queued
+runs 42 and 43, UNRUN until they publish):
+
+- The latents are mostly the sender's own window, which the encoder
+  reads from the packets in flight. A network on the window's features
+  explains 0.16 to 0.93 of a latent, most above 0.8. With the window as
+  an input, PySR recovers 10 of 21 latents from BBRv3 and 4 of 33 from
+  Cubic at 0.8; pooled, they are the log of the window and, from BBRv3,
+  one mix of the window and the flow's arrival rate.
+- Beyond the window, little carries over from the training links to the
+  validation links: a network on the window's and the path's features
+  explains at most 0.63 of what remains of a latent, and on many latents
+  less than a constant. One formula is recovered, from BBRv3: the log of
+  the flow's arrival rate over the base RTT (0.27, of a ceiling of 0.32).
+  The remainder from Cubic reads loss and delay, which PySR fits at 0.28
+  or less against ceilings up to 0.60, per latent or along the
+  directions a network explains best.
 
 A stress test of the fitter (`exp-ground-stress-23`) plants latents with
 a known answer. From the stored labels alone the formula search names
@@ -183,6 +198,7 @@ the fault in episodes with cross flows.
 | Which path orders the concepts in retraining | The decision's change comes mostly from the decoder's memory, while the latents are explained to 0.80 to 0.86. The latents' path, or ground truth over a longer history, are the candidates. |
 | Labels for fitted formulas | A formula over stored labels becomes a composite with no new data ([architecture.md](architecture.md#composites)). One with a windowed operator over past steps has no such path yet. |
 | The kind of output the retrained net1 states | A value, an interval or a distribution. |
+| How to make the latents carry the path | The encoder sees the window through the packets in flight, and the latents carry it. Hiding the window's proxies from the encoder is the candidate. |
 
 ## Checks
 
