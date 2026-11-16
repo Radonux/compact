@@ -3,7 +3,7 @@
 An experiment is one JSON file under experiments/, or the same JSON given
 inline to the workflow (it then needs a "name"), parsed here once. The
 workflow runs it in four steps: plan (expand the cells, run `prepare` once),
-one job per cell (`run`; at most 256 cells, 20 at a time, 6 h each), collect
+one job per cell (`run`; at most 256 cells, `parallel` at a time, 6 h each), collect
 (merge every cell's output, run `collect`, pack the result), and publish
 (the result as a GitHub release, the long-term record of every run).
 
@@ -19,6 +19,7 @@ one job per cell (`run`; at most 256 cells, 20 at a time, 6 h each), collect
       "run": "bash, once per cell",
       "collect": "bash, once, after every cell succeeded; reads and writes $OUT",
       "collect_inputs": false,      # fetch the inputs for collect too (default: no)
+      "parallel": 20,               # cells at once, at most 20 (default)
       "timeout_minutes": 360
     }
 
@@ -74,6 +75,7 @@ class Experiment(BaseModel):
     run: Annotated[str, Field(min_length=1)]
     collect: str = ""
     collect_inputs: bool = False
+    parallel: Annotated[int, Field(ge=1, le=20)] = 20
     timeout_minutes: Annotated[int, Field(ge=1, le=360)] = 360
 
     @model_validator(mode="after")
@@ -146,6 +148,7 @@ def plan(source: str, name: str, exp: Experiment) -> None:
     print(f"title={exp.title or name}")
     print("matrix=" + json.dumps({"cell": cells}, separators=(",", ":")))
     print(f"timeout={exp.timeout_minutes}")
+    print(f"parallel={exp.parallel}")
     for k, v in flags.items():
         print(f"{k}={str(v).lower()}")
     out = REPO / "out"

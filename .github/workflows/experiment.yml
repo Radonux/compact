@@ -31,6 +31,7 @@ jobs:
       title: ${{ steps.plan.outputs.title }}
       matrix: ${{ steps.plan.outputs.matrix }}
       timeout: ${{ steps.plan.outputs.timeout }}
+      parallel: ${{ steps.plan.outputs.parallel }}
       uml: ${{ steps.plan.outputs.uml }}
       train: ${{ steps.plan.outputs.train }}
       inputs: ${{ steps.plan.outputs.inputs }}
@@ -98,7 +99,7 @@ jobs:
       actions: read
     strategy:
       fail-fast: false
-      max-parallel: 20
+      max-parallel: ${{ fromJSON(needs.plan.outputs.parallel) }}
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v7

@@ -29,6 +29,7 @@ def test_cells_are_shards_or_the_product_of_the_matrix_axes() -> None:
     env = experiment.environment(m, 4)
     assert (env["SEED"], env["LR"], env["CELL"], env["CELLS"]) == ("1", "0.2", "4", "6")
     assert experiment.label(parse(shards=3).cells()[1]) == "shard 1/3"
+    assert (parse(shards=3).parallel, parse(shards=3, parallel=5).parallel) == (20, 5)
 
 
 @pytest.mark.parametrize(
@@ -42,6 +43,8 @@ def test_cells_are_shards_or_the_product_of_the_matrix_axes() -> None:
         {"matrix": {"seed": []}},  # empty axis
         {"shards": 2, "inputs": {"data": "https://example.org/x"}},  # not a release or a run
         {"shards": 2, "timeout_minutes": 361},  # beyond GitHub's 6 h
+        {"shards": 2, "parallel": 0},
+        {"shards": 2, "parallel": 21},  # beyond the workflow's 20
         {"shards": 2, "unknown": 1},
     ],
 )

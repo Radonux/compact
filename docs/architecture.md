@@ -291,8 +291,8 @@ An experiment is one JSON file under `experiments/` (format in
 
 1. plan expands the cells and runs `prepare`;
 2. uml takes the UML build from the Actions cache;
-3. cells runs `run` per cell (at most 256 cells, 20 at a time, 6 h each,
-   on 4-core runners);
+3. cells runs `run` per cell (at most 256 cells, 6 h each, on 4-core
+   runners, `parallel` at a time: 20 unless the file sets fewer);
 4. collect runs only once every cell succeeded;
 5. publish makes release `exp-NAME-RUN`, with the experiment's JSON and
    `summary.md` in its notes.
