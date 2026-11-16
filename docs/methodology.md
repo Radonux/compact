@@ -119,16 +119,17 @@ path, and so does everything it sets.
    only, gives PySR its inputs. A search over products and sums of a few
    labels adds composites to the library.
 3. `concepts`: the sender's own window is the first concept, since the
-   encoder sees it through the packets in flight; the rest are what the
-   latents hold beyond it. A small network on the window's features takes the window out of each
-   latent. PySR fits the rest over the window in force, in packets, and
-   the path's first 8 features in ms, Mbit/s or kB, with + - * / and log
-   and at most 20 nodes; the formula kept is the simplest within 0.01 of
-   the best R^2 on the validation links. The ceiling is the same network
-   on the window's and the path's features. A formula is recovered when
-   it reads the path, the ceiling is at least 0.1 and PySR reaches 0.8 of
-   it. Pooled over networks, of formulas whose values correlate above 0.9
-   the simplest is kept.
+   latents carry the decision and the window in force is the previous
+   one; the rest are what the latents hold beyond it. A small network on
+   the window's features takes the window out of each latent. PySR fits
+   the rest over the window in force, in packets, and the path's first 8
+   features in ms, Mbit/s or kB, with + - * / and log and at most 20
+   nodes; the formula kept is the simplest within 0.01 of the best R^2
+   on the validation links. The ceiling is the same network on the
+   window's and the path's features. A formula is recovered when it
+   reads the path, the ceiling is at least 0.1 and PySR reaches 0.8 of
+   it. Pooled over networks, of formulas whose values correlate above
+   0.9 the simplest is kept.
 
 ## net1's output
 

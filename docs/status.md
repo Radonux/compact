@@ -10,12 +10,16 @@ Against BBRv3, Cubic's width 10 is trained well over three seeds, as are
 both references without an encoder and the fixed rule; the other widths
 fall short with a competing flow ([below](#against-bbrv3)).
 
-Step 3 is open. The latents of the best confirmed controllers are mostly
-the sender's own window, which the encoder reads from the packets in
-flight, with little of the path beyond it ([grounding](#grounding)).
-Whether path concepts can be recovered at all is decided by the same
-controllers trained with those columns hidden from the encoder
-(`experiments/controller-hidden-window.json`), running, UNRUN. Longer
+Step 3 has its result. The latents carry the decision itself, a linear
+function of them at every width, and the window in force is the previous
+decision, so the window explains most of every latent. Hiding the
+packets in flight from the encoder does not change that and leaves
+BBRv3's controllers no worse; Cubic's widths 10 and 16 do worse
+([below](#the-window-hidden-from-the-encoder)).
+Beyond the window, five formulas over the queueing delay, the ACK path's
+delay, the RTT and the arrival rate are recovered ([grounding](#grounding)).
+Whether they close step 3, so that step 4 retrains on them, is the
+owner's call. Longer
 training with a falling rate did not pay: the best policies come early
 and most runs end below their start ([below](#longer-training)). Cubic's
 continuation at BBRv3's lower rate is running, UNRUN.
@@ -24,7 +28,7 @@ continuation at BBRv3's lower rate is running, UNRUN.
 |---|---|
 | 1 Setup | done: the estimator of the seven LCFs and the rule graph as releases |
 | 2 Train | bootstrapped from Cubic and BBRv3; reinforcement learning tuned at width 10 and confirmed at widths 7, 10 and 16 over three seeds; against BBRv3 Cubic's width 10 is trained well; longer training did not pay; a slower continuation for Cubic is running |
-| 3 Ground | open: the best confirmed controllers' latents are mostly the window; the controllers with the window hidden from the encoder are training |
+| 3 Ground | result in, the owner's call: the latents carry the decision, whether or not the encoder sees the window; beyond it, five formulas over delay and rate |
 | 4 Retrain | UNRUN. Built: `train run` for net1 on any stored label or composite, `train ppo` for net2, live truth for oracles. Not built: labels from fitted formulas beyond the composites. |
 
 ## Training the discovery controller
@@ -102,6 +106,33 @@ links; its number on the test links is UNRUN.
   (0.00003 falling to 0.000003, 240 iterations,
   `experiments/controller-rl-cubic-slow.json`) is running, UNRUN.
 
+### The window hidden from the encoder
+
+The controllers trained again from the teachers with the packets in
+flight, the delivered BDP over the window and the previous decision
+hidden from the encoder, 11 of its 70 inputs
+(`exp-controller-hidden-window-44`: 40 iterations of cloning, 120 of
+reinforcement learning, the best policy kept). Log utility minus
+BBRv3's on the validation links, the mean of three seeds per link, as in
+the table [below](#against-bbrv3):
+
+| Controller | Alone | With a competing flow | Trained well | Share |
+|---|---|---|---|---|
+| Cubic, width 7 | +0.16 (+0.09 to +0.23) | -0.24 (-0.37 to -0.10) | no | 0.50 |
+| Cubic, width 10 | -0.33 (-0.47 to -0.19) | -0.62 (-0.82 to -0.42) | no | 0.42 |
+| Cubic, width 16 | -0.27 (-0.36 to -0.17) | -0.14 (-0.27 to -0.02) | no | 0.49 |
+| BBRv3, width 7 | +0.20 (+0.09 to +0.30) | +0.02 (-0.14 to +0.17) | no | 0.59 |
+| BBRv3, width 10 | +0.25 (+0.16 to +0.34) | -0.01 (-0.18 to +0.14) | no | 0.57 |
+| BBRv3, width 16 | +0.24 (+0.15 to +0.33) | -0.06 (-0.23 to +0.11) | no | 0.57 |
+
+- BBRv3's are no worse than with the window seen: closer to BBRv3 with a
+  competing flow, a little lower alone. Per seed, 3 of 9 are within 0.1
+  of BBRv3 both ways at their best evaluation.
+- Cubic's width 10 is worse both ways and width 16 worse alone; width 7
+  is better, without the failed start of seed 1. None is trained well.
+- These are best policies, chosen on the same links, against the last
+  policies of the confirmation below; the test links are UNRUN.
+
 ### Against BBRv3
 
 The confirmed controllers, their references without an encoder, the
@@ -145,7 +176,16 @@ per width, R^2 of a small network on the validation links:
 | The window alone | 0.52 | 0.53 | 0.52 | 0.67 | 0.65 | 0.73 |
 | The window and the first 8 features of ground truth | 0.80 | 0.82 | 0.83 | 0.85 | 0.86 | 0.86 |
 | The whole library | 0.86 | 0.86 | 0.86 | 0.85 | 0.87 | 0.87 |
+| The decision from the latents, linear | 0.87 | 0.93 | 0.95 | 0.92 | 0.94 | 0.96 |
+| With the window hidden from the encoder (`exp-controller-hidden-window-44`): | | | | | | |
+| The window alone | 0.56 | 0.52 | 0.50 | 0.81 | 0.73 | 0.73 |
+| The window and the first 8 features of ground truth | 0.83 | 0.78 | 0.80 | 0.92 | 0.88 | 0.85 |
+| The whole library | 0.87 | 0.83 | 0.85 | 0.92 | 0.89 | 0.83 |
+| The decision from the latents, linear | 0.91 | 0.92 | 0.95 | 0.92 | 0.95 | 0.97 |
 
+- The latents carry the decision at every width (action collapse), and
+  the window in force is the previous decision, so the window explains
+  the latents whether or not the encoder sees it.
 - From Cubic a drop fraction comes first at every width; from BBRv3 the
   flow's arrival rate (with the window held, the RTT), then the base RTT
   and the queueing delay on the ACK path.
@@ -162,9 +202,8 @@ PySR on the three best confirmed networks per teacher, run on the
 session's machine and published through the runner
 (`exp-concepts-confirm-42`, `exp-concepts-beyond-window-43`):
 
-- The latents are mostly the sender's own window, which the encoder
-  reads from the packets in flight. A network on the window's features
-  explains 0.16 to 0.93 of a latent, most above 0.8. With the window as
+- The latents are mostly the sender's own window. A network on the
+  window's features explains 0.16 to 0.93 of a latent, most above 0.8. With the window as
   an input, PySR recovers 10 of 21 latents from BBRv3 and 4 of 33 from
   Cubic at 0.8; pooled, they are the log of the window and, from BBRv3,
   one mix of the window and the flow's arrival rate.
@@ -176,6 +215,19 @@ session's machine and published through the runner
   The remainder from Cubic reads loss and delay, which PySR fits at 0.28
   or less against ceilings up to 0.60, per latent or along the
   directions a network explains best.
+
+The same on the three best controllers per teacher with the window
+hidden from the encoder (`exp-controller-hidden-window-44`):
+
+- Beyond the window, a network on the window's and the path's features
+  explains at most 0.71 of what remains of a latent.
+- Recovered from BBRv3: a latent the window does not explain (0.02),
+  fitted at 0.59 of a ceiling of 0.71 by the mean queueing delay over
+  240 ms and the inverse of the minimum RTT ratio over 960 ms times the
+  ACK path's queueing delay; and two weaker forms of the queueing delay
+  with the window (0.28 of 0.32, and 0.28 above a ceiling of 0.12).
+- Recovered from Cubic: a function of the ACK path's queueing delay over
+  10 ms (0.31 of 0.36). The rest reads loss again, at 0.31 or less.
 
 A stress test of the fitter (`exp-ground-stress-23`) plants latents with
 a known answer. From the stored labels alone the formula search names
@@ -205,6 +257,7 @@ basis; nothing is found in noise.
 | `exp-versus-bbr3-41` | Every controller, the fixed rule and the teachers against BBRv3. |
 | `exp-concepts-confirm-42` | PySR on the best confirmed controllers' latents, the window an input. |
 | `exp-concepts-beyond-window-43` | PySR on what those latents hold beyond the window. |
+| `exp-controller-hidden-window-44` | The controllers trained with the window hidden from the encoder, against BBRv3, their grounding and PySR beyond the window. |
 | `exp-steps-broad-30s-9`, `exp-phase0-teachers-1`, `exp-phase0-steps-2` | Old guest; not used. |
 
 ## A fault in earlier episodes
