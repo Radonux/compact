@@ -1511,8 +1511,9 @@ def decomposed(run: Path, seeds: int, basis: str) -> dict[str, Any]:  # noqa: PL
             g |= f
             g["path"] = any(f"[{n}]" in g["formula"] for n in path)
             g["recovered"] = bool(g["path"] and g["r2"] >= RECOVERED * g["ceiling"])
-            if g["recovered"]:
-                v = np.nan_to_num(predict(x_all), nan=0.0, posinf=0.0, neginf=0.0)
+            if g["recovered"]:  # 0, the direction's mean, where a feature is undefined
+                v = np.zeros(len(x_all))
+                v[ok_b] = np.nan_to_num(predict(x_all[ok_b]), nan=0.0, posinf=0.0, neginf=0.0)
                 d_hat[:, j] = v
                 values.append(v)
         found.append(g)
