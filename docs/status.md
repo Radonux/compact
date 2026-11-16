@@ -16,13 +16,14 @@ flight, with little of the path beyond it ([grounding](#grounding)).
 Whether path concepts can be recovered at all is decided by the same
 controllers trained with those columns hidden from the encoder
 (`experiments/controller-hidden-window.json`), running, UNRUN. Longer
-training with a rate schedule (`experiments/controller-rl-scheduled.json`)
-is running, UNRUN.
+training with a falling rate did not pay: the best policies come early
+and most runs end below their start ([below](#longer-training)). Cubic's
+continuation at BBRv3's lower rate is next, UNRUN.
 
 | Step | State |
 |---|---|
 | 1 Setup | done: the estimator of the seven LCFs and the rule graph as releases |
-| 2 Train | bootstrapped from Cubic and BBRv3; reinforcement learning tuned at width 10 and confirmed at widths 7, 10 and 16 over three seeds; against BBRv3 Cubic's width 10 is trained well; longer training running |
+| 2 Train | bootstrapped from Cubic and BBRv3; reinforcement learning tuned at width 10 and confirmed at widths 7, 10 and 16 over three seeds; against BBRv3 Cubic's width 10 is trained well; longer training did not pay; a slower continuation for Cubic is next |
 | 3 Ground | open: the best confirmed controllers' latents are mostly the window; the controllers with the window hidden from the encoder are training |
 | 4 Retrain | UNRUN. Built: `train run` for net1 on any stored label or composite, `train ppo` for net2, live truth for oracles. Not built: labels from fitted formulas beyond the composites. |
 
@@ -65,13 +66,42 @@ learning rate 0.00003, clip 0.2 and noise 0.1 for BBRv3. Learning rate
   policy then drifts into the smallest window, where the reward's floor
   of 1% of capacity leaves no gradient back. The trainer now ramps the
   rate up after a restart, can anneal it to a final rate, and keeps the
-  best evaluated policy (`lr_warmup`, `lr_end`, `policy-best.onnx`). The
-  same continuation with the rate falling to a tenth is running
-  (`experiments/controller-rl-scheduled.json`), UNRUN.
+  best evaluated policy (`lr_warmup`, `lr_end`, `policy-best.onnx`).
 - Cubic's width 7, seed 1, fails at both confirmed settings: from the
   clone with the smallest window it settles on a small window, using 25%
   to 46% of the link. Why that clone does is UNRUN.
 - More than three seeds need more clones from the bootstrap.
+
+### Longer training
+
+The same continuation, 240 iterations with the rate falling to a tenth
+(`exp-controller-rl-scheduled-39`), scored against BBRv3 on the
+validation links. Each run keeps its best evaluation, chosen on those
+links; its number on the test links is UNRUN.
+
+| Log utility minus BBRv3's, all conditions, mean of 3 seeds | Start | Best | Last | Seeds trained well at their best |
+|---|---|---|---|---|
+| Cubic, reference | +0.13 | +0.16 | -0.77 | 2 |
+| Cubic, width 7 | -0.29 | +0.02 | -0.29 | 1 |
+| Cubic, width 10 | +0.12 | +0.19 | +0.04 | 3 |
+| Cubic, width 16 | -0.01 | -0.00 | -0.71 | 1 |
+| BBRv3, reference | +0.18 | +0.22 | +0.20 | 3 |
+| BBRv3, width 7 | +0.09 | +0.12 | +0.01 | 2 |
+| BBRv3, width 10 | +0.01 | +0.09 | -0.01 | 0 |
+| BBRv3, width 16 | +0.01 | +0.06 | -0.05 | 0 |
+
+- Keeping the best policy gains 0.01 to 0.08 over the start at each
+  width (0.31 at Cubic's width 7, from seed 1's failed start). The best
+  comes by iteration 59 in 13 of the 18 runs with an encoder, and 14 of
+  them end below their start. BBRv3's drift too, at a rate ten times
+  lower than Cubic's, while BBRv3's references hold.
+- Cubic's reference, seed 3, fell to -2.67 by the end.
+- Where a width falls short, it is with a competing flow, as
+  [below](#against-bbrv3).
+- Cubic's continuation from these best policies at BBRv3's rate
+  (0.00003 falling to 0.000003, 240 iterations,
+  `experiments/controller-rl-cubic-slow.json`) starts once this release
+  is published, UNRUN.
 
 ### Against BBRv3
 
@@ -172,6 +202,7 @@ basis; nothing is found in noise.
 | `exp-probe-memory-33`, `exp-probe-memory-34` | The decision's change from the step's latents and window. |
 | `exp-teachers-val-35` | Cubic and BBRv3 on the grounding's validation episodes. |
 | `exp-versus-teachers-36` | Each controller against its teacher. |
+| `exp-controller-rl-scheduled-39` | The confirmed controllers trained 240 iterations more with a falling rate, keeping the best policy. |
 | `exp-versus-bbr3-41` | Every controller, the fixed rule and the teachers against BBRv3. |
 | `exp-concepts-confirm-42` | PySR on the best confirmed controllers' latents, the window an input. |
 | `exp-concepts-beyond-window-43` | PySR on what those latents hold beyond the window. |
