@@ -1,0 +1,16 @@
+{
+  "title": "The confirmed controllers and the fixed rule against BBRv3",
+  "description": "BBRv3 is the reference for every comparison (docs/methodology.md, comparing controllers). experiments/versus_reference.py sets each controller against BBRv3 on the same validation episodes: the references and widths of the confirmed controllers (their rollouts in exp-ground-rl-confirm-32), Cubic (exp-teachers-val-35, beside BBRv3 itself), and the fixed rule, whose rollouts this run makes on the same episodes with ground.py rollouts (the rule as the trainer evaluates it, setup/rule/rule-u0.25.onnx of the confirmation's setup, made again by the same prepare; the training links are cut to one episode). The same campaign and seeds give the same episodes: the validation campaign is a fixed list of links and every episode's seed is 7 plus its place in it, as in the trainer's evaluation. For each, the log utility minus BBRv3's, paired by link, without and with a competing flow, with a bootstrap 95% interval over links; trained well means the whole interval above -0.1 in both. The rule's own rollouts also let the trainer's evaluations, which are paired with the rule, be set against BBRv3 per link and condition. The test links are not read.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "estimator": "release:exp-estimator-seven-20",
+    "rule": "release:exp-steps-behaviour-rule-8",
+    "ground": "release:exp-ground-rl-confirm-32",
+    "teachers": "release:exp-teachers-val-35"
+  },
+  "prepare": "uv run python experiments/net2_ppo_setup.py \"$OUT/setup\" --net1 \"$IN/estimator/estimator/net1.pt\" --models \"$IN/rule/models\" --u 0.25 --paths net2-train-xl",
+  "shards": 1,
+  "run": "mkdir -p \"$OUT/rule-s1\"; cp \"$OUT/setup/ppo-base.json\" \"$OUT/rule-s1/ppo_spec.json\"; cp \"$OUT/setup/rule/rule-u0.25.onnx\" \"$OUT/rule-s1/policy.onnx\"; uv run python experiments/ground.py rollouts \"$OUT/rule-s1\" --links 1 --fit \"$OUT/setup/paths/campaign.json\" --score \"$OUT/setup/eval/campaign.json\" --build \"$UML\" --workers \"$WORKERS\"; uv run python experiments/versus_reference.py \"$OUT/versus-bbr3\" \"$IN/ground\"/ref-* \"$IN/ground\"/ctl-* \"$IN/teachers\"/stock-* \"$OUT/rule-s1\"",
+  "timeout_minutes": 180
+}

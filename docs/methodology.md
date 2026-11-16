@@ -56,18 +56,18 @@ net1 can output only the fitted formulas.
 
 ### Comparing controllers
 
-- Until the controllers train well, the log utility over all conditions
-  is the target, a larger share of a competing flow included. Fairness is
-  judged afterwards, by ccperf (`experiments/ccperf.py`). Scores are
-  reported without and with a competing flow, with the observed flow's
-  share.
-- Between controllers trained the same way, once they train well, the
-  constrained one is comparable when the whole 95% interval of its
-  difference lies above -0.1 (about 10% of throughput at equal delay and
-  loss), not comparable when it lies below, and unresolved otherwise.
-- Against a controller not trained on this objective (Cubic, BBRv3, the
-  fixed rule) the signed difference is reported, with no verdict.
-- A run keeps its best evaluated policy on the validation links, and
+- BBRv3 is the reference for every comparison. Each controller is
+  reported as its log utility minus BBRv3's on the same episodes, paired
+  by link, without and with a competing flow, with a 95% bootstrap
+  interval over links.
+- A controller is trained well when it is within the margin of BBRv3
+  both alone and with a competing flow: in each, the whole interval of
+  its difference lies above -0.1 (about 10% of throughput at equal delay
+  and loss). Below that, the target is the log utility over all
+  conditions, a larger share of a competing flow included.
+- Fairness is left until everything else is done (ccperf,
+  `experiments/ccperf.py`).
+- A run keeps its best evaluated policy on the validation links and
   scores as that policy. Since it is chosen on those links, the test
   links give the unbiased number.
 
@@ -78,7 +78,7 @@ A step moves, is added or is dropped when the evidence says so.
 1. Setup. Every input is a release of this repository.
 2. Train the discovery controllers: bootstrap from each teacher, then
    reinforcement learning, tuned on validation links, beside a reference
-   without an encoder. Push the log utility up.
+   without an encoder, until they are trained well against BBRv3.
 3. Ground the best-trained controllers ([below](#grounding)).
 4. Retrain net1 and net2 on the concepts, m = 1, 2, 3, 5, 7, 10, 16 and
    all of them, with an oracle net2 on the true values, and read the
@@ -149,7 +149,7 @@ them. [concepts.md](concepts.md) reviews the literature's concepts.
 | the seven LCFs | expliCCit's hand-picked set: mean queueing delay, queue, capacity, free buffer, busy fraction, one-way delay and receive rate, over the trailing 100 ms. |
 | net1, net2 | The estimator (70 of the 78 message values to one belief per LCF, trained against ground truth) and the decision maker (window from net1's output alone). |
 | discovery controller | [Above](#the-discovery-controller). Never shipped. |
-| fixed rule | A window of 2^0.25 times the believed BDP (net1's capacity times twice its one-way delay) of the estimator of the seven LCFs. A reference in evaluations. |
+| fixed rule | A window of 2^0.25 times the believed BDP (net1's capacity times twice its one-way delay) of the estimator of the seven LCFs. The earlier reference, before BBRv3. |
 | concept | A formula recovered from a best-trained network's latents, once named. |
 | count | The number of concepts at which the log utility of net1 + net2 retrained on them stops rising. |
 | log utility | Per 10 ms step, from ground truth: ln(max(receive rate / capacity, 0.01)) - 0.5 queueing delay / base RTT - 4 drop fraction (`train/score.py`), averaged over steps and episodes. |

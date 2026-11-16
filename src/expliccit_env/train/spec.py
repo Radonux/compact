@@ -273,6 +273,10 @@ class PPOSpec(BaseModel):
     # The fixed rule's exported policy, run once on the evaluation arms so
     # every evaluation is paired with it by link and condition.
     rule_policy: Path | None = None
+    # A Linux controller run once on the evaluation arms, as the rule is:
+    # every evaluation is also paired with it, and the best policy is the
+    # one that scores best against it (docs/methodology.md: BBRv3).
+    reference_cc: StockName | None = None
     # The fixed rule's u: where the actor starts, and what the teachers and
     # gate students fall back to.
     u_rule: float = 0.125

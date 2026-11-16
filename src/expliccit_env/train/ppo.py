@@ -56,7 +56,7 @@ from typing import Any
 import numpy as np
 import torch
 
-from expliccit_env.spec import AgentCC, Condition, EpisodeSpec, OnnxPolicy, PathSpec
+from expliccit_env.spec import AgentCC, Condition, EpisodeSpec, OnnxPolicy, PathSpec, StockCC
 from expliccit_env.train import fit, handoff, learners, mixture, rollouts, score
 from expliccit_env.train.actors import Head, policy_graph
 from expliccit_env.train.actors import width as actor_width
@@ -85,16 +85,19 @@ def _scores(d: Path) -> dict[tuple[str, str], float]:
     return {(k[1], k[2]): float(np.mean(v)) for k, v in per.items()}
 
 
+def _agent(policy: Path) -> AgentCC:
+    return AgentCC(
+        policy=OnnxPolicy(path=policy, sha256=hashlib.sha256(policy.read_bytes()).hexdigest())
+    )
+
+
 def _evaluate(
     d: Path,
-    policy: Path,
+    cc: AgentCC | StockCC,
     arms: list[tuple[PathSpec, Condition]],
     spec: PPOSpec,
     run: Any,
 ) -> dict[tuple[str, str], float]:
-    cc = AgentCC(
-        policy=OnnxPolicy(path=policy, sha256=hashlib.sha256(policy.read_bytes()).hexdigest())
-    )
     eps = [
         EpisodeSpec(
             path=p.model_copy(update={"loss": c.loss}),
@@ -114,8 +117,10 @@ def _evaluate(
 
 
 def _paired(
-    pol: dict[tuple[str, str], float], rule: dict[tuple[str, str], float]
+    pol: dict[tuple[str, str], float], rule: dict[tuple[str, str], float], name: str = "rule"
 ) -> dict[str, Any]:
+    """The policy's scores paired with a reference's by link and condition,
+    under keys minus_NAME."""
     keys = sorted(pol.keys() & rule.keys())
     diff = np.array([pol[k] - rule[k] for k in keys])
     by: dict[str, list[float]] = {}
@@ -123,22 +128,26 @@ def _paired(
         by.setdefault(k[1], []).append(v)
     return {
         "log_utility": float(np.mean([pol[k] for k in keys])) if keys else math.nan,
-        "minus_rule": float(diff.mean()) if keys else math.nan,
+        f"minus_{name}": float(diff.mean()) if keys else math.nan,
         "pairs": len(keys),
-        "minus_rule_by_condition": {c: float(np.mean(v)) for c, v in sorted(by.items())},
+        f"minus_{name}_by_condition": {c: float(np.mean(v)) for c, v in sorted(by.items())},
         # Each (link, condition) pair, so that intervals over links can be drawn.
-        "minus_rule_by_pair": [[k[0], k[1], d] for k, d in zip(keys, diff.tolist(), strict=True)],
+        f"minus_{name}_by_pair": [
+            [k[0], k[1], d] for k, d in zip(keys, diff.tolist(), strict=True)
+        ],
     }
 
 
-def _keep_best(out: Path, it_dir: Path, it: int, score: float, best: float) -> float:
-    """Copy iteration ``it``'s evaluated policy and actor to OUT/policy-best.onnx
-    and OUT/actor-best.pt when it scores above ``best``; the best score."""
+def _keep_best(  # noqa: PLR0917  (one caller, naming what it passes)
+    out: Path, policy: Path, actor: Path, it: int, score: float, best: float
+) -> float:
+    """Copy an evaluated policy and its actor to OUT/policy-best.onnx and
+    OUT/actor-best.pt when it scores above ``best``; the best score."""
     if score <= best:
         return best
-    shutil.copyfile(it_dir / "policy-updated.onnx", out / "policy-best.onnx")
-    shutil.copyfile(it_dir / "actor.pt", out / "actor-best.pt")
-    (out / "best.json").write_text(json.dumps({"iteration": it, "minus_rule": score}))
+    shutil.copyfile(policy, out / "policy-best.onnx")
+    shutil.copyfile(actor, out / "actor-best.pt")
+    (out / "best.json").write_text(json.dumps({"iteration": it, "score": score}))
     return score
 
 
@@ -195,14 +204,28 @@ def run_ppo(  # noqa: PLR0915  (the training loop, read top to bottom)
     history: list[dict[str, Any]] = []
     rule_scores: dict[tuple[str, str], float] = {}
     if eval_arms and spec.rule_policy is not None:
-        rule_scores = _evaluate(out / "rule-eval", spec.rule_policy, eval_arms, spec, run)
+        rule_scores = _evaluate(out / "rule-eval", _agent(spec.rule_policy), eval_arms, spec, run)
+    ref_scores: dict[tuple[str, str], float] = {}
+    if eval_arms and spec.reference_cc is not None:
+        ref = StockCC(name=spec.reference_cc)
+        ref_scores = _evaluate(out / "reference-eval", ref, eval_arms, spec, run)
+
+    def paired(pol: dict[tuple[str, str], float]) -> dict[str, Any]:
+        both = _paired(pol, rule_scores)
+        return both | _paired(pol, ref_scores, "reference") if ref_scores else both
+
+    # What the best policy is chosen by: the reference when there is one.
+    key = "minus_reference" if ref_scores else "minus_rule"
+    # The best evaluated policy, on the validation links, the start included:
+    # a run that falls late keeps the policy it had before.
+    best = -math.inf
     if eval_arms:
         start = _export(out / "initial" / "policy.onnx", net1, learner.actor, spec)
-        pol = _evaluate(out / "initial" / "eval", start, eval_arms, spec, run)
-        _record(out, history, {"iteration": -1, "eval": _paired(pol, rule_scores)})
-    # The best evaluated policy, on the validation links: a run that falls
-    # late keeps the policy it had before.
-    best = history[-1]["eval"]["minus_rule"] if history else -math.inf
+        pol = _evaluate(out / "initial" / "eval", _agent(start), eval_arms, spec, run)
+        _record(out, history, {"iteration": -1, "eval": paired(pol)})
+        torch.save(learner.actor.state_dict(), out / "initial" / "actor.pt")
+        score0 = history[-1]["eval"][key]
+        best = _keep_best(out, start, out / "initial" / "actor.pt", -1, score0, best)
     began_all, slowest = time.monotonic(), 0.0
     for it in range(spec.iterations):
         began = time.monotonic()
@@ -222,10 +245,10 @@ def run_ppo(  # noqa: PLR0915  (the training loop, read top to bottom)
         last = _last(spec, it, now - began_all, max(slowest, now - began))
         if eval_arms and ((it + 1) % spec.eval_every == 0 or last):
             updated = _export(it_dir / "policy-updated.onnx", net1, learner.actor, spec)
-            pol = _evaluate(it_dir / "eval", updated, eval_arms, spec, run)
-            entry["eval"] = _paired(pol, rule_scores)
+            pol = _evaluate(it_dir / "eval", _agent(updated), eval_arms, spec, run)
+            entry["eval"] = paired(pol)
             torch.save(learner.actor.state_dict(), it_dir / "actor.pt")
-            best = _keep_best(out, it_dir, it, entry["eval"]["minus_rule"], best)
+            best = _keep_best(out, updated, it_dir / "actor.pt", it, entry["eval"][key], best)
         entry["wall_s"] = time.monotonic() - began
         slowest = max(slowest, entry["wall_s"])
         _record(out, history, entry)

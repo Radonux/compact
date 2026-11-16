@@ -778,6 +778,28 @@ def test_a_run_the_time_budget_ends_still_scores_the_policy_it_leaves(
     assert history[-1]["eval"]["pairs"] == 0
 
 
+@pytest.mark.uml
+def test_a_run_set_against_bbr3_keeps_the_policy_best_against_it(
+    build: object, tmp_path: Path
+) -> None:
+    from expliccit_env.uml import UmlBuild  # noqa: PLC0415
+
+    assert isinstance(build, UmlBuild)
+    spec = _tiny_loop(tmp_path).model_copy(
+        update={"iterations": 2, "eval_every": 1, "critic_warmup": 0, "reference_cc": "bbr3"}
+    )
+    ppo.run_ppo(spec, tmp_path / "out", build, workers=2)
+    history = json.loads((tmp_path / "out" / "history.json").read_text())
+    evals = [h["eval"] for h in history if h.get("eval")]
+    assert len(evals) == 3 and all(e["pairs"] == 1 for e in evals)
+    assert all(
+        {"minus_rule", "minus_reference", "minus_reference_by_pair"} <= set(e) for e in evals
+    )
+    best = json.loads((tmp_path / "out" / "best.json").read_text())
+    assert best["score"] == max(e["minus_reference"] for e in evals)
+    assert (tmp_path / "out" / "policy-best.onnx").exists()
+
+
 def _tiny_loop(tmp_path: Path) -> ppo.PPOSpec:
     """One iteration on one 24 Mbit/s link against a copy, net1 _bdp_net1."""
     _, net1 = _bdp_net1()
@@ -1332,6 +1354,7 @@ def test_an_evaluation_keeps_each_pair_so_intervals_over_links_can_be_drawn() ->
     rule = {("a", "alone"): 0.5, ("a", "cubic from 0 s"): 1.0, ("b", "alone"): 1.0, ("c", "x"): 9.0}
     ev = ppo._paired(pol, rule)
     assert ev["pairs"] == 3 and ev["minus_rule"] == pytest.approx(1.0 / 3)
+    assert ppo._paired(pol, rule, "reference")["minus_reference"] == ev["minus_rule"]
     assert ev["minus_rule_by_pair"] == [
         ["a", "alone", 0.5],
         ["a", "cubic from 0 s", -0.5],
@@ -1356,8 +1379,9 @@ def test_a_run_keeps_its_best_evaluated_policy(tmp_path: Path) -> None:
     it_dir.mkdir()
     (it_dir / "policy-updated.onnx").write_bytes(b"p4")
     (it_dir / "actor.pt").write_bytes(b"a4")
-    assert ppo._keep_best(tmp_path, it_dir, 4, -0.3, -0.2) == -0.2  # worse: nothing kept
+    policy, actor = it_dir / "policy-updated.onnx", it_dir / "actor.pt"
+    assert ppo._keep_best(tmp_path, policy, actor, 4, -0.3, -0.2) == -0.2  # worse: nothing kept
     assert not (tmp_path / "policy-best.onnx").exists()
-    assert ppo._keep_best(tmp_path, it_dir, 4, -0.1, -0.2) == -0.1
+    assert ppo._keep_best(tmp_path, policy, actor, 4, -0.1, -0.2) == -0.1
     assert (tmp_path / "policy-best.onnx").read_bytes() == b"p4"
-    assert json.loads((tmp_path / "best.json").read_text()) == {"iteration": 4, "minus_rule": -0.1}
+    assert json.loads((tmp_path / "best.json").read_text()) == {"iteration": 4, "score": -0.1}

@@ -108,6 +108,7 @@ min RTT (clamped to 10 to 50 ms) and holds its decision u in between.
 | `iterations`, `links_per_iteration`, `group` | 40, 8, 4 | rollouts per iteration are links times group |
 | `noise_sigma`, `noise_hold_steps`, `tau_s`, `lr` | 0.1, 1, 3.0, 3e-4 | exploration, the reward's time constant, the actor's learning rate |
 | `lr_warmup`, `lr_end` | 0, none | the actor's rate ramps up over this many iterations after `critic_warmup`, then falls linearly to `lr_end` |
+| `reference_cc` | none | a Linux controller (`bbr3`) run once on the validation episodes: each evaluation is also reported minus it (`minus_reference`), and the best policy is chosen by it |
 | `eval_every` | 5 | score the noise-free controller on the validation set every this many iterations |
 | `time_budget_s` | none | stop before an iteration would cross it |
 

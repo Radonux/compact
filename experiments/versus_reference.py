@@ -1,20 +1,17 @@
-"""Each width against its teacher's reference, on the scoring rollouts.
+"""Each controller against BBRv3, on the same validation episodes.
 
 Reads run directories named GROUP-sSEED whose RUN/ground/score holds the
 run's own rollouts on the validation links (experiments/ground.py
-rollouts). A group ref-TEACHER is that teacher's reference without an
-encoder; every group ctl-TEACHER-kK is set against it. A group
-stock-TEACHER is the teacher itself (rollouts --stock); every ref and ctl
-group of that teacher also gets its signed difference from it, with no
-verdict, because the teacher was not trained on this objective. Per link and
+rollouts; stock-bbr3-s1 is BBRv3 itself, rollouts --stock). Per link and
 condition, a group's score is the mean over its seeds of the log utility
 the trainer optimizes (trajectories.REWARD), and its share is the
 observed flow's part of what all flows took from the bottleneck
-(score.share). The difference from the reference is paired by link, over
-the conditions without a competing flow and over those with one, with a
-bootstrap 95% interval over links, and read by the margin of 0.1
-(docs/methodology.md, comparing controllers). The share is given with a
-competing flow, where a higher score from a larger share is not a gain.
+(score.share). Every group's difference from BBRv3 is paired by link,
+over the conditions without a competing flow and over those with one,
+with a bootstrap 95% interval over links. A group is within the margin
+in a kind of condition when the whole interval lies above -0.1, and
+trained well when it is within in both (docs/methodology.md, comparing
+controllers).
 ponytail: seeds are averaged within a link before the bootstrap, so the
 interval is over links; a bootstrap over seeds as well needs more seeds.
 
@@ -37,6 +34,7 @@ from expliccit_env.train.trajectories import REWARD
 
 NAME = re.compile(r"^(?P<group>.+)-s(?P<seed>\d+)$")
 MARGIN = 0.1
+REFERENCE = "stock-bbr3"  # the group every other is set against
 
 type Pair = tuple[str, str]  # link, condition
 
@@ -69,86 +67,64 @@ def by_link(values: dict[Pair, float], want: bool) -> dict[str, float]:
     return {k: statistics.fmean(v) for k, v in out.items()}
 
 
-def interval(x: list[float], rng: np.random.Generator, margin: bool = True) -> dict[str, Any]:
+def interval(x: list[float], rng: np.random.Generator) -> dict[str, Any]:
     a = np.asarray(x, np.float64)
     boot = a[rng.integers(0, a.size, (score.RESAMPLES, a.size))].mean(axis=1)
     lo, hi = float(np.quantile(boot, 0.025)), float(np.quantile(boot, 0.975))
-    out: dict[str, Any] = {"mean": float(a.mean()), "ci95": [lo, hi], "links": int(a.size)}
-    if margin:
-        out["verdict"] = (
-            "comparable" if lo > -MARGIN else "not comparable" if hi < -MARGIN else "unresolved"
-        )
-    return out
-
-
-def teacher_of(group: str) -> tuple[str, str] | None:
-    """(kind, teacher) of a group name: ctl, ref or stock."""
-    for kind, pattern in (
-        ("ctl", r"^ctl-(.+)-k\d+$"),
-        ("ref", r"^ref-(.+)$"),
-        ("stock", r"^stock-(.+)$"),
-    ):
-        if m := re.match(pattern, group):
-            return kind, m[1]
-    return None
+    verdict = "within" if lo > -MARGIN else "below" if hi < -MARGIN else "unresolved"
+    return {"mean": float(a.mean()), "ci95": [lo, hi], "links": int(a.size), "verdict": verdict}
 
 
 def compare(groups: dict[str, dict[str, dict[Pair, float]]]) -> dict[str, Any]:
-    """groups: name -> {"score": ..., "share": ...} over seeds. Each
-    ctl-TEACHER-kK against ref-TEACHER."""
+    """groups: name -> {"score": ..., "share": ...} over seeds; each against
+    REFERENCE."""
     rng = np.random.default_rng(0)
+    ref = groups.get(REFERENCE)
     out: dict[str, Any] = {}
     for name in sorted(groups):
-        who = teacher_of(name)
-        against = {}
-        if who is not None and who[0] == "ctl" and f"ref-{who[1]}" in groups:
-            against["reference"] = (groups[f"ref-{who[1]}"], True)
-        if who is not None and who[0] != "stock" and f"stock-{who[1]}" in groups:
-            against["teacher"] = (groups[f"stock-{who[1]}"], False)
         row: dict[str, Any] = {}
         for kind, want in (("alone", False), ("competing", True)):
             own = {q: by_link(groups[name][q], want) for q in ("score", "share")}
             row[kind] = {q: statistics.fmean(v.values()) for q, v in own.items() if v}
-            for label, (other, margin) in against.items():
-                for q in ("score", "share"):
-                    theirs = by_link(other[q], want)
-                    links = sorted(set(own[q]) & set(theirs))
-                    if links:
-                        diff = [own[q][k] - theirs[k] for k in links]
-                        row[kind][f"{q}_minus_{label}"] = interval(diff, rng, margin)
+            if ref is None or name == REFERENCE:
+                continue
+            theirs = by_link(ref["score"], want)
+            links = sorted(set(own["score"]) & set(theirs))
+            if links:
+                diff = [own["score"][k] - theirs[k] for k in links]
+                row[kind]["minus_bbr3"] = interval(diff, rng)
+        verdicts = [row[k].get("minus_bbr3", {}).get("verdict") for k in ("alone", "competing")]
+        row["trained_well"] = verdicts == ["within", "within"]
         out[name] = row
     return out
 
 
 def text(result: dict[str, Any], seeds: dict[str, int]) -> str:
     lines = [
-        "Log utility on the validation links, each controller on its own rollouts, "
-        "the mean over seeds per link. Minus the reference: paired by link, with a "
-        f"bootstrap 95% interval over links and the verdict by the margin of {MARGIN}. "
-        "Share: the observed flow's part of what all flows took from the bottleneck.\n",
-        "| group | seeds | alone | minus the reference | verdict | with a competing flow "
-        "| minus the reference | verdict | share | share minus the reference "
-        "| alone, minus the teacher | with a competing flow, minus the teacher |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "Log utility minus BBRv3's on the same validation episodes, the mean over "
+        "seeds per link, paired by link, with a bootstrap 95% interval over links. "
+        f"Within: the whole interval above -{MARGIN}. Trained well: within both alone "
+        "and with a competing flow. Share: the observed flow's part of what all "
+        "flows took, with a competing flow.\n",
+        "| group | seeds | alone, minus BBRv3 | | with a competing flow, minus BBRv3 | "
+        "| trained well | share |",
+        "|---|---|---|---|---|---|---|---|",
     ]
 
     def d(e: dict[str, Any] | None) -> tuple[str, str]:
         if e is None:
             return "", ""
         lo, hi = e["ci95"]
-        return f"{e['mean']:+.3f} ({lo:+.2f} to {hi:+.2f})", e.get("verdict", "")
+        return f"{e['mean']:+.3f} ({lo:+.2f} to {hi:+.2f})", e["verdict"]
 
     for name, r in result.items():
         a, c = r["alone"], r["competing"]
-        ad, av = d(a.get("score_minus_reference"))
-        cd, cv = d(c.get("score_minus_reference"))
-        sd, _ = d(c.get("share_minus_reference"))
-        at, _ = d(a.get("score_minus_teacher"))
-        ct, _ = d(c.get("score_minus_teacher"))
+        ad, av = d(a.get("minus_bbr3"))
+        cd, cv = d(c.get("minus_bbr3"))
+        well = "" if name == REFERENCE else ("yes" if r["trained_well"] else "no")
         lines.append(
-            f"| {name} | {seeds[name]} | {a.get('score', float('nan')):+.3f} | {ad} | {av} "
-            f"| {c.get('score', float('nan')):+.3f} | {cd} | {cv} "
-            f"| {c.get('share', float('nan')):.3f} | {sd} | {at} | {ct} |"
+            f"| {name} | {seeds[name]} | {ad} | {av} | {cd} | {cv} | {well} "
+            f"| {c.get('share', float('nan')):.3f} |"
         )
     return "\n".join(lines) + "\n"
 

@@ -28,30 +28,26 @@ def _run(root: Path, name: str, alone: float, flow: float, cross: float) -> Path
     return root / name
 
 
-def test_a_width_is_set_against_its_teachers_reference_by_link(tmp_path: Path) -> None:
+def test_every_controller_is_set_against_bbr3_by_link(tmp_path: Path) -> None:
     runs = [
-        _run(tmp_path, "ref-cubic-s1", 0.5, 0.5, 0.5),
-        _run(tmp_path, "ref-cubic-s2", 0.5, 0.5, 0.5),
+        _run(tmp_path, "stock-bbr3-s1", 0.5, 0.5, 0.5),
+        _run(tmp_path, "ref-cubic-s1", 0.5, 0.5, 0.25),
+        _run(tmp_path, "ref-cubic-s2", 0.5, 0.5, 0.25),
         _run(tmp_path, "ctl-cubic-k7-s1", 0.5, 0.25, 0.75),
         _run(tmp_path, "ctl-cubic-k7-s2", 0.5, 0.25, 0.75),
     ]
-    runs.append(_run(tmp_path, "stock-cubic-s1", 0.25, 0.5, 0.5))
     vr.main(tmp_path / "out", runs)
     result = json.loads((tmp_path / "out" / "versus_reference.json").read_text())
-    k7 = result["groups"]["ctl-cubic-k7"]
-    assert k7["alone"]["score_minus_reference"]["mean"] == 0.0
-    assert k7["alone"]["score_minus_reference"]["verdict"] == "comparable"
+    k7, ref = result["groups"]["ctl-cubic-k7"], result["groups"]["ref-cubic"]
+    assert k7["alone"]["minus_bbr3"]["mean"] == 0.0
+    assert k7["alone"]["minus_bbr3"]["verdict"] == "within"
     # log(0.25) - log(0.5) on every link, below the margin.
-    flow = k7["competing"]["score_minus_reference"]
-    assert abs(flow["mean"] + 0.693) < 1e-3 and flow["verdict"] == "not comparable"
-    # 0.25 / (0.25 + 0.75) against 0.5 / (0.5 + 0.5).
+    flow = k7["competing"]["minus_bbr3"]
+    assert abs(flow["mean"] + 0.693) < 1e-3 and flow["verdict"] == "below"
+    assert not k7["trained_well"] and ref["trained_well"]
+    # 0.25 / (0.25 + 0.75): the share is reported, and judged nowhere.
     assert abs(k7["competing"]["share"] - 0.25) < 1e-6
-    assert abs(k7["competing"]["share_minus_reference"]["mean"] + 0.25) < 1e-6
-    assert "score_minus_reference" not in result["groups"]["ref-cubic"]["alone"]
-    # The teacher: a signed difference for the reference and each width, no verdict.
-    teacher = k7["alone"]["score_minus_teacher"]
-    assert abs(teacher["mean"] - 0.693) < 1e-3 and "verdict" not in teacher
-    assert "score_minus_teacher" in result["groups"]["ref-cubic"]["competing"]
-    assert "score_minus_reference" not in result["groups"]["stock-cubic"]["alone"]
-    assert result["seeds"] == {"ref-cubic": 2, "ctl-cubic-k7": 2, "stock-cubic": 1}
-    assert "| ctl-cubic-k7 | 2 |" in (tmp_path / "out" / "versus-reference.md").read_text()
+    assert "minus_bbr3" not in result["groups"]["stock-bbr3"]["alone"]
+    assert result["seeds"] == {"stock-bbr3": 1, "ref-cubic": 2, "ctl-cubic-k7": 2}
+    md = (tmp_path / "out" / "versus-reference.md").read_text()
+    assert "| ctl-cubic-k7 | 2 |" in md and "| no |" in md and "| yes |" in md

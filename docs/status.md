@@ -6,12 +6,17 @@ history is in git. The steps are those of the
 
 ## Where the project stands
 
-No controller is trained well yet: none reaches the fixed rule. Longer
-training with a rate schedule (`experiments/controller-rl-scheduled.json`)
-and a first symbolic
+No controller is known to be trained well yet: BBRv3 is now the
+reference, and a controller is trained well when it is within 0.1 of
+BBRv3 both alone and with a competing flow
+([methodology.md](methodology.md#comparing-controllers)). The confirmed
+controllers' standing against BBRv3 (`experiments/versus-bbr3.json`),
+longer training with a rate schedule
+(`experiments/controller-rl-scheduled.json`) and a first symbolic
 regression of the best confirmed controllers' latents
 (`experiments/concepts-confirm.json`) are running, UNRUN until they
-publish.
+publish. The scores below that were measured against the fixed rule
+stay as they ran.
 
 | Step | State |
 |---|---|
