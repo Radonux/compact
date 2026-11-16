@@ -16,8 +16,10 @@ decision, so the window explains most of every latent. Hiding the
 packets in flight from the encoder does not change that and leaves
 BBRv3's controllers no worse; Cubic's widths 10 and 16 do worse
 ([below](#the-window-hidden-from-the-encoder)).
-Beyond the window, five formulas over the queueing delay, the ACK path's
-delay, the RTT and the arrival rate are recovered ([grounding](#grounding)).
+Beyond the window, five formulas are recovered. Without their constants,
+which stand for no path variable, three read as the mean queueing delay
+over 240 ms and the flow's arrival rate, alone or over the base RTT; the
+other two are weak or an emulator effect ([grounding](#grounding)).
 Whether they close step 3, so that step 4 retrains on them, is the
 owner's call. Longer
 training with a falling rate did not pay: the best policies come early
@@ -28,7 +30,7 @@ drift less and gain no more ([below](#longer-training)).
 |---|---|
 | 1 Setup | done: the estimator of the seven LCFs and the rule graph as releases |
 | 2 Train | bootstrapped from Cubic and BBRv3; reinforcement learning tuned at width 10 and confirmed at widths 7, 10 and 16 over three seeds; against BBRv3 Cubic's width 10 is trained well; longer training did not pay, at either rate |
-| 3 Ground | result in, the owner's call: the latents carry the decision, whether or not the encoder sees the window; beyond it, five formulas over delay and rate |
+| 3 Ground | result in, the owner's call: the latents carry the decision, whether or not the encoder sees the window; beyond it, the queueing delay and the arrival rate |
 | 4 Retrain | UNRUN. Built: `train run` for net1 on any stored label or composite, `train ppo` for net2, live truth for oracles. Not built: labels from fitted formulas beyond the composites. |
 
 ## Training the discovery controller
@@ -233,6 +235,28 @@ hidden from the encoder (`exp-controller-hidden-window-44`):
 - Recovered from Cubic: a function of the ACK path's queueing delay over
   10 ms (0.31 of 0.36). The rest reads loss again, at 0.31 or less.
 
+The constants of the eight formulas above, and the same fits without
+units and with them (`exp-concepts-units-46`):
+
+- No constant stands for a path variable: capacity, cross traffic, fair
+  share and the base RTT in their place fit worse. The 3.98 in
+  log(W - 3.98) is the guest's minimum window of 4 packets; the 1.002 ms
+  is the ACK path's floor of about 1 ms; the rest are offsets, weights
+  between terms, or not identifiable.
+- With any smooth function of a formula's value as the readout, as net2
+  can apply, dropping every constant costs at most 0.02 of R^2; with a
+  linear readout it costs up to 0.27.
+- Without constants the formulas read as the sender's window, the mean
+  queueing delay over 240 ms, and the flow's arrival rate, alone or over
+  the base RTT. The weak form of the queueing delay with the window
+  (ceiling 0.12) and the ACK path's delay at its floor are not concepts.
+- With every input in SI and the formula and its constants
+  dimensionless (`ground.py concepts --units`), PySR recovers no formula.
+  The mean share of the ceiling falls from 0.28 to 0.16 and from 0.54 to
+  0.37 on BBRv3's controllers (window seen, hidden), and from 0.29 to
+  0.21 and stays at 0.27 on Cubic's; two plain runs differ by 0.03 or
+  less.
+
 A stress test of the fitter (`exp-ground-stress-23`) plants latents with
 a known answer. From the stored labels alone the formula search names
 all 12 literature composites without noise and 28 of 36 with noise; a
@@ -263,6 +287,7 @@ basis; nothing is found in noise.
 | `exp-concepts-beyond-window-43` | PySR on what those latents hold beyond the window. |
 | `exp-controller-hidden-window-44` | The controllers trained with the window hidden from the encoder, against BBRv3, their grounding and PySR beyond the window. |
 | `exp-controller-rl-cubic-slow-45` | Cubic's controllers continued from their best policies at a tenth of the rate. |
+| `exp-concepts-units-46` | The concepts fitted with and without units, and the test of their constants. |
 | `exp-steps-broad-30s-9`, `exp-phase0-teachers-1`, `exp-phase0-steps-2` | Old guest; not used. |
 
 ## A fault in earlier episodes
