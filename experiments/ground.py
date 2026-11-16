@@ -1130,6 +1130,7 @@ def select_summary(result: dict[str, Any]) -> str:
 # and how alike two formulas' values must be to count once.
 CONCEPT_ROWS, RECOVERED, MAXSIZE, SAME = 4000, 0.8, 20, 0.9
 CONCEPT_ITERATIONS = 60  # PySR's niterations per latent
+WINDOW = "window_pkts"  # the window in force, the first input of every formula
 
 
 def physical(x: F64) -> F64:
@@ -1141,8 +1142,9 @@ def physical(x: F64) -> F64:
 def recovered(
     x_fit: F64, z_fit: F64, x: F64, z: F64, names: list[str], *, seed: int, x_all: F64
 ) -> tuple[list[dict[str, Any]], list[F64]]:
-    """Per column of z, the PySR formula on x that scores best on the held-out
-    rows, the simplest within 0.01 of the best on its Pareto front, with
+    """Per column of z, the PySR formula on x, with + - * / and log, that
+    scores best on the held-out rows, the simplest within 0.01 of the best
+    on its Pareto front, with
     its R^2 there, and its values on x_all. ponytail: one fixed search per
     latent and no units; a search with SI units (PySR's X_units) if
     formulas mix dimensions."""
@@ -1157,7 +1159,7 @@ def recovered(
             populations=16,
             maxsize=MAXSIZE,
             binary_operators=["+", "-", "*", "/"],
-            unary_operators=[],
+            unary_operators=["log"],
             random_state=seed + j,
             progress=False,
             verbosity=0,
@@ -1204,12 +1206,19 @@ def distinct(found: list[dict[str, Any]], values: list[F64]) -> list[dict[str, A
     return [found[i] for i in kept]
 
 
+def window_pkts(q: Rows) -> F64:
+    """The window in force at each decision, in packets."""
+    return 2.0 ** (q.u - q.change + FixedWindow.LOG2_PACKETS)
+
+
 def concepts(out: Path, runs: list[Path]) -> None:
-    """Symbolic regression of each run's latents, with the sender's own
-    window taken out, on the features of the runs' pooled path without the
-    sender's measurements; a formula is well recovered at RECOVERED held-out
-    R^2. The well-recovered formulas of all runs are pooled, and of
-    formulas whose values correlate above SAME the simplest is kept."""
+    """Symbolic regression of each run's latents on the window in force and
+    the features of the runs' pooled path without the sender's measurements.
+    The window is an input of every formula rather than taken out first: its
+    effect on the latents is far from linear. A formula is well recovered at
+    RECOVERED held-out R^2, and reads the path when it uses a path feature.
+    The well-recovered formulas of all runs are pooled, and of formulas whose
+    values correlate above SAME the simplest is kept."""
     out.mkdir(parents=True, exist_ok=True)
     ctls, names, variables, fr, sr = _setup(runs)
     lib = Library.of(names, variables, fr.x, sr.x)
@@ -1225,27 +1234,29 @@ def concepts(out: Path, runs: list[Path]) -> None:
     ]
     path = [p["feature"] for p in _path(lib, Moments.of(lib, *pooled), hidden)[:PICK]]
     col = {n: j for j, n in enumerate(names)}
-    x_fit, x_score = (physical(q.x[:, [col[n] for n in path]]) for q in (fr, sr))
-    held_fit = lib.fit[:, _columns(lib, _window(lib))]
-    held_score = lib.score[:, _columns(lib, _window(lib))]
+    inputs = [WINDOW, *path]
+    x_fit, x_score = (
+        np.concatenate([window_pkts(q)[:, None], physical(q.x[:, [col[n] for n in path]])], 1)
+        for q in (fr, sr)
+    )
     rng = np.random.default_rng(0)
     every = x_score[np.isfinite(x_score).all(1)]
-    result: dict[str, Any] = {"inputs": path, "runs": {}, "concepts": []}
+    result: dict[str, Any] = {"inputs": inputs, "runs": {}, "concepts": []}
     good: list[dict[str, Any]] = []
     good_values: list[F64] = []
     for r, c in enumerate(ctls):
         f, s = fr.own(r), sr.own(r)
         z_fit, z_score = z_of[c.name][0][f], z_of[c.name][1][s]
-        w, *_ = np.linalg.lstsq(held_fit[f], z_fit, rcond=None)
-        e_fit, e_score = z_fit - held_fit[f] @ w, z_score - held_score[s] @ w
-        scale = e_fit.std(0) + 1e-12
-        e_fit, e_score = e_fit / scale, e_score / scale
+        mean, scale = z_fit.mean(0), z_fit.std(0) + 1e-12
+        z_fit, z_score = (z_fit - mean) / scale, (z_score - mean) / scale
         a, b = x_fit[f], x_score[s]
         ok_a, ok_b = np.isfinite(a).all(1), np.isfinite(b).all(1)
         pick = rng.choice(np.flatnonzero(ok_a), min(ok_a.sum(), CONCEPT_ROWS), replace=False)
         found, values = recovered(
-            a[pick], e_fit[pick], b[ok_b], e_score[ok_b], path, seed=r, x_all=every
+            a[pick], z_fit[pick], b[ok_b], z_score[ok_b], inputs, seed=r, x_all=every
         )
+        for g in found:
+            g["path"] = any(f"[{n}]" in g["formula"] for n in path)
         result["runs"][c.name] = found
         for g, v in zip(found, values, strict=True):
             if g["r2"] >= RECOVERED:
@@ -1259,24 +1270,34 @@ def concepts(out: Path, runs: list[Path]) -> None:
 
 
 def _concept_row(run: str, g: dict[str, Any]) -> str:
-    return f"| {run} | {g['latent']} | {g['r2']:.3f} | {g['complexity']} | `{g['formula']}` |\n"
+    path = "yes" if g["path"] else "no"
+    return (
+        f"| {run} | {g['latent']} | {g['r2']:.3f} | {g['complexity']} | {path} "
+        f"| `{g['formula']}` |\n"
+    )
+
+
+TABLE = (
+    "| run | latent | R^2 | complexity | reads the path | formula |\n|---|---|---|---|---|---|\n"
+)
 
 
 def concepts_summary(result: dict[str, Any]) -> str:
     lines = [
-        "Symbolic regression (PySR) of each latent, with the sender's own window taken "
-        "out, on the inputs below in ms, Mbit/s or kB. R^2 on the validation links; "
-        f"well recovered at {RECOVERED} or more.\n\nInputs: "
+        "Symbolic regression (PySR) of each latent on the window in force and the "
+        "inputs below, in packets, ms, Mbit/s or kB, with + - * / and log. R^2 on the "
+        f"validation links; well recovered at {RECOVERED} or more. A formula reads the "
+        "path when it uses more than the window.\n\nInputs: "
         + ", ".join(result["inputs"])
-        + "\n\n| run | latent | R^2 | complexity | formula |\n|---|---|---|---|---|\n"
+        + "\n\n"
+        + TABLE
     ]
     for run, found in result["runs"].items():
         for g in found:
             lines.append(_concept_row(run, g))
     lines.append(
         f"\nWell recovered: {result['recovered']} formulas; once those whose values "
-        f"correlate above {SAME} count once, {len(result['concepts'])}:\n\n"
-        "| run | latent | R^2 | complexity | formula |\n|---|---|---|---|---|\n"
+        f"correlate above {SAME} count once, {len(result['concepts'])}:\n\n" + TABLE
     )
     for g in result["concepts"]:
         lines.append(_concept_row(g["run"], g))

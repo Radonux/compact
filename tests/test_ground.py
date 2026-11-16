@@ -207,8 +207,10 @@ def _campaign(d: Path, s: data.Steps) -> None:
 def _check_concepts(out: Path, runs: list[Path]) -> None:
     ground.concepts(out, runs)
     con = json.loads((out / "concepts.json").read_text())
-    assert set(con["runs"]) == {"a", "b", "c"} and len(con["inputs"]) >= 1
+    assert set(con["runs"]) == {"a", "b", "c"} and con["inputs"][0] == ground.WINDOW
+    assert len(con["inputs"]) >= 2
     assert all(len(found) == 2 for found in con["runs"].values())
+    assert all(isinstance(g["path"], bool) for found in con["runs"].values() for g in found)
     assert "Well recovered" in (out / "concepts.md").read_text()
 
 
