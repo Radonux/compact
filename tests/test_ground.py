@@ -411,3 +411,33 @@ def test_symbolic_regression_recovers_a_planted_formula(monkeypatch: pytest.Monk
     )
     assert found[0]["r2"] > 0.99 and "[a]" in found[0]["formula"]
     assert np.allclose(values[0], z[:, 0], atol=1e-3)
+
+
+def test_si_units_follow_the_library() -> None:
+    packet_bits = 8.0 * ground.PACKET_SIZE
+    assert ground.si_unit("mean_240ms(queue_delay_mean_ns_10ms)") == (1e-3, "s")
+    assert ground.si_unit("max_960ms(arrival_rate_bps)") == (1e6, "mol * s^-1")
+    assert ground.si_unit(ground.WINDOW) == (packet_bits, "mol")
+    assert ground.si_unit("min_960ms(rtt_ratio)") == (1.0, "1")
+
+
+def test_symbolic_regression_with_units_keeps_dimensionless_formulas(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("pysr")
+    monkeypatch.setattr(ground, "CONCEPT_ITERATIONS", 20)
+    rng = np.random.default_rng(0)
+    x = rng.uniform(1, 3, (600, 3))  # a time, a rate and an amount
+    z = (x[:, 0] * x[:, 1] / x[:, 2])[:, None]
+    found, _ = ground.recovered(
+        x[:400],
+        z[:400],
+        x[400:],
+        z[400:],
+        ["a", "b", "c"],
+        seed=0,
+        x_all=x,
+        units=["s", "mol * s^-1", "mol"],
+    )
+    assert found[0]["r2"] > 0.99
+    assert all(f"[{n}]" in found[0]["formula"] for n in "abc")

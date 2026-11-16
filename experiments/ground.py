@@ -1147,6 +1147,9 @@ CONCEPT_ROWS, MAXSIZE, SAME = 4000, 20, 0.9
 FLOOR, RECOVERED = 0.1, 0.8  # the ceiling's least R^2; PySR's least share of it
 CONCEPT_ITERATIONS = 60  # PySR's niterations per latent
 WINDOW = "window_pkts"  # the window in force, the first input of every formula
+# PySR's added loss for a formula whose units do not agree; with units, a
+# formula at or above it is never kept.
+UNIT_PENALTY = 1000.0
 
 
 def physical(x: F64) -> F64:
@@ -1155,22 +1158,48 @@ def physical(x: F64) -> F64:
     return np.sign(x) * np.expm1(np.abs(x))
 
 
+def si_unit(name: str) -> tuple[float, str]:
+    """(the factor from a PySR input's physical() units to SI, its units
+    for PySR). Data is in bits, as in _SI, and is carried as mol, a base
+    dimension nothing measured here has."""
+    label = _label(name[name.index("(") + 1 : -1] if name.endswith(")") else name)
+    scale, dims = _si(label)
+    unit = " * ".join(
+        u if e == 1 else f"{u}^{e}" for u, e in zip(("mol", "s"), dims, strict=True) if e
+    )
+    return scale / _factor(label), unit or "1"
+
+
 def recovered(
-    x_fit: F64, z_fit: F64, x: F64, z: F64, names: list[str], *, seed: int, x_all: F64
+    x_fit: F64,
+    z_fit: F64,
+    x: F64,
+    z: F64,
+    names: list[str],
+    *,
+    seed: int,
+    x_all: F64,
+    units: Sequence[str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[F64]]:
     """Per column of z, the PySR formula on x, with + - * / and log, that
     scores best on the held-out rows, the simplest within 0.01 of the best
     on its Pareto front, with
-    its R^2 there, and its values on x_all. ponytail: one fixed search per
-    latent and no units; a search with SI units (PySR's X_units) if
-    formulas mix dimensions."""
+    its R^2 there, and its values on x_all. With units (one per column of
+    x, the values in them), only a dimensionless formula with dimensionless
+    constants is kept. ponytail: one fixed search per latent."""
     # Not a dependency of the package: the experiment runs it with
     # `uv run --with pysr==2.7.2`, which fetches Julia on first use.
     from pysr import PySRRegressor  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
 
     out, values = [], []
     for j in range(z.shape[1]):
+        dims = (
+            {"dimensional_constraint_penalty": UNIT_PENALTY, "dimensionless_constants_only": True}
+            if units
+            else {}
+        )
         reg = PySRRegressor(
+            **dims,
             niterations=CONCEPT_ITERATIONS,
             populations=16,
             maxsize=MAXSIZE,
@@ -1181,9 +1210,16 @@ def recovered(
             verbosity=0,
             temp_equation_file=True,
         )
-        reg.fit(x_fit, z_fit[:, j], variable_names=[f"x{i}" for i in range(x.shape[1])])
+        reg.fit(
+            x_fit,
+            z_fit[:, j],
+            variable_names=[f"x{i}" for i in range(x.shape[1])],
+            **({"X_units": list(units), "y_units": "1"} if units else {}),
+        )
         front = []
         for i in range(len(reg.equations_)):
+            if units and reg.equations_.iloc[i]["loss"] >= UNIT_PENALTY:
+                continue
             with np.errstate(all="ignore"):
                 pred = np.asarray(reg.predict(x, index=i), dtype=np.float64)
             ok = np.isfinite(pred)
@@ -1227,7 +1263,7 @@ def window_pkts(q: Rows) -> F64:
     return 2.0 ** (q.u - q.change + FixedWindow.LOG2_PACKETS)
 
 
-def concepts(out: Path, runs: list[Path]) -> None:
+def concepts(out: Path, runs: list[Path], *, units: bool = False) -> None:
     """Symbolic regression of what each run's latents hold beyond the
     sender's own window. A network on the window's features (the window in
     force and its history) takes the window out of each latent; PySR fits
@@ -1237,7 +1273,8 @@ def concepts(out: Path, runs: list[Path]) -> None:
     formula is recovered when it reads the path, the ceiling reaches FLOOR
     and PySR reaches RECOVERED of it. The recovered formulas of all runs are
     pooled, and of formulas whose values correlate above SAME the simplest
-    is kept."""
+    is kept. With units, the inputs are in SI and every formula and its
+    constants dimensionless (recovered)."""
     out.mkdir(parents=True, exist_ok=True)
     ctls, names, variables, fr, sr = _setup(runs)
     lib = Library.of(names, variables, fr.x, sr.x)
@@ -1258,11 +1295,19 @@ def concepts(out: Path, runs: list[Path]) -> None:
         np.concatenate([window_pkts(q)[:, None], physical(q.x[:, [col[n] for n in path]])], 1)
         for q in (fr, sr)
     )
+    si = [si_unit(n) for n in inputs]
+    if units:
+        x_fit, x_score = (q * np.array([f for f, _ in si]) for q in (x_fit, x_score))
     own = _columns(lib, _window(lib))[1:]
     both = own + _columns(lib, [lib.names.index(n) for n in path])[1:]
     rng = np.random.default_rng(0)
     every = x_score[np.isfinite(x_score).all(1)]
-    result: dict[str, Any] = {"inputs": inputs, "runs": {}, "concepts": []}
+    result: dict[str, Any] = {
+        "inputs": inputs,
+        "units": [u for _, u in si] if units else None,
+        "runs": {},
+        "concepts": [],
+    }
     good: list[dict[str, Any]] = []
     good_values: list[F64] = []
     for r, c in enumerate(ctls):
@@ -1278,7 +1323,14 @@ def concepts(out: Path, runs: list[Path]) -> None:
         ok_a, ok_b = np.isfinite(a).all(1), np.isfinite(b).all(1)
         pick = rng.choice(np.flatnonzero(ok_a), min(ok_a.sum(), CONCEPT_ROWS), replace=False)
         found, values = recovered(
-            a[pick], e_fit[pick], b[ok_b], e_score[ok_b], inputs, seed=r, x_all=every
+            a[pick],
+            e_fit[pick],
+            b[ok_b],
+            e_score[ok_b],
+            inputs,
+            seed=r,
+            x_all=every,
+            units=result["units"],
         )
         of_window = held_out_r2(z_score - e_score, z_score)
         for g, v in zip(found, values, strict=True):
@@ -1316,14 +1368,25 @@ TABLE = (
 
 
 def concepts_summary(result: dict[str, Any]) -> str:
+    units = result.get("units")
+    inputs = (
+        [f"{n} [{u}]" for n, u in zip(result["inputs"], units, strict=True)]
+        if units
+        else result["inputs"]
+    )
+    how = (
+        "in SI units (data in bits, carried as mol), the formula and its constants dimensionless"
+        if units
+        else "in packets, ms, Mbit/s or kB"
+    )
     lines = [
         "What each latent holds beyond the sender's own window. The window's R^2: a "
         "network on the window's features. The rest is fitted by PySR over the window in "
-        "force and the inputs below, in packets, ms, Mbit/s or kB, with + - * / and log; "
+        f"force and the inputs below, {how}, with + - * / and log; "
         "its ceiling is a network on the window's and the inputs' features. R^2 on the "
         f"validation links. Recovered: the formula reads the path, the ceiling is at least "
         f"{FLOOR} and PySR reaches {RECOVERED} of it.\n\nInputs: "
-        + ", ".join(result["inputs"])
+        + ", ".join(inputs)
         + "\n\n"
         + TABLE
     ]
@@ -1398,6 +1461,8 @@ def main() -> None:
         q = sub.add_parser(verb)
         q.add_argument("out", type=Path)
         q.add_argument("--runs", type=Path, nargs="+", required=True)
+        if verb == "concepts":
+            q.add_argument("--units", action="store_true", help="dimensionless, in SI units")
     a = p.parse_args()
     if a.verb == "rollouts":
         cc: AgentCC | StockCC
@@ -1416,8 +1481,10 @@ def main() -> None:
             workers=a.workers,
             links=a.links,
         )
+    elif a.verb == "concepts":
+        concepts(a.out, a.runs, units=a.units)
     else:
-        {"probe": probe, "select": select, "concepts": concepts}[a.verb](a.out, a.runs)
+        {"probe": probe, "select": select}[a.verb](a.out, a.runs)
 
 
 if __name__ == "__main__":
