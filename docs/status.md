@@ -18,12 +18,12 @@ controllers trained with those columns hidden from the encoder
 (`experiments/controller-hidden-window.json`), running, UNRUN. Longer
 training with a falling rate did not pay: the best policies come early
 and most runs end below their start ([below](#longer-training)). Cubic's
-continuation at BBRv3's lower rate is next, UNRUN.
+continuation at BBRv3's lower rate is running, UNRUN.
 
 | Step | State |
 |---|---|
 | 1 Setup | done: the estimator of the seven LCFs and the rule graph as releases |
-| 2 Train | bootstrapped from Cubic and BBRv3; reinforcement learning tuned at width 10 and confirmed at widths 7, 10 and 16 over three seeds; against BBRv3 Cubic's width 10 is trained well; longer training did not pay; a slower continuation for Cubic is next |
+| 2 Train | bootstrapped from Cubic and BBRv3; reinforcement learning tuned at width 10 and confirmed at widths 7, 10 and 16 over three seeds; against BBRv3 Cubic's width 10 is trained well; longer training did not pay; a slower continuation for Cubic is running |
 | 3 Ground | open: the best confirmed controllers' latents are mostly the window; the controllers with the window hidden from the encoder are training |
 | 4 Retrain | UNRUN. Built: `train run` for net1 on any stored label or composite, `train ppo` for net2, live truth for oracles. Not built: labels from fitted formulas beyond the composites. |
 
@@ -100,8 +100,7 @@ links; its number on the test links is UNRUN.
   [below](#against-bbrv3).
 - Cubic's continuation from these best policies at BBRv3's rate
   (0.00003 falling to 0.000003, 240 iterations,
-  `experiments/controller-rl-cubic-slow.json`) starts once this release
-  is published, UNRUN.
+  `experiments/controller-rl-cubic-slow.json`) is running, UNRUN.
 
 ### Against BBRv3
 
