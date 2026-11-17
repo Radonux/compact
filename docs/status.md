@@ -304,7 +304,8 @@ runners.
 - Varimax recovers a smaller share than the axes in 3 of the 4 groups.
 - PySR's search is not the limit. On BBRv3's width 16 seed 2 with the
   window hidden, along its axes, five times the iterations (300) recovers
-  the same 3 directions; the others gain 0.00 to 0.12 and stay short.
+  the same 3 directions; the others gain 0.00 to 0.12 and stay below
+  0.8 of the ceiling.
   Nor are PySR's inputs: a network on the window in force and the path
   explains each direction about as well as the ceiling, which also sees
   the window's history. The unrecovered directions are weak (most have a
