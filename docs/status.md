@@ -20,8 +20,10 @@ Beyond the window, five formulas are recovered. Without their constants,
 which stand for no path variable, three read as the mean queueing delay
 over 240 ms and the flow's arrival rate, alone or over the base RTT; the
 other two are weak or an emulator effect ([grounding](#grounding)).
-Whether they close step 3, so that step 4 retrains on them, is the
-owner's call. Longer
+These formulas come from several networks. By the owner's choice the
+concepts come from one network, found by a search over seeds: none of
+the 18 confirmed controllers decomposes, and the first batch of 32 new
+draws is training ([below](#the-seed-search)). Longer
 training with a falling rate did not pay: the best policies come early
 and most runs end below their start; at a tenth of the rate Cubic's
 drift less and gain no more ([below](#longer-training)).
@@ -30,7 +32,7 @@ drift less and gain no more ([below](#longer-training)).
 |---|---|
 | 1 Setup | done: the estimator of the seven LCFs and the rule graph as releases |
 | 2 Train | bootstrapped from Cubic and BBRv3; reinforcement learning tuned at width 10 and confirmed at widths 7, 10 and 16 over three seeds; against BBRv3 Cubic's width 10 is trained well; longer training did not pay, at either rate |
-| 3 Ground | result in, the owner's call: the latents carry the decision, whether or not the encoder sees the window; beyond it, the queueing delay and the arrival rate |
+| 3 Ground | the latents carry the decision, whether or not the encoder sees the window; beyond it, the queueing delay and the arrival rate; the seed search for one network that decomposes is running |
 | 4 Retrain | UNRUN. Built: `train run` for net1 on any stored label or composite, `train ppo` for net2, live truth for oracles. Not built: labels from fitted formulas beyond the composites. |
 
 ## Training the discovery controller
@@ -263,6 +265,46 @@ all 12 literature composites without noise and 28 of 36 with noise; a
 mix of seven concepts comes back as a sufficient set, not as the planted
 basis; nothing is found in noise.
 
+### The seed search
+
+The concepts come from one network that is trained well and whose
+latents decompose ([methodology](methodology.md#grounding)).
+`experiments/controller-seed-search.json` trains seeds 101 to 108 at each
+teacher's better recipe, widths 7 and 10: 32 draws, five at a time
+(`exp-controller-seed-search-47`). A draw takes 2.5 h or more; 2 of 32
+are done. UNRUN: the other draws, the comparison with BBRv3 and the
+scoring of every draw.
+
+`ground.py decompose` on the 18 confirmed controllers
+(`exp-ground-rl-confirm-32`), run on the session's machine, 65,000 to 93,000
+decisions of 126 validation episodes per network:
+
+| | BBRv3, axes | BBRv3, varimax | Cubic, axes | Cubic, varimax |
+|---|---|---|---|---|
+| Directions with a ceiling of 0.1 or more, per network | 2.4 | 7.4 | 7.8 | 8.8 |
+| Of them recovered | 7 of 22 | 11 of 67 | 3 of 70 | 4 of 79 |
+| Networks with 3 distinct formulas or more | 1 | 1 | 0 | 0 |
+| Networks that decompose | 0 | 0 | 0 | 0 |
+
+- The closest is BBRv3's width 10 seed 1 along its axes: 4 of 8
+  directions recovered, 4 distinct formulas, PySR at 0.78 of the ceiling
+  on average. One unrecovered direction has a ceiling of 0.73 and reads
+  the minimum BDP over 240 ms and the normalized packets in flight; PySR
+  reaches 0.22.
+- Varimax raises the number of directions above the floor and lowers
+  the share recovered.
+- UNRUN: the same on the controllers with the window hidden
+  (`exp-controller-hidden-window-44`), scoring.
+
+The decoder fed rebuilt latents is no test. On BBRv3's width 10 seed 3
+with the window hidden, the decision's change has a standard deviation
+of 0.129. Latents rebuilt by the window's network give an error in u of
+0.191 (R^2 of the change -1.21), and by a network on the whole library
+0.253 (-2.90). The decoder on its own latents gives 1.0, and against the
+recorded decisions 0.97, so the code is right: the frozen decoder turns
+the rebuilt latents' small errors into errors larger than the change.
+In every network above, no rebuild scores above 0.001.
+
 ## Releases
 
 | Release | What it holds |
@@ -288,6 +330,7 @@ basis; nothing is found in noise.
 | `exp-controller-hidden-window-44` | The controllers trained with the window hidden from the encoder, against BBRv3, their grounding and PySR beyond the window. |
 | `exp-controller-rl-cubic-slow-45` | Cubic's controllers continued from their best policies at a tenth of the rate. |
 | `exp-concepts-units-46` | The concepts fitted with and without units, and the test of their constants. |
+| `exp-controller-seed-search-47` | The first batch of the seed search: seeds 101 to 108, both teachers, widths 7 and 10. Running. |
 | `exp-steps-broad-30s-9`, `exp-phase0-teachers-1`, `exp-phase0-steps-2` | Old guest; not used. |
 
 ## A fault in earlier episodes
@@ -307,6 +350,13 @@ the fault in episodes with cross flows.
   decision itself, so the count is read in retraining.
 - Claims, failure predictions and cross-seed checks: dropped by the
   owner. One set of concepts that works is enough.
+- Pooling formulas over networks: dropped by the owner. A set of
+  concepts is not expected to recur across seeds; it comes from one
+  network.
+- The frozen decoder as the test of a hit: the first batch's file asked
+  for R^2 of 0.8 on the decisions' change from latents rebuilt from the
+  formulas. It was dropped before any draw was scored, since no rebuild
+  scores above 0.001 ([above](#the-seed-search)).
 
 ## Open questions
 

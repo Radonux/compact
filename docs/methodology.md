@@ -79,7 +79,8 @@ A step moves, is added or is dropped when the evidence says so.
 2. Train the discovery controllers: bootstrap from each teacher, then
    reinforcement learning, tuned on validation links, beside a reference
    without an encoder, until they are trained well against BBRv3.
-3. Ground the best-trained controllers ([below](#grounding)).
+3. Ground the controllers, and search seeds for one network that is
+   trained well and whose latents decompose ([below](#grounding)).
 4. Retrain net1 and net2 on the concepts, m = 1, 2, 3, 5, 7, 10, 16 and
    all of them, with an oracle net2 on the true values, and read the
    count. Compare with the hand-picked LCFs, a greedy subset of the base
@@ -93,10 +94,12 @@ UNRUN.
 
 Many sets of concepts can explain the same latents: the library's
 variables overlap, and a network can hold its concepts in any rotation
-or mix. One set that works is enough, so seeds are not compared. The
-concepts come from the best-trained networks by validation log utility:
-the single best, or the best few pooled. Retraining shows whether the set
-works.
+or mix. One set that works is enough, and it comes from one network. A
+set of concepts is not expected to recur across seeds, so networks are
+neither compared nor pooled. Most seeds give latents that fit poorly, so
+the concepts come from a search over seeds: new networks are trained in
+batches until one is trained well and its latents decompose
+(`decompose`, below). Retraining shows whether its set works.
 
 Each controller drives the emulator without exploration noise, every
 step kept (`experiments/ground.py rollouts`), on a sample of the
@@ -128,8 +131,26 @@ path, and so does everything it sets.
    on the validation links. The ceiling is the same network on the
    window's and the path's features. A formula is recovered when it
    reads the path, the ceiling is at least 0.1 and PySR reaches 0.8 of
-   it. Pooled over networks, of formulas whose values correlate above
-   0.9 the simplest is kept.
+   it. Of formulas whose values correlate above 0.9, the simplest is
+   kept.
+4. `decompose`: the test of one network in the seed search. What the
+   latents hold beyond the window is fitted along one of two bases: the
+   latents' own axes, or the remainder whitened and turned by varimax
+   (Kaiser 1958) toward the sparsest linear map from the path's first 8
+   features. The decoder reads the latents through a linear map, so any
+   invertible basis is the same controller. A rotation only mixes
+   directions linearly: it can make one formula of what the axes split
+   into several, and it adds no nonlinear term. Each direction whose
+   ceiling is at least 0.1 is fitted by PySR from three seeds, the best
+   kept. The network decomposes when every such direction is recovered,
+   with at least 3 distinct formulas. A network is a hit when it is
+   trained well against BBRv3 and decomposes. A hit is run in the
+   closed loop on its formulas and retrained in step 4 of the plan; the
+   test links are read once, after that. The frozen decoder fed latents
+   rebuilt from the formulas is reported but decides nothing: it fails
+   even on latents rebuilt by a network on the whole library
+   ([status](status.md#the-seed-search)), so the test of the formulas is
+   a decoder retrained on them.
 
 ## net1's output
 
@@ -156,6 +177,7 @@ them. [concepts.md](concepts.md) reviews the literature's concepts.
 | net1, net2 | The estimator (70 of the 78 message values to one belief per LCF, trained against ground truth) and the decision maker (window from net1's output alone). |
 | discovery controller | [Above](#the-discovery-controller). Never shipped. |
 | fixed rule | A window of 2^0.25 times the believed BDP (net1's capacity times twice its one-way delay) of the estimator of the seven LCFs. The earlier reference, before BBRv3. |
-| concept | A formula recovered from a best-trained network's latents, once named. |
+| concept | A formula recovered from the latents of the network the seed search finds, once named. |
+| hit | A network of the seed search that is trained well against BBRv3 and whose latents decompose ([grounding](#grounding)). |
 | count | The number of concepts at which the log utility of net1 + net2 retrained on them stops rising. |
 | log utility | Per 10 ms step, from ground truth: ln(max(receive rate / capacity, 0.01)) - 0.5 queueing delay / base RTT - 4 drop fraction (`train/score.py`), averaged over steps and episodes. |
