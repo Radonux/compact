@@ -22,8 +22,8 @@ over 240 ms and the flow's arrival rate, alone or over the base RTT; the
 other two are weak or an emulator effect ([grounding](#grounding)).
 These formulas come from several networks. By the owner's choice the
 concepts come from one network, found by a search over seeds: none of
-the 18 confirmed controllers decomposes, and the first batch of 32 new
-draws is training ([below](#the-seed-search)). Longer
+the 36 earlier controllers decomposes, BBRv3's come closest, and the
+first batch of 32 new draws is training ([below](#the-seed-search)). Longer
 training with a falling rate did not pay: the best policies come early
 and most runs end below their start; at a tenth of the rate Cubic's
 drift less and gain no more ([below](#longer-training)).
@@ -276,25 +276,32 @@ are done. UNRUN: the other draws, the comparison with BBRv3 and the
 scoring of every draw.
 
 `ground.py decompose` on the 18 confirmed controllers
-(`exp-ground-rl-confirm-32`), run on the session's machine, 65,000 to 93,000
-decisions of 126 validation episodes per network:
+(`exp-ground-rl-confirm-32`, the window seen) and the 18 with the window
+hidden (`exp-controller-hidden-window-44`), run on the session's machine
+at commit `9eddfc365` on 65,000 to 93,000 decisions of 126 validation
+episodes per network. Its release is UNRUN: the outputs are too large to
+carry inline, so it waits for a rerun in Actions within the search's five
+runners.
 
-| | BBRv3, axes | BBRv3, varimax | Cubic, axes | Cubic, varimax |
+| Controllers | Directions with a ceiling of 0.1 or more, per network (axes, varimax) | Recovered along the axes | Recovered after varimax | With 3 distinct formulas or more (axes, varimax) |
 |---|---|---|---|---|
-| Directions with a ceiling of 0.1 or more, per network | 2.4 | 7.4 | 7.8 | 8.8 |
-| Of them recovered | 7 of 22 | 11 of 67 | 3 of 70 | 4 of 79 |
-| Networks with 3 distinct formulas or more | 1 | 1 | 0 | 0 |
-| Networks that decompose | 0 | 0 | 0 | 0 |
+| BBRv3, window seen | 2.4, 7.4 | 7 of 22 | 11 of 67 | 1, 1 |
+| BBRv3, window hidden | 9.0, 8.7 | 12 of 81 | 8 of 78 | 1, 1 |
+| Cubic, window seen | 7.8, 8.8 | 3 of 70 | 4 of 79 | 0, 0 |
+| Cubic, window hidden | 9.1, 8.6 | 4 of 82 | 1 of 77 | 0, 0 |
 
-- The closest is BBRv3's width 10 seed 1 along its axes: 4 of 8
-  directions recovered, 4 distinct formulas, PySR at 0.78 of the ceiling
-  on average. One unrecovered direction has a ceiling of 0.73 and reads
-  the minimum BDP over 240 ms and the normalized packets in flight; PySR
-  reaches 0.22.
-- Varimax raises the number of directions above the floor and lowers
-  the share recovered.
-- UNRUN: the same on the controllers with the window hidden
-  (`exp-controller-hidden-window-44`), scoring.
+- No network decomposes, along either basis.
+- BBRv3's networks recover 10% to 32% of their directions, Cubic's 1% to
+  5%. Every network with 3 distinct formulas or more is BBRv3's.
+- The closest are BBRv3's width 10 seed 1 with the window seen, along its
+  axes (4 of 8 directions recovered, 4 distinct formulas), and BBRv3's
+  width 16 seed 2 with the window hidden (3 of 9 along its axes, 3 of 11
+  after varimax, 3 distinct formulas each).
+- The strong directions are recovered less often than the weak: of
+  BBRv3's directions with a ceiling of 0.4 or more, 9 of 81; of 0.1 to
+  0.2, 17 of 57. With a floor of 0.2 or 0.3 in place of 0.1, still no
+  network decomposes.
+- Varimax recovers a smaller share than the axes in 3 of the 4 groups.
 
 The decoder fed rebuilt latents is no test. On BBRv3's width 10 seed 3
 with the window hidden, the decision's change has a standard deviation
@@ -303,7 +310,10 @@ of 0.129. Latents rebuilt by the window's network give an error in u of
 0.253 (-2.90). The decoder on its own latents gives 1.0, and against the
 recorded decisions 0.97, so the code is right: the frozen decoder turns
 the rebuilt latents' small errors into errors larger than the change.
-In every network above, no rebuild scores above 0.001.
+Over the 36 networks, no rebuild of BBRv3's scores above 0, and none
+with the window seen above 0.001. In Cubic's with the window hidden, 25
+of 54 score above 0, at most 0.41, and the window's network alone does
+as well as the formulas.
 
 ## Releases
 
@@ -356,7 +366,7 @@ the fault in episodes with cross flows.
 - The frozen decoder as the test of a hit: the first batch's file asked
   for R^2 of 0.8 on the decisions' change from latents rebuilt from the
   formulas. It was dropped before any draw was scored, since no rebuild
-  scores above 0.001 ([above](#the-seed-search)).
+  comes near it: the best is 0.41 ([above](#the-seed-search)).
 
 ## Open questions
 
