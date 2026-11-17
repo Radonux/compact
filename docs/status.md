@@ -23,7 +23,7 @@ other two are weak or an emulator effect ([grounding](#grounding)).
 These formulas come from several networks. By the owner's choice the
 concepts come from one network, found by a search over seeds: none of
 the 36 earlier controllers decomposes, BBRv3's come closest, and the
-first batch of 32 new draws is training ([below](#the-seed-search)). Longer
+first batch of 32 new draws has no hit so far ([below](#the-seed-search)). Longer
 training with a falling rate did not pay: the best policies come early
 and most runs end below their start; at a tenth of the rate Cubic's
 drift less and gain no more ([below](#longer-training)).
@@ -268,12 +268,30 @@ basis; nothing is found in noise.
 ### The seed search
 
 The concepts come from one network that is trained well and whose
-latents decompose ([methodology](methodology.md#grounding)).
-`experiments/controller-seed-search.json` trains seeds 101 to 108 at each
-teacher's better recipe, widths 7 and 10: 32 draws, five at a time
-(`exp-controller-seed-search-47`). A draw takes 2.5 h or more; 2 of 32
-are done. UNRUN: the other draws, the comparison with BBRv3 and the
-scoring of every draw.
+latents decompose ([methodology](methodology.md#grounding)). The first
+batch (`exp-controller-seed-search-47`) trains seeds 101 to 108 at each
+teacher's better recipe, widths 7 and 10: 32 draws, five at a time, 2.5
+to 4.8 h each. 27 are done; BBRv3's width 10 seeds 104 to 108 are
+training. Each finished draw was set against BBRv3 on its own (the
+batch's collect averages the seeds of each teacher and width) and scored
+by `ground.py decompose` on the session's machine at commit `9eddfc365`.
+
+- Trained well: 1 of 27, BBRv3's width 7 seed 104 (+0.07, -0.08 to
+  +0.20, with a competing flow). None of Cubic's 16, and 4 of them fall
+  below BBRv3 with a competing flow. The other BBRv3 draws are above
+  BBRv3 alone and unresolved with a competing flow.
+- Decomposed: none of the 20 scored so far. No network recovers more
+  than 2 directions along either basis; BBRv3's width 7 seed 104
+  recovers 2 of 7 along its axes and 0 of 6 after varimax.
+- Over BBRv3's 15 networks with the window hidden (9 earlier, 6 of this
+  batch), 26 of 229 directions are recovered, with a median of 7 to
+  recover per network and basis.
+
+UNRUN: the last 5 draws, the scoring of the rest, and a release of the
+scores. The owner keeps the search as it is. The next batch,
+`experiments/controller-seed-search.json` as it now stands, drops Cubic,
+trains BBRv3's seeds 109 to 124 at widths 7 and 10, scores each draw in
+its own cell and sets each draw against BBRv3 on its own.
 
 `ground.py decompose` on the 18 confirmed controllers
 (`exp-ground-rl-confirm-32`, the window seen) and the 18 with the window
@@ -348,7 +366,7 @@ as well as the formulas.
 | `exp-controller-hidden-window-44` | The controllers trained with the window hidden from the encoder, against BBRv3, their grounding and PySR beyond the window. |
 | `exp-controller-rl-cubic-slow-45` | Cubic's controllers continued from their best policies at a tenth of the rate. |
 | `exp-concepts-units-46` | The concepts fitted with and without units, and the test of their constants. |
-| `exp-controller-seed-search-47` | The first batch of the seed search: seeds 101 to 108, both teachers, widths 7 and 10. Running. |
+| `exp-controller-seed-search-47` | The first batch of the seed search: seeds 101 to 108, both teachers, widths 7 and 10. Running: 27 of 32 draws done. |
 | `exp-steps-broad-30s-9`, `exp-phase0-teachers-1`, `exp-phase0-steps-2` | Old guest; not used. |
 
 ## A fault in earlier episodes
