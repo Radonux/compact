@@ -85,7 +85,7 @@ jobs:
         with:
           name: uml
           path: uml.tar
-          retention-days: 1
+          retention-days: 2  # a 32-cell search at five at a time starts its last cells about 22 h in
           compression-level: 6
 
   cells:
