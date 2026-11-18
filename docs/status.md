@@ -23,7 +23,7 @@ other two are weak or an emulator effect ([grounding](#grounding)).
 These formulas come from several networks. By the owner's choice the
 concepts come from one network, found by a search over seeds: none of
 the 36 earlier controllers decomposes, BBRv3's come closest, and the
-first batch of 32 new draws has no hit; the second is training
+first two batches, 64 new draws, have no hit; the third is training
 ([below](#the-seed-search)). Longer
 training with a falling rate did not pay: the best policies come early
 and most runs end below their start; at a tenth of the rate Cubic's
@@ -269,36 +269,54 @@ basis; nothing is found in noise.
 ### The seed search
 
 The concepts come from one network that is trained well and whose
-latents decompose ([methodology](methodology.md#grounding)). The first
-batch (`exp-controller-seed-search-47`) trained seeds 101 to 108 at each
-teacher's better recipe, widths 7 and 10: 32 draws, five at a time, 2.5
-to 4.8 h each, all of them finished. Each draw was set against BBRv3 on
-its own (the batch's collect averages the seeds of each teacher and
-width) and scored by `ground.py decompose` on the session's machine at
-commit `9eddfc365`. No draw is a hit.
+latents decompose ([methodology](methodology.md#grounding)). Two batches
+have run, five draws at a time, and every draw finished. No draw is a
+hit.
 
-| Teacher | Trained well | Recovered along the axes | Recovered after varimax | Most recovered in one network | Decomposed |
-|---|---|---|---|---|---|
-| BBRv3, window hidden | 1 of 16 | 11 of 108 | 14 of 105 | 2 | 0 of 16 |
-| Cubic, window seen | 0 of 16 | 5 of 100 | 2 of 107 | 1 | 0 of 16 |
+- The first batch (`exp-controller-seed-search-47`) trained seeds 101 to
+  108 at each teacher's better recipe, widths 7 and 10: 32 draws, 2.5 to
+  4.8 h each. Each draw was set against BBRv3 on its own (the batch's
+  collect averages the seeds of each teacher and width) and scored by
+  `ground.py decompose` on the session's machine at commit `9eddfc365`.
+- The second batch (`exp-controller-seed-search-48`) dropped Cubic and
+  trained BBRv3's seeds 109 to 124 at widths 7 and 10: 32 draws in about
+  21 h. Each cell scored its own draw with the same code, and the collect
+  set each draw against BBRv3 on its own.
 
-- The one draw trained well is BBRv3's width 7 seed 104 (+0.07, -0.08
-  to +0.20, with a competing flow). It recovers 2 of 7 directions along
-  its axes and 0 of 6 after varimax.
+| Batch | Teacher | Trained well | Recovered along the axes | Recovered after varimax | Most recovered in one network | Decomposed |
+|---|---|---|---|---|---|---|
+| 1 | BBRv3, window hidden | 1 of 16 | 11 of 108 | 14 of 105 | 2 | 0 of 16 |
+| 1 | Cubic, window seen | 0 of 16 | 5 of 100 | 2 of 107 | 1 | 0 of 16 |
+| 2 | BBRv3, window hidden | 7 of 32 | 42 of 210 | 38 of 211 | 6 | 1 of 32 |
+
+- Trained well: in the first batch, BBRv3's width 7 seed 104 (+0.07,
+  -0.08 to +0.20, with a competing flow). In the second, width 10 seeds
+  111, 115, 116 and 122 and width 7 seeds 115, 116 and 121.
+- The draws that come closest to a hit:
+  - Width 10 seed 122 is trained well (+0.08, -0.06 to +0.22, with a
+    competing flow). Along its axes it recovers 6 of 7 directions, with
+    3 distinct formulas; the seventh reaches an R^2 of 0.12 against a
+    ceiling of 0.27, where 0.22 is needed.
+  - Width 7 seed 115 is trained well (+0.08, -0.06 to +0.21). Along its
+    axes it recovers both of its 2 directions, so it has 2 formulas, not
+    3.
+  - Width 7 seed 109 decomposes along its axes: 3 of 3 directions, 3
+    distinct formulas, over the flow's queue, the queueing delay, the
+    flow's arrival rate and, in one, the window. It is not trained well:
+    with a competing flow it is -0.09 (-0.28 to +0.10), unresolved.
 - Alone, every draw is within the margin of BBRv3 but Cubic's width 7
   seed 106 and width 10 seed 108, which are unresolved. With a competing
-  flow, 4 of Cubic's fall below the margin and all the others but BBRv3's
-  width 7 seed 104 are unresolved.
-- Over BBRv3's 25 networks with the window hidden (9 earlier, 16 of this
-  batch), 45 of 372 directions are recovered (0.12), with a median of 7
-  to recover per network and basis.
+  flow, 4 of Cubic's draws and BBRv3's width 10 seed 109 fall below the
+  margin. The draws not named here as trained well are unresolved.
+- Over BBRv3's 57 networks with the window hidden (9 earlier, 48 of the
+  two batches), 125 of 793 directions are recovered (0.16), with a median
+  of 7 to recover per network and basis.
 
-The owner keeps the search as it is. The second batch
-(`exp-controller-seed-search-48`, `experiments/controller-seed-search.json`
-as it now stands) drops Cubic, trains BBRv3's seeds 109 to 124 at widths
-7 and 10, scores each draw in its own cell and sets each draw against
-BBRv3 on its own. UNRUN: the second batch, which is training, and a
-release of the first batch's scores.
+The owner keeps the search as it is. The third batch
+(`exp-controller-seed-search-49`, `experiments/controller-seed-search.json`
+as it now stands) trains BBRv3's seeds 125 to 140 at widths 7 and 10, in
+the same way as the second. UNRUN: the third batch, which is training,
+and a release of the first batch's scores.
 
 `ground.py decompose` on the 18 confirmed controllers
 (`exp-ground-rl-confirm-32`, the window seen) and the 18 with the window
@@ -374,7 +392,8 @@ as well as the formulas.
 | `exp-controller-rl-cubic-slow-45` | Cubic's controllers continued from their best policies at a tenth of the rate. |
 | `exp-concepts-units-46` | The concepts fitted with and without units, and the test of their constants. |
 | `exp-controller-seed-search-47` | The first batch of the seed search: seeds 101 to 108, both teachers, widths 7 and 10. Its `versus-bbr3` averages the seeds of each teacher and width. |
-| `exp-controller-seed-search-48` | The second batch: BBRv3's seeds 109 to 124, widths 7 and 10, each draw scored in its cell and set against BBRv3 on its own. Running. |
+| `exp-controller-seed-search-48` | The second batch: BBRv3's seeds 109 to 124, widths 7 and 10. Each draw's `decompose-*` scores and its own row in `versus-bbr3`. |
+| `exp-controller-seed-search-49` | The third batch: BBRv3's seeds 125 to 140, widths 7 and 10, as the second. Running. |
 | `exp-steps-broad-30s-9`, `exp-phase0-teachers-1`, `exp-phase0-steps-2` | Old guest; not used. |
 
 ## A fault in earlier episodes
