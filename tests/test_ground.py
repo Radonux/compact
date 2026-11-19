@@ -453,3 +453,32 @@ def test_varimax_undoes_a_rotation_of_sparse_loadings() -> None:
     m = mixed @ ground.varimax(mixed)
     blocks = sorted(tuple(np.flatnonzero(np.abs(m[:, j]) > 0.5).tolist()) for j in range(3))
     assert blocks == [(0, 1), (2, 3, 4), (5, 6)]
+
+
+def test_a_hits_concepts_are_its_recovered_formulas_along_the_first_basis_it_decomposes(
+    tmp_path: Path,
+) -> None:
+    def g(j: int, formula: str) -> dict[str, Any]:
+        return {"direction": j, "ceiling": 0.3, "r2": 0.3, "formula": formula, "recovered": True}
+
+    def result(basis: str, decomposed: bool, found: list[dict[str, Any]]) -> dict[str, Any]:
+        return {"run": "ctl-x", "basis": basis, "decomposed": decomposed, "found": found}
+
+    axes = result("axes", False, [g(0, "[capacity_bps]")])
+    turned = [g(0, "log([max_960ms(buffer_fill)])"), {"direction": 1, "ceiling": 0.05}]
+    varimax = result("varimax", True, [*turned, g(2, "[mean_240ms(queue_pkts)] / 2")])
+    assert ground.hit_concepts([axes, varimax]) == ("varimax", [turned[0], varimax["found"][2]])
+    assert ground.hit_concepts([{**axes, "decomposed": True}, varimax])[0] == "axes"
+    with pytest.raises(SystemExit, match="not a hit"):
+        ground.hit_concepts([axes])
+    # Its spec: the base settings, with the concepts as net1's LCFs.
+    (tmp_path / "hit" / "decompose-ctl-x").mkdir(parents=True)
+    (tmp_path / "hit" / "decompose-ctl-x" / "decompose.json").write_text(
+        json.dumps([axes, varimax])
+    )
+    base = _PATH.parent / "specs" / "net1v4.json"
+    ground.hit_spec(tmp_path / "out" / "concepts.json", tmp_path / "hit", base)
+    spec = json.loads((tmp_path / "out" / "concepts.json").read_text())
+    assert spec["lcfs"] == [turned[0]["formula"], "[mean_240ms(queue_pkts)] / 2"]
+    assert spec | {"lcfs": None} == json.loads(base.read_text()) | {"lcfs": None}
+    assert "ctl-x, along its varimax" in (tmp_path / "out" / "concepts.md").read_text()

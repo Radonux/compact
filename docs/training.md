@@ -12,6 +12,7 @@ Which command serves which step of the [plan](methodology.md#plan):
 |---|---|
 | The discovery controller, and the retrained net2 | `train ppo` |
 | The retrained net1 | `train run` |
+| Retraining a hit | three experiments, in order ([below](#retraining-a-hit)) |
 | Grounding | `experiments/ground.py`: `rollouts` runs a controller's `policy.onnx` in the closed loop into `RUN/ground`, then `probe` and `select` read the latents on those steps, and `concepts` fits what each latent holds beyond the window by PySR (`uv run --with pysr==2.7.2`); the library holds every stored label and composite |
 
 ## Step data
@@ -147,6 +148,27 @@ it drives, say how the start behaves. The label is the teacher's window,
 or its pacing rate times its smoothed RTT where it paces below its window
 as BBR does (`trajectories.paced_window`), because the `agent` controller
 paces at cwnd mss / srtt.
+
+## Retraining a hit
+
+Step 4 takes any hit with no change to the code. A hit is named once, as
+the `hit` input of `experiments/concepts-data.json`: its `decompose`
+directory in its release, for example
+`release:exp-controller-seed-search-49:decompose-ctl-bbr3-k7-s128`. Each
+later experiment reads the release before it, so its input names that
+release's tag.
+
+| Experiment | Does | Leaves |
+|---|---|---|
+| `concepts-data.json` | `ground.py spec` writes net1's spec on the hit's concepts, then net1 v5's training set is recorded with the features they read | `concepts.json`, `concepts.md`, the step data |
+| `concepts-net1.json` | `net1_train.py` on that spec and data | `net1/net1.pt` and its report |
+| `concepts-controller.json` | net2 on that net1, and on the estimator of the seven hand-picked LCFs, cloned from BBRv3 and trained by reinforcement learning with the window fixed, eight seeds each, against BBRv3 | the policies and `versus-bbr3` |
+
+    uv run python experiments/ground.py spec OUT/concepts.json HIT_DIR [--base SPEC.json]
+
+writes the spec on its own: SPEC.json (by default the estimator's
+settings) with the hit's recovered formulas as its LCFs, along the first
+basis in which it decomposes.
 
 ## Rules
 

@@ -154,8 +154,9 @@ path, and so does everything it sets.
 
 ## Retraining
 
-The concepts of a hit are its recovered formulas, in the basis along
-which it decomposes. net1 learns them from the same 70 measurements, as
+The concepts of a hit are its recovered formulas, along the first basis
+in which it decomposes: its own axes before a rotation. The search counts
+distinct formulas but does not name them, so a near-duplicate is kept. net1 learns them from the same 70 measurements, as
 the estimator of the seven hand-picked LCFs was trained: a distribution
 over 64 bins, three members, on net1 v5's training links, with BBRv3,
 Westwood and threshold-0.3 held out and reported apart. The features a

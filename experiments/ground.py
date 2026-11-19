@@ -113,6 +113,13 @@ together):
            is the order in which concepts are tried in retraining.
 
 Writes OUT/select.json and OUT/summary.md.
+
+Usage: python experiments/ground.py spec OUT.json HIT_DIR [--base SPEC.json]
+
+spec writes net1's spec for retraining a hit (step 4): SPEC.json (by
+default experiments/specs/net1v4.json, the estimator's settings) with its
+LCFs the hit's concepts, read from the one decompose.json under HIT_DIR
+(``hit_concepts``), and OUT.md naming the run, the basis and each formula.
 """
 
 # torch's own annotations leave many signatures partly unknown; every other
@@ -147,7 +154,7 @@ from expliccit_env.train.library import factor as _factor
 from expliccit_env.train.library import history, needs_history, operators, physical, scaled
 from expliccit_env.train.library import label as _label
 from expliccit_env.train.recurrent import OBS_MIN_RTT, decision_steps
-from expliccit_env.train.spec import PPOSpec
+from expliccit_env.train.spec import Net1Spec, PPOSpec
 from expliccit_env.uml import UmlBuild
 
 F32 = npt.NDArray[np.float32]
@@ -1523,6 +1530,42 @@ def decompose(out: Path, runs: list[Path], *, seeds: int, bases: Sequence[str]) 
     (out / "decompose.md").write_text(decompose_summary(result))
 
 
+def hit_concepts(result: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
+    """A hit's concepts, from its decompose result: every recovered
+    direction, in order, along the first basis of BASES in which it
+    decomposes (its own axes before a rotation). Near-duplicates are kept:
+    the decomposition counts distinct formulas but does not name them."""
+    for basis in BASES:
+        for r in result:
+            if r["basis"] == basis and r["decomposed"]:
+                return basis, [g for g in r["found"] if g.get("recovered")]
+    raise SystemExit("it decomposes along no basis: not a hit")
+
+
+def hit_spec(out: Path, hit: Path, base: Path) -> None:
+    """``spec``: net1's spec on a hit's concepts, and a note of them."""
+    found = sorted(hit.rglob("decompose.json"))
+    if len(found) != 1:
+        raise SystemExit(f"{hit}: {len(found)} decompose.json, not one")
+    result = json.loads(found[0].read_text())
+    if len({r["run"] for r in result}) != 1:
+        raise SystemExit(f"{found[0]}: more than one run")
+    basis, concepts = hit_concepts(result)
+    raw = json.loads(base.read_text()) | {"lcfs": [g["formula"] for g in concepts]}
+    Net1Spec.model_validate(raw)  # every formula is one net1 can learn
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(raw, indent=1) + "\n")
+    rows = "".join(
+        f"| {g['direction']} | {g['ceiling']:.3f} | {g['r2']:.3f} | `{g['formula']}` |\n"
+        for g in concepts
+    )
+    out.with_suffix(".md").write_text(
+        f"The concepts of {result[0]['run']}, along its {basis} "
+        f"({found[0].relative_to(hit)}): net1's LCFs in {out.name}.\n\n"
+        "| direction | ceiling | R^2 | formula |\n|---|---|---|---|\n" + rows
+    )
+
+
 def decompose_summary(result: list[dict[str, Any]]) -> str:
     text = (
         "Each run's latents beyond the window, along their own axes or whitened and rotated toward "
@@ -1659,6 +1702,10 @@ def main() -> None:
     # A Linux controller in place of the run's policy, with the episode
     # length of the run's ppo_spec.json: the teachers on the same episodes.
     ro.add_argument("--stock", choices=["cubic", "bbr3"])
+    sp = sub.add_parser("spec")
+    sp.add_argument("out", type=Path)
+    sp.add_argument("hit", type=Path)
+    sp.add_argument("--base", type=Path, default=Path(__file__).parent / "specs" / "net1v4.json")
     for verb in ("probe", "select", "concepts", "decompose"):
         q = sub.add_parser(verb)
         q.add_argument("out", type=Path)
@@ -1690,6 +1737,8 @@ def main() -> None:
         concepts(a.out, a.runs, units=a.units)
     elif a.verb == "decompose":
         decompose(a.out, a.runs, seeds=a.seeds, bases=a.bases)
+    elif a.verb == "spec":
+        hit_spec(a.out, a.hit, a.base)
     else:
         {"probe": probe, "select": select}[a.verb](a.out, a.runs)
 

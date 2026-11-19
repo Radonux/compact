@@ -1,16 +1,16 @@
 {
-  "title": "net1 on the concepts of BBRv3's width 7 seed 128",
-  "description": "Step 4, first half: net1 learns the five recovered formulas of the seed search's hit, BBRv3's width 7 seed 128 with the window hidden (experiments/specs/concepts-s128.json, from release exp-controller-seed-search-49), as the estimator of the seven hand-picked LCFs was trained (experiments/specs/net1v4.json: a distribution over 64 bins, three members, width 512, dropout 0.05) and from the same 70 measurements. Data: exp-concepts-data-51, net1 v5's training set with the features the formulas read over past steps kept beside every 6th step; rows are every 12th step, split by link (seed 1, 15% validation, 15% test), BBRv3, Westwood and threshold-0.3 held out of training and reported apart (experiments/net1_train.py). Reported per concept: 90% coverage, R^2 and log loss on validation and test links and on the held-out controllers. Nothing is chosen here: the one net1 is the input of net2's training.",
+  "title": "net1 on a hit's concepts",
+  "description": "Step 4, second of three experiments: net1 learns the hit's concepts from the step data of the input data (an experiments/concepts-data.json release, which names the hit and holds net1's spec on its concepts, concepts.json, with a note of them, concepts.md), with the estimator's settings: a distribution over 64 bins, three members, width 512, dropout 0.05, the same 70 measurements. Rows are every 12th step, split by link (seed 1, 15% validation, 15% test), BBRv3, Westwood and threshold-0.3 held out of training and reported apart (experiments/net1_train.py). Reported per concept: 90% coverage, R^2 and log loss on the validation and test links and on the held-out controllers. Nothing is chosen here: the one net1 is the input of experiments/concepts-controller.json.",
   "train": true,
   "inputs": {
-    "data": "release:exp-concepts-data-51"
+    "data": "release:exp-concepts-data-52"
   },
   "matrix": {
     "seed": [
       0
     ]
   },
-  "run": "uv run python experiments/net1_train.py \"$OUT/net1-concepts-s128\" --spec experiments/specs/concepts-s128.json --seed \"$SEED\" --stride 12 --data \"$IN/data/campaign-train30\"",
-  "collect": "cp \"$OUT/net1-concepts-s128/summary.md\" \"$OUT/summary.md\"",
+  "run": "cp \"$IN/data/concepts.json\" \"$IN/data/concepts.md\" \"$OUT/\"; uv run python experiments/net1_train.py \"$OUT/net1\" --spec \"$IN/data/concepts.json\" --seed \"$SEED\" --stride 12 --data \"$IN/data/campaign-train30\"",
+  "collect": "{ cat \"$OUT/concepts.md\"; echo; cat \"$OUT/net1/summary.md\"; } > \"$OUT/summary.md\"",
   "timeout_minutes": 360
 }

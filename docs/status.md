@@ -34,7 +34,7 @@ drift less and gain no more ([below](#longer-training)).
 | 1 Setup | done: the estimator of the seven LCFs and the rule graph as releases |
 | 2 Train | bootstrapped from Cubic and BBRv3; reinforcement learning tuned at width 10 and confirmed at widths 7, 10 and 16 over three seeds; against BBRv3 Cubic's width 10 is trained well; longer training did not pay, at either rate |
 | 3 Ground | the latents carry the decision, whether or not the encoder sees the window; beyond it, the queueing delay and the arrival rate; the seed search found two networks that are trained well and decompose |
-| 4 Retrain | Running for seed 128: the step data for net1 on its five formulas. Built: net1 on fitted formulas, with the features over past steps kept beside strided steps; net2 on net1 with a fixed window, cloned from BBRv3 ([methodology.md](methodology.md#retraining)). UNRUN: net1 on the formulas, net2 on it, the count over m, the oracle and the comparisons. |
+| 4 Retrain | Running for seed 128: the step data for net1 on its five formulas. Any hit runs by naming it in one input. Built: net1 on fitted formulas, with the features over past steps kept beside strided steps; net2 on net1 with a fixed window, cloned from BBRv3 ([methodology.md](methodology.md#retraining)). UNRUN: net1 on the formulas, net2 on it, the count over m, the oracle and the comparisons. |
 
 ## Training the discovery controller
 
@@ -380,22 +380,25 @@ as well as the formulas.
 
 ## Retraining seed 128
 
-The concepts are seed 128's five recovered formulas along its own axes
-(four distinct), in `experiments/specs/concepts-s128.json`, as `decompose`
-printed them. net1 learns them with the estimator's settings
-([methodology.md](methodology.md#retraining)). Its data is net1 v5's
-training set, every 6th step, with the three features the formulas read
-over past steps (the mean queueing delay over 240 ms, the mean capacity
-and the highest buffer fill over 960 ms) kept beside the steps:
-`exp-concepts-data-51` (`experiments/concepts-data.json`), running.
+Step 4 runs any hit by naming it in one input
+([training.md](training.md#retraining-a-hit)); seed 128 is the first.
+Its concepts are its five recovered formulas along its own axes (four
+distinct), which `ground.py spec` reads from its `decompose` output in
+`exp-controller-seed-search-49`. net1 learns them with the estimator's
+settings ([methodology.md](methodology.md#retraining)). Its data is net1
+v5's training set, every 6th step, with the three features the formulas
+read over past steps (the mean queueing delay over 240 ms, the mean
+capacity and the highest buffer fill over 960 ms) kept beside the steps:
+`exp-concepts-data-52` (`experiments/concepts-data.json`), running. Run
+51 was cancelled before it started: it was written for seed 128 alone.
 
 On a smoke campaign the formulas computed from the kept features equal
 those computed from every step (largest difference 6e-8), and formulas 1
 and 4 correlate at 0.90, the pair `decompose` counted as one.
 
 Prepared, in order: net1 on the formulas
-(`experiments/concepts-net1.json`), then net2 on that net1 and, at the
-same recipe, on the estimator of the seven hand-picked LCFs, eight seeds
+(`experiments/concepts-net1.json`, reading `exp-concepts-data-52`), then
+net2 on that net1 and, at the same recipe, on the estimator of the seven hand-picked LCFs, eight seeds
 each (`experiments/concepts-controller.json`, whose rule is written in
 it). A tiny run of the second on the session's machine, cloning BBRv3
 into net2 on a net1 of the formulas and continuing it by reinforcement
@@ -432,7 +435,7 @@ UNRUN: both of these, the count over m, and the other comparisons.
 | `exp-controller-seed-search-48` | The second batch: BBRv3's seeds 109 to 124, widths 7 and 10. Each draw's `decompose-*` scores and its own row in `versus-bbr3`. |
 | `exp-controller-seed-search-49` | The third batch: BBRv3's seeds 125 to 140, widths 7 and 10, as the second. Holds the two hits. |
 | `exp-controller-seed-search-50` | The fourth batch: BBRv3's seeds 141 to 156, widths 7 and 10, as the second. Running. |
-| `exp-concepts-data-51` | Step data for net1 on seed 128's concepts: net1 v5's training set with the features the formulas read. Running. |
+| `exp-concepts-data-52` | Step data for net1 on seed 128's concepts: net1 v5's training set with the features the formulas read, and net1's spec on them. Running. |
 | `exp-steps-broad-30s-9`, `exp-phase0-teachers-1`, `exp-phase0-steps-2` | Old guest; not used. |
 
 ## A fault in earlier episodes

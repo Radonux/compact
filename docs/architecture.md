@@ -323,7 +323,9 @@ expire. `republish.yml` publishes a run whose publish job failed, while
 its artifact lasts.
 
 A later experiment reads a release of this repository through
-`"inputs": {"NAME": "release:TAG"}`. Outside files enter a release in one
+`"inputs": {"NAME": "release:TAG"}`, or only some files or directories
+of it through `"release:TAG:PATH,..."`, streamed so that a release
+larger than the runner's disk is never stored. Outside files enter a release in one
 of two ways. An experiment's `run` downloads them and its description
 records the source (`experiments/estimator-seven.json` is one). Or
 `scripts/stash.sh TAG FILE...` takes local files under 100 MB each: it
