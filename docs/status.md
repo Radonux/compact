@@ -400,7 +400,7 @@ and 4 correlate at 0.90, the pair `decompose` counted as one.
 
 net1 learns the formulas: `exp-concepts-net1-53`
 (`experiments/concepts-net1.json`), 1,791,376 training rows, 39 minutes
-to train. X
+to train. Its 90% intervals hold 0.90 to 0.92 of the test links' values
 and 0.82 to 0.92 of the held-out controllers'. Directions 1 and 6 reach
 R^2 0.99 and 0.98 on the test links. Direction 2 reaches 0.63: it is
 nearly binary, 1 while the buffer stayed empty for 960 ms and near 0
