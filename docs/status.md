@@ -322,9 +322,13 @@ The two hits, both along their own axes, on 126 validation episodes
   three batches), 215 of 1245 directions are recovered (0.17), with a
   median of 7 to recover per network and basis.
 
-One network is all the search needs, so no fourth batch has been
-launched. UNRUN: step 4 on either hit, and a release of the first
-batch's scores.
+The owner carries seed 128 into step 4 and keeps mining for a better
+hit: three batches found two hits, where the pooled share of recovered
+directions, taken as independent, predicted almost none. The fourth batch
+(`exp-controller-seed-search-50`, `experiments/controller-seed-search.json`
+as it now stands) trains BBRv3's seeds 141 to 156 at widths 7 and 10, in
+the same way. UNRUN: the fourth batch, which is training, step 4 on seed
+128, and a release of the first batch's scores.
 
 `ground.py decompose` on the 18 confirmed controllers
 (`exp-ground-rl-confirm-32`, the window seen) and the 18 with the window
@@ -402,6 +406,7 @@ as well as the formulas.
 | `exp-controller-seed-search-47` | The first batch of the seed search: seeds 101 to 108, both teachers, widths 7 and 10. Its `versus-bbr3` averages the seeds of each teacher and width. |
 | `exp-controller-seed-search-48` | The second batch: BBRv3's seeds 109 to 124, widths 7 and 10. Each draw's `decompose-*` scores and its own row in `versus-bbr3`. |
 | `exp-controller-seed-search-49` | The third batch: BBRv3's seeds 125 to 140, widths 7 and 10, as the second. Holds the two hits. |
+| `exp-controller-seed-search-50` | The fourth batch: BBRv3's seeds 141 to 156, widths 7 and 10, as the second. Running. |
 | `exp-steps-broad-30s-9`, `exp-phase0-teachers-1`, `exp-phase0-steps-2` | Old guest; not used. |
 
 ## A fault in earlier episodes
