@@ -167,11 +167,13 @@ def _bin_bounds(y: F32, bins: int) -> F32:
     """Per LCF, B + 1 bin boundaries fitted to the training targets. A
     quantity within [0, 1] gets B equal bins. One that takes negative
     values (a fitted formula, a difference) gets equal bins between its
-    0.1% and 99.9% quantiles, the first and last also taking everything
-    beyond. Any other gets bin 0 below the 0.1% quantile of its positive
-    values (zero and near zero), log-spaced bins up to its 99.9% quantile,
-    and one more log step as the last bin, which also takes everything
-    above."""
+    0.1% and 99.9% quantiles and one more bin width at each end, the first
+    and last bins also taking everything beyond. Any other gets bin 0 below
+    the 0.1% quantile of its positive values (zero and near zero),
+    log-spaced bins up to its 99.9% quantile, and one more log step as the
+    last bin, which also takes everything above. Only the inner boundaries
+    sort targets into bins; the outer ones give the end bins' readings (a
+    mean, a quantile), which a formula's pole would make absurd."""
     out = np.empty((y.shape[1], bins + 1), np.float64)
     for j in range(y.shape[1]):
         v = y[:, j][np.isfinite(y[:, j])].astype(np.float64)
@@ -182,7 +184,9 @@ def _bin_bounds(y: F32, bins: int) -> F32:
         if v.size and v.min() < 0:
             lo, hi = (float(q) for q in np.quantile(v, [0.001, 0.999]))
             hi = hi if hi > lo else lo + 1.0  # a constant quantity: any range will do
-            out[j] = [min(lo, v.min()), *np.linspace(lo, hi, bins - 1), max(hi, v.max())]
+            inner = np.linspace(lo, hi, bins - 1)
+            step = inner[1] - inner[0]
+            out[j] = [lo - step, *inner, hi + step]
             continue
         lo = float(np.quantile(pos, 0.001)) if pos.size else 1.0
         hi = float(np.quantile(v, 0.999)) if v.size else lo * 10
