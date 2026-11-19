@@ -393,8 +393,15 @@ On a smoke campaign the formulas computed from the kept features equal
 those computed from every step (largest difference 6e-8), and formulas 1
 and 4 correlate at 0.90, the pair `decompose` counted as one.
 
-UNRUN: net1 on the formulas, net2 on that net1 from several seeds, the
-count over m, and the comparisons with the hand-picked LCFs.
+Prepared, in order: net1 on the formulas
+(`experiments/concepts-net1.json`), then net2 on that net1 and, at the
+same recipe, on the estimator of the seven hand-picked LCFs, eight seeds
+each (`experiments/concepts-controller.json`, whose rule is written in
+it). A tiny run of the second on the session's machine, cloning BBRv3
+into net2 on a net1 of the formulas and continuing it by reinforcement
+learning, ran and exported a policy the guest runs.
+
+UNRUN: both of these, the count over m, and the other comparisons.
 
 ## Releases
 

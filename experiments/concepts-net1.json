@@ -1,0 +1,16 @@
+{
+  "title": "net1 on the concepts of BBRv3's width 7 seed 128",
+  "description": "Step 4, first half: net1 learns the five recovered formulas of the seed search's hit, BBRv3's width 7 seed 128 with the window hidden (experiments/specs/concepts-s128.json, from release exp-controller-seed-search-49), as the estimator of the seven hand-picked LCFs was trained (experiments/specs/net1v4.json: a distribution over 64 bins, three members, width 512, dropout 0.05) and from the same 70 measurements. Data: exp-concepts-data-51, net1 v5's training set with the features the formulas read over past steps kept beside every 6th step; rows are every 12th step, split by link (seed 1, 15% validation, 15% test), BBRv3, Westwood and threshold-0.3 held out of training and reported apart (experiments/net1_train.py). Reported per concept: 90% coverage, R^2 and log loss on validation and test links and on the held-out controllers. Nothing is chosen here: the one net1 is the input of net2's training.",
+  "train": true,
+  "inputs": {
+    "data": "release:exp-concepts-data-51"
+  },
+  "matrix": {
+    "seed": [
+      0
+    ]
+  },
+  "run": "uv run python experiments/net1_train.py \"$OUT/net1-concepts-s128\" --spec experiments/specs/concepts-s128.json --seed \"$SEED\" --stride 12 --data \"$IN/data/campaign-train30\"",
+  "collect": "cp \"$OUT/net1-concepts-s128/summary.md\" \"$OUT/summary.md\"",
+  "timeout_minutes": 360
+}
