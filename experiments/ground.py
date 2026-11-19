@@ -127,7 +127,6 @@ import hashlib
 import itertools
 import json
 import sys
-import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -144,6 +143,9 @@ from expliccit_env.spec import AgentCC, EpisodeSpec, OnnxPolicy, StockCC
 from expliccit_env.train import actors, fit, lcfs, rollouts
 from expliccit_env.train import data as steps_data
 from expliccit_env.train.graph import FixedWindow
+from expliccit_env.train.library import factor as _factor
+from expliccit_env.train.library import history, needs_history, operators, physical, scaled
+from expliccit_env.train.library import label as _label
 from expliccit_env.train.recurrent import OBS_MIN_RTT, decision_steps
 from expliccit_env.train.spec import PPOSpec
 from expliccit_env.uml import UmlBuild
@@ -163,12 +165,9 @@ FLEX_STEPS = 1500  # gradient steps of the flexible fit
 # latents linearly, and the rank correlation at which two formulas are one.
 FORMULAS, SCREEN, COARSE, TERMS, WIDE, ALIKE = 32, 5000, 2000, 4, 16, 0.98
 PAIRS, LABELS = 4, 12
-_SCALE = {"_bps": 1e-6, "_ns": 1e-6, "_bytes": 1e-3}
 SRTT, DELIVERY, LOST = (
     OBS_COLUMNS.index(c) for c in ("srtt_x100ms", "delivery_rate_x100mbps", "lost_x100mbps")
 )
-# The library's windows and its difference, in 10 ms steps.
-WINDOWS, CHANGE = (24, 96), 6
 # Features in a reported path, and the leading ones the checks are made on.
 STEPS, PICK = 16, 8
 EXPLICCIT_LCFS = (
@@ -184,40 +183,20 @@ SENDER = ("sender_cwnd", "sender_srtt", "sender_delivery_rate", "sender_loss_rat
 OWN = "sender_cwnd"  # what the controller itself set: held in every fit of select
 
 
-def _label(name: str) -> str:
-    """A label column's name without its window."""
-    return next(
-        (name.removesuffix(f"_{w}ms") for w in WINDOWS_MS if name.endswith(f"_{w}ms")), name
-    )
-
-
 def sources(variable: str) -> frozenset[str]:
     """The labels, whatever the window, a base variable is read or computed
     from; a sender measurement is its own source."""
     return frozenset(_label(c) for c in lcfs.columns([variable]))
 
 
-def _factor(name: str) -> float:
-    if name in lcfs.LCF_UNITS:
-        return lcfs.LCF_UNITS[name][0]
-    return next((v for suffix, v in _SCALE.items() if _label(name).endswith(suffix)), 1.0)
-
-
 def base_variables(s: steps_data.Steps) -> tuple[list[str], F64]:
     """Every stored label and every composite the stored labels give, on a
     logarithmic scale; NaN where it is undefined. The names depend on the
     stored columns alone, so every rollout of one guest gives the same."""
-    stored = set(s.labels)
+    stored = {n for n in s.labels if not needs_history(n)}  # not a stored feature
     made = {n for n in lcfs.LCF_UNITS if n not in stored and lcfs.columns([n]) <= stored}
     names = sorted(stored | made)
-    cols = []
-    with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
-        for n in names:
-            v = s.labels[n].astype(np.float64) * _factor(n)
-            v = np.sign(v) * np.log1p(np.abs(v))
-            v[~np.isfinite(v)] = np.nan
-            cols.append(v)
-    return names, np.stack(cols, axis=1)
+    return names, np.stack([scaled(n, s.labels[n]) for n in names], axis=1)
 
 
 def sender_variables(s: steps_data.Steps) -> F64:
@@ -270,36 +249,15 @@ def held(run: Path) -> dict[str, float]:
     }
 
 
-def _history(v: F64, s: steps_data.Steps, idx: I64) -> F64:
-    """[anchor, age in steps, variable]: the variables at the anchor and at
-    the steps before it in its own episode; NaN beyond the episode's start
-    and where a step is missing."""
-    age = np.arange(max(WINDOWS))
-    past = idx[:, None] - age[None]
-    row = np.maximum(past, 0)
-    ok = (past >= 0) & (s.episode[row] == s.episode[idx][:, None])
-    ok &= s.step[idx][:, None] - s.step[row] == age[None]
-    h = v[row]
-    h[~ok] = np.nan
-    return h
-
-
-def _operators(h: F64) -> list[tuple[str, F64]]:
-    out = [("", h[:, 0]), (f"change_{CHANGE * 10}ms", h[:, 0] - h[:, CHANGE])]
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)  # a window with no defined row
-        for w in WINDOWS:
-            for op, f in (("mean", np.nanmean), ("min", np.nanmin), ("max", np.nanmax)):
-                out.append((f"{op}_{w * 10}ms", f(h[:, :w], axis=1)))
-    return out
-
-
 def features(names: list[str], v: F64, s: steps_data.Steps, idx: I64) -> tuple[list[str], F64]:
     """Every variable under every operator at the anchors: the features'
     names, operator by operator (the variables themselves first), and
     their values [anchor, feature]."""
     # A few thousand anchors at a time: the history is anchors x 96 x variables.
-    parts = [_operators(_history(v, s, i)) for i in np.array_split(idx, idx.size // 4096 + 1)]
+    parts = [
+        operators(history(v, s.episode, s.step, i))
+        for i in np.array_split(idx, idx.size // 4096 + 1)
+    ]
     ops = [op for op, _ in parts[0]]
     x = np.concatenate([np.concatenate([a for _, a in part], axis=1) for part in parts])
     return [f"{op}({n})" if op else n for op in ops for n in names], x
@@ -1163,12 +1121,6 @@ WINDOW = "window_pkts"  # the window in force, the first input of every formula
 # PySR's added loss for a formula whose units do not agree; with units, a
 # formula at or above it is never kept.
 UNIT_PENALTY = 1000.0
-
-
-def physical(x: F64) -> F64:
-    """A feature's values back from base_variables' signed log scale, in
-    its _factor units (ms, Mbit/s, kB, or none)."""
-    return np.sign(x) * np.expm1(np.abs(x))
 
 
 def si_unit(name: str) -> tuple[float, str]:

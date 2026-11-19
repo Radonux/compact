@@ -35,6 +35,7 @@ from expliccit_env.train.graph import (
     TruthColumns,
     WindowTarget,
 )
+from expliccit_env.train.lcfs import units
 from expliccit_env.train.models import (
     NET1,
     NET2,
@@ -47,7 +48,7 @@ from expliccit_env.train.models import (
     Value,
 )
 from expliccit_env.train.score import utility
-from expliccit_env.train.spec import EXPLICCIT_LCFS, LCF_UNITS, Inputs, Net1Spec, Net2Spec
+from expliccit_env.train.spec import EXPLICCIT_LCFS, Inputs, Net1Spec, Net2Spec
 from expliccit_env.train.spec import Bins as BinsOutput
 from expliccit_env.train.spec import Interval as IntervalOutput
 from expliccit_env.train.spec import Point as PointOutput
@@ -93,7 +94,7 @@ class Net1:
 
     @torch.no_grad()
     def predict(self, obs: F32) -> F32:
-        """LCFs in report units (LCF_UNITS): each belief's mean, the
+        """LCFs in report units (lcfs.units): each belief's mean, the
         estimate squared error rewards."""
         means = [
             self.kind.means(torch.from_numpy(self.beliefs(obs[i : i + _EVAL_BATCH]))).numpy()
@@ -164,16 +165,24 @@ def crps(p: F32, bounds: F32, y: F32) -> F32:
 
 def _bin_bounds(y: F32, bins: int) -> F32:
     """Per LCF, B + 1 bin boundaries fitted to the training targets. A
-    quantity within [0, 1] gets B equal bins. Any other gets bin 0 below
-    the 0.1% quantile of its positive values (zero and near zero),
-    log-spaced bins up to its 99.9% quantile, and one more log step as the
-    last bin, which also takes everything above."""
+    quantity within [0, 1] gets B equal bins. One that takes negative
+    values (a fitted formula, a difference) gets equal bins between its
+    0.1% and 99.9% quantiles, the first and last also taking everything
+    beyond. Any other gets bin 0 below the 0.1% quantile of its positive
+    values (zero and near zero), log-spaced bins up to its 99.9% quantile,
+    and one more log step as the last bin, which also takes everything
+    above."""
     out = np.empty((y.shape[1], bins + 1), np.float64)
     for j in range(y.shape[1]):
         v = y[:, j][np.isfinite(y[:, j])].astype(np.float64)
         pos = v[v > 0]
         if v.size and v.min() >= 0 and v.max() <= 1:
             out[j] = np.linspace(0.0, 1.0, bins + 1)
+            continue
+        if v.size and v.min() < 0:
+            lo, hi = (float(q) for q in np.quantile(v, [0.001, 0.999]))
+            hi = hi if hi > lo else lo + 1.0  # a constant quantity: any range will do
+            out[j] = [min(lo, v.min()), *np.linspace(lo, hi, bins - 1), max(hi, v.max())]
             continue
         lo = float(np.quantile(pos, 0.001)) if pos.size else 1.0
         hi = float(np.quantile(v, 0.999)) if v.size else lo * 10
@@ -186,7 +195,7 @@ def _bin_bounds(y: F32, bins: int) -> F32:
 
 
 def targets(steps: Steps, lcfs: tuple[str, ...]) -> F32:
-    return np.stack([steps.labels[n] * np.float32(LCF_UNITS[n][0]) for n in lcfs], axis=1)
+    return np.stack([steps.labels[n] * np.float32(units(n)[0]) for n in lcfs], axis=1)
 
 
 def _metrics(pred: F32, true: F32) -> dict[str, float]:
@@ -227,7 +236,7 @@ def report_net1(net1: Net1, steps: Steps, split: Split | None = None) -> dict[st
     busy = steps.labels["busy_fraction"][rows]
     dist = _report_distributions(net1, steps, rows) if isinstance(net1.kind, Bins) else {}
     for k, name in enumerate(net1.lcfs):
-        out[name] = {"unit": LCF_UNITS[name][1], "net1": _metrics(pred[:, k], true[:, k])}
+        out[name] = {"unit": units(name)[1], "net1": _metrics(pred[:, k], true[:, k])}
         if name in dist:
             out[name]["distribution"] = dist[name]
         if name in base:

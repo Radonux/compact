@@ -148,12 +148,13 @@ class TruthColumns(nn.Module):
     def __init__(self, names: Sequence[str]) -> None:
         super().__init__()
         self.names = tuple(names)
-        units = [lcfs.LCF_UNITS[n][0] for n in names]
+        units = [lcfs.units(n)[0] for n in names]
         self.register_buffer("units", torch.tensor(units, dtype=torch.float32))
 
     @staticmethod
     def known(name: str) -> bool:
-        return lcfs.columns([name]) <= set(TRUTH_COLUMNS)
+        """A fitted formula is never known: it reads the steps before."""
+        return not lcfs.is_formula(name) and lcfs.columns([name]) <= set(TRUTH_COLUMNS)
 
     def forward(self, truth: torch.Tensor) -> torch.Tensor:
         def column(name: str) -> lcfs.F32:

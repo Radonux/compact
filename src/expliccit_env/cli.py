@@ -15,6 +15,7 @@ from expliccit_env import campaign, mahak
 from expliccit_env.dataset import TABLES, ShardWriter
 from expliccit_env.episode import EpisodeOk, run_episode
 from expliccit_env.spec import STOCK_NAMES, CampaignSpec, EpisodeSpec
+from expliccit_env.train.library import stored
 from expliccit_env.uml import UmlBuild
 
 
@@ -52,6 +53,7 @@ def _run(a: argparse.Namespace) -> int:
         timeout_s=a.timeout,
         tables=frozenset(a.tables.split(",")) if a.tables else frozenset(TABLES),
         step_stride=a.steps_stride,
+        features=stored(a.features),
     ):
         ok = isinstance(o, EpisodeOk)
         failed += not ok
@@ -258,6 +260,14 @@ def _campaign_args(c: argparse._SubParsersAction[argparse.ArgumentParser]) -> No
         type=int,
         default=1,
         help="keep every K-th step in steps.parquet (estimator data; no consecutive steps)",
+    )
+    cr.add_argument(
+        "--features",
+        nargs="+",
+        default=[],
+        metavar="NAME",
+        help="grounding library features, or fitted formulas over them, whose features over "
+        "past steps are computed from every step and kept in steps.parquet before the stride",
     )
     _common(cr)
     cr.set_defaults(fn=_run)

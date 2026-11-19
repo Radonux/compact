@@ -213,6 +213,27 @@ can be trained on (`net1.lcfs`) and a base variable of the grounding
 library (`experiments/ground.py`). Neither place lists them: a label
 added to `labels.py` or a formula added to `lcfs.COMPOSITES` joins both.
 
+### Fitted formulas
+
+The grounding library's features are defined once, in
+`train/library.py`: a base variable on a signed log scale, at the step
+or under a mean, minimum or maximum over 240 or 960 ms, or its
+difference over 60 ms, all within the episode. A formula PySR fitted
+over these features, written with each feature in brackets as
+`decompose` prints it, is also a name net1 can be trained on, for
+example `4.67 - log([max_960ms(buffer_fill)] + 78.0)`. It reads each
+feature in the units PySR read it (ms, Mbit/s, kB or none) and has no
+unit itself. `library.evaluate` reads only + - * /, powers, log, numbers
+and bracketed features, so a formula is data and never runs as code.
+
+A feature over past steps needs every step of the episode. Rows loaded
+with every step compute it. Strided rows cannot, so
+`campaign run --features` computes the features a list of formulas
+reads over every step of each episode before the stride, and keeps them
+in `steps.parquet` as `feature_<name>` columns. The live truth holds no
+past steps, so no policy reads a fitted formula from the truth: an
+oracle or a patch on one is refused.
+
 ## The step and the policy contract (`sage-v1`)
 
 The sender's side of every learned controller is one step loop,
@@ -328,6 +349,7 @@ Limits marked `ponytail` in the code name their upgrade path there.
 | Per-ms u8 trace counts | at most 3 Gbit/s and about 65 s per trace |
 | Whole-link metrics | with cross traffic, `utilization` and `mean_delay_ms` include other flows |
 | Virtual time is never checked against a real-time kernel | the effect of CPU cost on TCP is not measured (D19) |
+| The live truth holds no past steps | no oracle on a fitted formula that reads them; the upgrade is a history of the truth in the policy's state |
 
 ## Decisions
 
@@ -353,6 +375,7 @@ the ones the code's comments use.
 |---|---|
 | A label | `labels_at` in `labels.py` (it feeds `labels.parquet` and the step columns). If it is known at the step, add it to `guest/src/truth.rs` and at the end of `policy.TRUTH_COLUMNS` (released policies read a prefix); `tests/test_records_abi.py` and `tests/test_truth.py` then check the step record and that guest and host agree. |
 | A composite | a formula in `lcfs.COMPOSITES` over label columns. It needs no new data and no guest change. |
+| An operator of the grounding library | `library.OPERATORS` and `library.operators`. The search, the formulas net1 learns and the stored features all read it. |
 | A kind of belief for net1, beside a value, an interval and a distribution | A subclass of `beliefs.Beliefs` and the net1 module that states it. `tests/test_e2e.py` then trains, exports and runs it with every net2. |
 | A net2 input or window target | A `Front` option or a target module in `train/graph.py`. Training reads net2's inputs through the same front end the exported graph runs, so the two cannot drift apart. |
 | A learned controller | An ONNX graph under `sage-v1`, used as `{"kind": "agent", "mode": "hold", "policy": {"path": ..., "sha256": ...}}` for the observed flow or a TCP cross flow. |

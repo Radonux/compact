@@ -440,6 +440,10 @@ def test_bins_cover_fractions_evenly_and_rates_on_a_log_scale() -> None:
     assert b[1, 0] == 0 and np.all(np.diff(b[1]) > 0)
     ratios = b[1, 2:-1] / b[1, 1:-2]
     assert np.allclose(ratios, ratios[0], rtol=1e-4)  # log-spaced
+    # A signed quantity (a fitted formula): equal bins over its range.
+    signed = fit._bin_bounds(rng.normal(0, 1, (5000, 1)).astype(np.float32), 16)[0]
+    assert signed[0] < -3 and signed[-1] > 3 and np.all(np.diff(signed) >= 0)
+    assert np.allclose(np.diff(signed[1:-1]), np.diff(signed[1:-1])[0], rtol=1e-4)
 
 
 def _noisy(n_episodes: int = 60, sd_mbps: float = 2.0) -> data.Steps:

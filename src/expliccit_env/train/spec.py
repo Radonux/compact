@@ -9,7 +9,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, PositiveInt, 
 
 from expliccit_env.policy import EXPLICCIT_OBS_COLS, OBS_COLUMNS, OBS_DIM
 from expliccit_env.spec import StockName
-from expliccit_env.train.lcfs import LCF_UNITS
+from expliccit_env.train.lcfs import LCF_UNITS, known
 
 # expliCCit's seven LCFs, c0 to c6, in its order (its concepts log names them
 # avg_queuing_delay_ms, buffer_occupancy_pkts, channel_capacity_Mbps,
@@ -27,12 +27,14 @@ EXPLICCIT_LCFS: Final = (
 
 
 def _known_lcf(name: str) -> str:
-    if name not in LCF_UNITS:
-        raise ValueError(f"unknown LCF {name}; one of {sorted(LCF_UNITS)}")
+    if not known(name):
+        raise ValueError(
+            f"unknown LCF {name}; a formula over [features], or one of {sorted(LCF_UNITS)}"
+        )
     return name
 
 
-# A label column or a composite of them (lcfs.py).
+# A label column, a composite of them, or a fitted formula (lcfs.py).
 type Lcf = Annotated[str, AfterValidator(_known_lcf)]
 
 
@@ -444,6 +446,12 @@ class PPOSpec(BaseModel):
     # Message columns (policy.OBS_COLUMNS names) the encoder does not read,
     # so the latents cannot pass them on; with latents only.
     encoder_hides: tuple[str, ...] = ()
+    # What u is over with inputs "net1": net1's believed BDP ("bdp"), or a
+    # fixed 2^7 packets ("fixed", graph.FixedWindow) as with latents, so
+    # nothing measured reaches the window except through net1's beliefs.
+    # The retrained controller of step 4 reads concepts that need not hold
+    # a capacity or a delay. With latents the window is always fixed.
+    window: Literal["bdp", "fixed"] = "bdp"
     share_k: Annotated[float, Field(ge=0)] = 0.5
     alpha: Annotated[float, Field(gt=0)] = 20.0
     updates_per_iteration: PositiveInt = 200
@@ -462,11 +470,15 @@ class PPOSpec(BaseModel):
         if (self.algo == "clone") != (self.teacher_cc is not None):
             raise ValueError('algo "clone" and teacher_cc go together: set both or neither')
         if self.algo == "clone" and (
-            self.inputs != "raw" or self.base != "fixed" or self.student.kind != "u"
+            not (self.inputs == "raw" or self.window == "fixed")
+            or self.base != "fixed"
+            or self.student.kind != "u"
         ):
-            # ponytail: the measurements alone, upgrade when a split
-            # controller needs a Linux teacher.
-            raise ValueError('algo "clone" teaches u to an actor on inputs "raw", base "fixed"')
+            # ponytail: a window the teacher's rollouts give without net1's
+            # BDP; upgrade when a controller on that BDP needs a Linux teacher.
+            raise ValueError(
+                'algo "clone" teaches u to an actor on inputs "raw" or window "fixed", base "fixed"'
+            )
         if self.algo == "clone" and self.group != 1:
             # A teacher's rollouts carry no exploration noise, so a group's
             # members would be one episode run again under one id.
@@ -505,6 +517,11 @@ class PPOSpec(BaseModel):
             raise ValueError(
                 'an actor on the truth ("truth") has nothing to learn from the teacher'
             )
+        if self.window == "fixed" and (
+            self.inputs != "net1" or self.student.kind != "u" or self.algo == "dagger"
+        ):
+            # DAgger's teachers are rules on net1's believed BDP.
+            raise ValueError('window "fixed" is for a student "u" on inputs "net1", not DAgger')
         if self.latents is not None and self.inputs != "raw":
             raise ValueError('latents are the narrow middle of the controller on inputs "raw"')
         if self.inputs == "raw" and self.student.kind != "u":

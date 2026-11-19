@@ -52,6 +52,7 @@ from expliccit_env.episode import (
     path_constants,
 )
 from expliccit_env.spec import EpisodeSpec
+from expliccit_env.train.lcfs import Labels
 
 DATASET_VERSION: Final = 8
 # "steps" exists only for episodes that record them (spec.steps or a policy),
@@ -69,16 +70,43 @@ TABLES: Final = (
 )
 
 
+def _with_features(table: pa.Table, features: tuple[str, ...]) -> pa.Table:
+    """One episode's steps with each library feature over all of them."""
+    step = np.asarray(table["step"].to_numpy(), np.int64)
+    order = np.argsort(step, kind="stable")
+    labels = Labels(
+        {
+            c.removeprefix("label_"): np.asarray(table[c].to_numpy(), np.float32)[order]
+            for c in table.column_names
+            if c.startswith("label_")
+        },
+        rows=(np.zeros(step.size, np.int64), step[order]),
+    )
+    for f in features:
+        v = np.empty(step.size, np.float32)
+        v[order] = labels.feature(f)
+        table = table.append_column(f"feature_{f}", pa.array(v))
+    return table
+
+
 class ShardWriter:
     def __init__(
-        self, directory: Path, tables: frozenset[str] = frozenset(TABLES), step_stride: int = 1
+        self,
+        directory: Path,
+        tables: frozenset[str] = frozenset(TABLES),
+        step_stride: int = 1,
+        features: tuple[str, ...] = (),
     ) -> None:
         """``tables``: which per-episode tables to keep (episodes.parquet is
         always written). Dropping link_events and link_opp saves most of the
         space, but labels can then never be recomputed for those episodes.
         ``step_stride``: keep only the steps whose number is a multiple of it,
         which shrinks estimator data (each step's message already summarizes
-        the steps before it) but leaves no consecutive steps for net2."""
+        the steps before it) but leaves no consecutive steps for net2.
+        ``features``: grounding library features (train/library.py) computed
+        over every step of the episode before the stride, kept in steps as
+        ``feature_<name>`` columns, so a fitted formula reading them can be
+        learned from strided steps."""
         if step_stride < 1:
             raise ValueError(f"step_stride {step_stride} must be at least 1")
         if not tables <= frozenset(TABLES):
@@ -89,6 +117,7 @@ class ShardWriter:
         self.dir = directory
         self.tables = tables
         self.step_stride = step_stride
+        self.features = features
         self.rows: list[dict[str, object]] = []
         self.writers: dict[str, pq.ParquetWriter] = {}
 
@@ -102,6 +131,8 @@ class ShardWriter:
                 assert name in TABLES, name
                 if name not in self.tables:
                     continue
+                if name == "steps" and self.features:
+                    table = _with_features(table, self.features)  # noqa: PLW2901
                 if name in ("steps", "cross_steps") and self.step_stride > 1:
                     step = np.asarray(table["step"].to_numpy(), np.int64)
                     table = table.take(np.flatnonzero(step % self.step_stride == 0))  # noqa: PLW2901

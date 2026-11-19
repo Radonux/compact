@@ -33,7 +33,9 @@ class Steps:
     """Rows of every recorded step, by episode id, then step."""
 
     obs: F32  # [n, 78], the step message as recorded (may hold inf and NaN)
-    labels: dict[str, F32]  # label name -> [n], NaN where undefined (lcfs.Labels)
+    # label name -> [n], NaN where undefined (lcfs.Labels); also the library
+    # features stored with strided steps (dataset.ShardWriter)
+    labels: dict[str, F32]
     action: F32  # [n], the action taken from the step; NaN on the last one
     reward: F32  # [n], Sage's reward at the step
     cwnd: F32  # [n], the sender's window (packets) when the step was read
@@ -48,6 +50,7 @@ class Steps:
 
 
 _COLUMNS = frozenset({"episode_id", "step", "obs", "action", "reward", "cwnd"})
+_LABELS = ("label_", "feature_")  # labels, and library features (dataset.ShardWriter)
 
 
 def _path_key(spec_json: str, by: SplitBy = "spec") -> str:
@@ -112,7 +115,7 @@ def load(
         # (float64 observations) can exceed memory.
         ids = pa.array(list(split_of), pa.string())
         f = pq.ParquetFile(shard / "steps.parquet")
-        columns = [c for c in f.schema_arrow.names if c in _COLUMNS or c.startswith("label_")]
+        columns = [c for c in f.schema_arrow.names if c in _COLUMNS or c.startswith(_LABELS)]
         for g in range(f.num_row_groups):
             t = f.read_row_group(g, columns=columns)  # pyright: ignore[reportUnknownMemberType]
             ok = pc.is_in(t["episode_id"], value_set=ids)  # pyright: ignore[reportUnknownMemberType]
@@ -135,6 +138,7 @@ def load(
     order = np.lexsort((cat["step"], rank[cat["episode"]]))
     cat = {k: v[order] for k, v in cat.items()}
     episode = rank[cat.pop("episode")]
+    step = cat.pop("step")
     split = (
         _row_split(seed, val, test, episode.size)
         if split_by == "row"
@@ -146,11 +150,16 @@ def load(
         reward=cat.pop("reward"),
         cwnd=cat.pop("cwnd"),
         episode=episode,
-        step=cat.pop("step"),
+        step=step,
         episode_ids=episode_ids,
         controllers=tuple(controller_of[e] for e in episode_ids),
         split=split,
-        labels=Labels({k.removeprefix("label_"): v for k, v in cat.items()}),
+        # Every step of whole episodes, in order, unless strided: then a
+        # fitted formula reads only the features stored with the steps.
+        labels=Labels(
+            {k.removeprefix("label_").removeprefix("feature_"): v for k, v in cat.items()},
+            rows=(episode, step) if stride == 1 else None,
+        ),
     )
 
 
@@ -174,4 +183,4 @@ def _arrays(t: pa.Table, index: dict[str, int]) -> dict[str, npt.NDArray[Any]]:
         "cwnd": f32("cwnd"),
         "step": np.asarray(t["step"].to_numpy(zero_copy_only=False), np.int64),
         "episode": np.array([index.setdefault(e, len(index)) for e in eids], np.int64),
-    } | {c: f32(c) for c in t.column_names if c.startswith("label_")}
+    } | {c: f32(c) for c in t.column_names if c.startswith(_LABELS)}

@@ -32,7 +32,10 @@ per 10 ms step, the 78-value message (`obs`), the labels at that instant
 
 `--tables steps` drops the large link tables. `--steps-stride K` keeps
 every K-th step, which is enough to supervise an estimator and not enough
-for a learner that needs consecutive steps. A sweep
+for a learner that needs consecutive steps. A fitted formula over past
+steps needs `--features FORMULA...` with the stride, which keeps the
+features it reads
+([architecture.md](architecture.md#fitted-formulas)). A sweep
 `{"kind": "paths", "paths": [...]}` takes any paths, and
 `"ccs_per_point": k` runs k of the controllers per point. Many links with
 a few controllers each teach an estimator more than the reverse. Any of
@@ -62,7 +65,7 @@ trains such a net1 and scores it on held-out families.
 | `controllers` | all | train only on these controllers' episodes |
 | `step_stride` | 1 | keep every n-th step and the step after it |
 | `net1_from` | none | reuse a trained `net1.pt` |
-| `net1.lcfs` | expliCCit's 7 | what net1 predicts: any stored label or composite, in either window (`lcfs.LCF_UNITS`; [architecture.md](architecture.md#ground-truth-labels)) |
+| `net1.lcfs` | expliCCit's 7 | what net1 predicts: any stored label or composite, in either window (`lcfs.LCF_UNITS`; [architecture.md](architecture.md#ground-truth-labels)), or a fitted formula ([architecture.md](architecture.md#fitted-formulas)) |
 | `net1.obs_cols` | expliCCit's 70 | the message columns net1 reads |
 | `net1.output` | `{"kind": "point"}` | what net1 states per label: one value (`point`), a centre and an interval holding `coverage` (`interval`), or a distribution over `bins` fixed bins, trained with the log score and averaged over `members` net1s (`bins`) |
 | `net1.width`, `dropout`, `lr`, `epochs`, `patience` | 512, 0.3, 1e-3, 50, 5 | the network and its training |
@@ -102,6 +105,7 @@ min RTT (clamped to 10 to 50 ms) and holds its decision u in between.
 | `latents` | none | `raw` only. The discovery controller: an encoder maps each step's scaled measurements to this many latents, and the actor reads the latents and its previous u alone |
 | `encoder_hides` | none | with `latents`: message columns the encoder does not read, so the latents cannot pass them on |
 | `encoder_hidden` | 256 | the width of the encoder's two hidden layers |
+| `window` | `bdp` | `fixed`: on inputs `net1`, u is log2 of the window over a fixed 2^7 packets, as with `latents`, so nothing measured reaches the window but through net1's beliefs; the retrained controller of step 4. Needs no capacity or delay among net1's LCFs, and can be cloned from a Linux controller |
 | `action_max` | 3 | the bound on u; 8 for the discovery controller |
 | `init_actor`, `init_critic`, `init_from` | none | start from saved networks, or continue an earlier run's directory |
 | `anchor` | 0 | `ppo`: weight of the KL divergence to the policy it started from |

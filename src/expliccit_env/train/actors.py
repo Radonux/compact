@@ -178,8 +178,9 @@ def front(net1: fit.Net1, spec: PPOSpec, *, traffic: nn.Module | None = None) ->
 
 def target(net1: fit.Net1, spec: PPOSpec) -> nn.Module:
     """The BDP the window is aimed at: net1's belief, or BBR's estimate for
-    the black box; a fixed window for the controller with a narrow middle."""
-    if spec.latents is not None:
+    the black box; a fixed window for the controller with a narrow middle,
+    and for one on net1 with window "fixed"."""
+    if spec.latents is not None or spec.window == "fixed":
         return FixedWindow()
     return MeasuredBdp() if spec.inputs == "raw" else fit.window_target(net1)
 

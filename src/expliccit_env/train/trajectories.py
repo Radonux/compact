@@ -27,10 +27,10 @@ from expliccit_env.train import fit, score
 from expliccit_env.train.actors import Rules, front, target, teacher3_u, teacher_u
 from expliccit_env.train.graph import Front
 from expliccit_env.train.handoff import PolicyTeacher
-from expliccit_env.train.lcfs import Labels, columns
+from expliccit_env.train.lcfs import Labels, columns, units
 from expliccit_env.train.mixture import active, realized
 from expliccit_env.train.recurrent import OBS_MIN_RTT, decision_steps
-from expliccit_env.train.spec import LCF_UNITS, Gate3, Net2Spec, PPOSpec
+from expliccit_env.train.spec import Gate3, Net2Spec, PPOSpec
 
 type F32 = npt.NDArray[np.float32]
 # Per-step reward: the validation tables' log utility (delay weight 0.5,
@@ -84,12 +84,15 @@ def _read(path: Path, eids: set[str], lcfs: tuple[str, ...]) -> pa.Table | None:
 
 
 def _labels(t: pa.Table) -> Labels:
+    """One flow's labels; its rows are every step of its episode, in order."""
+    step = np.asarray(t["step"].to_numpy(zero_copy_only=False), np.int64)
     return Labels(
         {
             c.removeprefix("label_"): np.asarray(t[c].to_numpy(zero_copy_only=False), np.float32)
             for c in t.column_names
             if c.startswith("label_")
-        }
+        },
+        rows=(np.zeros(step.size, np.int64), step),
     )
 
 
@@ -116,7 +119,7 @@ def trajectory(
     *,
     front: Front,
     target: nn.Module,
-    rules: Rules,
+    rules: Rules | None,
     spec: PPOSpec,
     group: tuple[int, int],
     rivals: npt.NDArray[np.float64],
@@ -138,14 +141,14 @@ def trajectory(
     d = d[d + 1 < n]  # a decision's realized window is the next step's
     if d.size < 2:
         return None
-    y = np.stack([labels[k][d] * np.float32(LCF_UNITS[k][0]) for k in net1.lcfs], axis=1)
+    y = np.stack([labels[k][d] * np.float32(units(k)[0]) for k in net1.lcfs], axis=1)
     o = torch.from_numpy(obs[d])
     z, xt, traffic = front(o, torch.from_numpy(y) if front.uses_truth else None)
     x = xt.numpy()
     lb = target(o, z, traffic).numpy()
     u = (np.log2(np.maximum(cwnd[d + 1], 1.0)) - lb).astype(np.float32)
     # The rules' u on the actor's beliefs, as its head reads them in the graph.
-    ruled = rules(z).numpy().astype(np.float32) if spec.inputs != "raw" else None
+    ruled = rules(z).numpy().astype(np.float32) if rules and spec.inputs != "raw" else None
     base = ruled[:, 0] if ruled is not None and spec.base == "share" else None
     prev = np.concatenate([[0.0], u[:-1]]).astype(np.float32)
     # Each step's reward weighs 1 - exp(-10 ms / tau), so a return is a
@@ -174,8 +177,8 @@ def trajectory(
     # The teachers read net1's beliefs, also for the black box ("raw"), whose
     # label is then the teacher's window on its own measured BDP.
     z1 = z if spec.inputs == "net1" else torch.from_numpy(net1.beliefs(obs[d]))
-    if ruled is None or spec.inputs != "net1":
-        ruled = rules(z1).numpy().astype(np.float32)
+    if ruled is None or spec.inputs != "net1":  # rules: not window "fixed" (PPOSpec)
+        ruled = cast("Rules", rules)(z1).numpy().astype(np.float32)
     share_u, coop_u = ruled[:, 0], ruled[:, 1]
     if spec.algo != "dagger":  # a gate student continued by PPO
         return Trajectory(group, inp, critic, u, reward, gamma, share=share_u, coop=coop_u)
@@ -207,7 +210,11 @@ def from_rollouts(
 ) -> list[Trajectory]:
     """Every flow with recorded steps of every ok rollout episode: the
     agent flows, or for algo "clone" the observed teacher flow."""
-    fe, tgt, rules = front(net1, spec), target(net1, spec), Rules(net1, spec).eval()
+    # The rules read net1's capacity, busy fraction and receive rate, which
+    # a net1 on concepts (window "fixed") need not state; its student "u"
+    # never reads them.
+    rules = None if spec.window == "fixed" else Rules(net1, spec).eval()
+    fe, tgt = front(net1, spec), target(net1, spec)
     out: list[Trajectory] = []
     flows_of: dict[str, list[tuple[int, pa.Table]]] = {}
     connected: dict[str, list[float | None]] = {}

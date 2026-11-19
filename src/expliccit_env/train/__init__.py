@@ -2,6 +2,7 @@
 
     spec.py        what to train (TrainSpec, PPOSpec), parsed once
     data.py        steps.parquet shards -> arrays, split by path (or link)
+    library.py     the grounding library's features, and fitted formulas over them
     models.py      the networks by name: net1's encoders, the offline actor
     beliefs.py     the kinds of belief net1 states (value, interval,
                    distribution) and every way the rest reads them
@@ -23,6 +24,7 @@
     export.py      one ONNX graph per policy, under the sage-v1 contract
     run.py         training runs and imports, as the CLI calls them
 
-Needs the ``train`` extra (PyTorch), except data.py, spec.py and score.py.
+Needs the ``train`` extra (PyTorch), except data.py, spec.py, score.py,
+lcfs.py and library.py.
 Architectures and algorithms are chosen by name in the specs.
 """

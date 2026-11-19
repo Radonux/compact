@@ -1,5 +1,7 @@
-"""The LCFs net1 can learn, by name: label columns (labels.labels_at) and
-composites, each a fixed formula over label columns of one window.
+"""The LCFs net1 can learn, by name: label columns (labels.labels_at),
+composites, each a fixed formula over label columns of one window, and
+fitted formulas over the grounding library's features (library.py), each
+written with its features in brackets.
 
 A composite is never stored. ``Labels`` computes it from the stored columns
 the first time it is asked for, so adding one needs no new data, and an LCF
@@ -13,11 +15,16 @@ exported policy, graph.TruthColumns), so a composite of the truth is the
 composite of the labels.
 
 Where a composite comes from is in docs/concepts.md.
+
+A fitted formula reads features over the steps before each step, so it
+needs whole episodes: its features stored when the episode was recorded
+(dataset.ShardWriter), or ``Labels`` given every step in order. It has no
+unit, and an exported policy cannot compute it from the live truth.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from typing import TYPE_CHECKING, Final, cast
 
 import numpy as np
@@ -189,12 +196,45 @@ def columns(lcfs: Iterable[str]) -> set[str]:
         return np.zeros(1, np.float32)
 
     for name in lcfs:
-        if name in _COMPOSITE_OF:
+        if is_formula(name):
+            from expliccit_env.train import library  # noqa: PLC0415  (it reads LCF_UNITS)
+
+            for f in library.features_of(name):
+                out.update(columns([library.parse(f)[1]]))
+        elif name in _COMPOSITE_OF:
             formula, w = _COMPOSITE_OF[name]
             formula(_getter(note, w))
         else:
             out.add(name)
     return out
+
+
+def is_formula(name: str) -> bool:
+    """Whether an LCF is a fitted formula: its features are in brackets."""
+    return "[" in name
+
+
+def units(name: str) -> tuple[float, str]:
+    """An LCF's factor to its report units, and the units; a fitted formula
+    is reported as it is, without a unit."""
+    return (1.0, "") if is_formula(name) else LCF_UNITS[name]
+
+
+def known(name: str) -> bool:
+    """Whether a name is an LCF: a label column, a composite, or a fitted
+    formula that ``library.evaluate`` reads (a feature it reads must still
+    be in the data)."""
+    if not is_formula(name):
+        return name in LCF_UNITS
+    from expliccit_env.train import library  # noqa: PLC0415  (it reads LCF_UNITS)
+
+    try:
+        for f in library.features_of(name):
+            library.parse(f)
+        library.evaluate(name, lambda _: np.ones(1))
+    except (ValueError, SyntaxError):
+        return False
+    return True
 
 
 def value(name: str, get: Get) -> F32:
@@ -207,10 +247,48 @@ def value(name: str, get: Get) -> F32:
 
 
 class Labels(dict[str, F32]):
-    """Label columns by name; a composite is computed on first use and kept."""
+    """Label columns (and features stored with strided steps) by name; a
+    composite or a fitted formula is computed on first use and kept.
+    ``rows``, the rows' episode and step when they are every step of whole
+    episodes in order, lets a formula compute the features it reads."""
+
+    def __init__(
+        self,
+        columns: Mapping[str, F32] | None = None,
+        rows: tuple[npt.NDArray[np.int64], npt.NDArray[np.int64]] | None = None,
+    ) -> None:
+        super().__init__(columns or {})
+        self.rows = rows
 
     def __missing__(self, name: str) -> F32:
-        if name not in _COMPOSITE_OF:
-            raise KeyError(f"no label {name}: not in the data, and not a composite")
-        self[name] = out = value(name, self.__getitem__).astype(np.float32)
+        if is_formula(name):
+            from expliccit_env.train import library  # noqa: PLC0415  (it reads LCF_UNITS)
+
+            out = library.evaluate(name, self.feature).astype(np.float32)
+        elif name in _COMPOSITE_OF:
+            out = value(name, self.__getitem__).astype(np.float32)
+        else:
+            raise KeyError(f"no label {name}: not in the data, and not a composite or formula")
+        self[name] = out
         return out
+
+    def feature(self, name: str) -> npt.NDArray[np.float64]:
+        """A library feature in physical units: stored, or computed from
+        whole episodes."""
+        from expliccit_env.train import library  # noqa: PLC0415  (it reads LCF_UNITS)
+
+        op, variable = library.parse(name)
+        if op == "":  # a label or composite, in its physical units
+            return library.physical(library.scaled(variable, self[variable]))
+        if name in self:  # stored with strided steps, or computed before
+            return self[name].astype(np.float64)
+        if self.rows is None or np.any(
+            (np.diff(self.rows[1]) != 1) & (np.diff(self.rows[0]) == 0)
+        ):  # a step missing within an episode: a strided table
+            raise KeyError(
+                f"no feature {name}: not stored with the steps, and the rows are not every "
+                "step of whole episodes (store it with campaign run --features)"
+            )
+        found = library.values([name], self.__getitem__, *self.rows)[name]
+        self[name] = found.astype(np.float32)
+        return found

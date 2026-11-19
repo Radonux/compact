@@ -4,6 +4,7 @@ train/ppo.py)."""
 from __future__ import annotations
 
 import copy
+import dataclasses
 import itertools
 import json
 from pathlib import Path
@@ -22,8 +23,9 @@ from expliccit_env.spec import AgentCC, EpisodeSpec, OnnxPolicy, TcpCross  # noq
 from expliccit_env.train import actors, data, fit, handoff, learners, mixture, ppo, trajectories  # noqa: E402
 from expliccit_env.train.export import to_onnx  # noqa: E402
 from expliccit_env.train.graph import MAX_DELIVERED, MIN_RTT_MS, PolicyGraph  # noqa: E402
+from expliccit_env.train.lcfs import Labels  # noqa: E402
 from expliccit_env.train.recurrent import OBS_MIN_RTT, RecurrentActor, decision_steps  # noqa: E402
-from expliccit_env.train.spec import LCF_UNITS, Bins, Gate, Gate3, U  # noqa: E402
+from expliccit_env.train.spec import LCF_UNITS, Bins, Gate, Gate3, Net1Spec, U  # noqa: E402
 
 from .test_train import _bdp_net1  # noqa: E402
 
@@ -1413,3 +1415,80 @@ def test_a_run_keeps_its_best_evaluated_policy(tmp_path: Path) -> None:
     assert ppo._keep_best(tmp_path, policy, actor, 4, -0.1, -0.2) == -0.1
     assert (tmp_path / "policy-best.onnx").read_bytes() == b"p4"
     assert json.loads((tmp_path / "best.json").read_text()) == {"iteration": 4, "score": -0.1}
+
+
+def test_a_controller_on_concepts_aims_at_a_fixed_window() -> None:
+    # A net1 on a fitted formula over a feature of the steps before.
+    steps, _ = _bdp_net1()
+    concept = "[mean_240ms(capacity_bps)] / 10"
+    labels = Labels(dict(steps.labels), rows=(steps.episode, steps.step))
+    steps = dataclasses.replace(steps, labels=labels)
+    net1, _ = fit.fit_net1(
+        Net1Spec(width=32, epochs=1, batch_size=256, lcfs=(concept,), output=Bins(bins=16)),
+        steps,
+        seed=0,
+    )
+    spec = ppo.PPOSpec(
+        paths_from=Path("u"),
+        net1_from=Path("u"),
+        u_rule=0.25,
+        hidden=8,
+        input_bins=4,
+        action_max=8.0,
+        window="fixed",
+        critic_truth=True,
+    )
+    actor = actors.new_actor(actors.width(net1, spec), spec)
+    assert actor.gru.input_size == 4 + 1  # the concept's pooled bins and the previous u
+    graph = ppo.policy_graph(net1, actor, spec)
+    obs = steps.obs[steps.episode == 0]
+    with torch.no_grad():  # it starts as a fixed window of 2^(7 + u_rule) packets
+        a, _ = graph.step(
+            torch.from_numpy(obs[:1].copy()),
+            torch.zeros(1, graph.state_dim),
+            cwnd=torch.tensor([[10.0]]),
+        )
+    assert float(a) + np.log2(10.0) == pytest.approx(7.25, abs=1e-4)
+    # Its rollouts need no rules, and the critic reads the concept's truth.
+    n = 80
+    table = pa.table(
+        {
+            "step": pa.array(np.arange(n, dtype=np.int32)),
+            "t_ns": pa.array((np.arange(n) * 10_000_000).astype(np.uint64)),
+            "obs": pa.FixedSizeListArray.from_arrays(pa.array(obs[:n].reshape(-1)), OBS_DIM),
+            "cwnd": pa.array(np.full(n, 20, np.uint32)),
+            "label_capacity_bps": pa.array(labels["capacity_bps"][:n].astype(np.float64)),
+        }
+    )
+    tr = trajectories.trajectory(
+        table,
+        np.zeros(n, np.float32),
+        net1,
+        front=actors.front(net1, spec),
+        target=actors.target(net1, spec),
+        rules=None,
+        spec=spec,
+        group=(0, 0),
+        rivals=np.zeros((0, 3)),
+    )
+    assert tr is not None and np.allclose(tr.u, np.log2(20.0) - 7.0, atol=1e-5)
+    d = decision_steps(obs[:n, OBS_MIN_RTT])
+    d = d[d + 1 < n]
+    truth = net1.lcf_scaler(torch.from_numpy(labels[concept][:n][d, None])).numpy()[:, 0]
+    assert np.allclose(tr.critic[:, 0], truth, atol=1e-5)
+    # Cloning a Linux controller into it, and what it cannot be.
+    ppo.PPOSpec(
+        paths_from=Path("u"),
+        net1_from=Path("u"),
+        window="fixed",
+        algo="clone",
+        teacher_cc="bbr3",
+        group=1,
+    )
+    with pytest.raises(ValueError, match='algo "clone"'):
+        ppo.PPOSpec(
+            paths_from=Path("u"), net1_from=Path("u"), algo="clone", teacher_cc="bbr3", group=1
+        )
+    with pytest.raises(ValueError, match='window "fixed"'):
+        ppo.PPOSpec(paths_from=Path("u"), net1_from=Path("u"), window="fixed", inputs="raw")
+    assert handoff.mismatch(spec, spec.model_copy(update={"window": "bdp"}), handoff.ACTOR_FIELDS)
