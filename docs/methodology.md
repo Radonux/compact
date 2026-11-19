@@ -152,6 +152,31 @@ path, and so does everything it sets.
    ([status](status.md#the-seed-search)), so the test of the formulas is
    a decoder retrained on them.
 
+## Retraining
+
+The concepts of a hit are its recovered formulas, in the basis along
+which it decomposes. net1 learns them from the same 70 measurements, as
+the estimator of the seven hand-picked LCFs was trained: a distribution
+over 64 bins, three members, on net1 v5's training links, with BBRv3,
+Westwood and threshold-0.3 held out and reported apart. The features a
+formula reads over past steps are kept with the strided steps
+([architecture.md](architecture.md#fitted-formulas)).
+
+net2 has the discovery decoder's shape: a GRU that reads net1's beliefs
+and its own previous decision, and sets the window over a fixed 2^7
+packets. The window in force, the first concept, reaches it as the
+previous decision, and nothing measured passes around the concepts. It
+is trained by the hit's own recipe: cloned from BBRv3, then
+reinforcement learning, BBRv3 the reference of every evaluation, the
+best evaluated policy kept. It is judged by the same rule, trained well
+against BBRv3. Few seeds of the discovery controller train well, so net2
+is trained from several seeds and the one best on the validation links
+is kept.
+
+An oracle net2 on the true concepts needs the truth over past steps in
+the policy's state, which the guest does not give
+([architecture.md](architecture.md#known-limits)).
+
 ## net1's output
 
 A sender cannot observe every quantity at every operating point (no

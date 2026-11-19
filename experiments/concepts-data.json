@@ -1,0 +1,14 @@
+{
+  "title": "Step data for net1 on the concepts of BBRv3's width 7 seed 128",
+  "description": "Step 4 retrains net1 on the concepts of the seed search's hit, BBRv3's width 7 seed 128 with the window hidden (release exp-controller-seed-search-49, decompose-ctl-bbr3-k7-s128/decompose.json, the latents' own axes): its five recovered formulas, written in experiments/specs/concepts-s128.json as net1's LCFs. They read features over the steps before each step (a mean over 240 ms, a mean and a maximum over 960 ms), which a table keeping every 6th step cannot compute, so campaign run --features computes them over every step of each episode and keeps them beside the strided steps. The data is net1 v5's training set (examples/net1_broad.py, set train30: 2,400 links, two conditions each from a broad set of 64, three controllers per link, 30 s episodes, every 6th step kept), as experiments/data-net1-broad-30s.json made it in the project compact was forked from, with the fixed rule from exp-steps-behaviour-rule-8. An episode that fails validation is recorded as failed and left out of the data. At most five cells run at once, beside the seed search's five.",
+  "uml": true,
+  "inputs": {
+    "rule": "release:exp-steps-behaviour-rule-8"
+  },
+  "prepare": "uv run python examples/net1_broad.py \"$OUT/spec-train30\" --set train30 --models \"$IN/rule/models\"; uv run expliccit campaign plan \"$OUT/spec-train30/campaign.json\" \"$OUT/campaign-train30\"",
+  "shards": 20,
+  "run": "mapfile -t F < <(jq -r '.lcfs[]' experiments/specs/concepts-s128.json); uv run expliccit campaign run \"$OUT/campaign-train30\" --shard \"$SHARD/$SHARDS\" --build \"$UML\" --workers \"$WORKERS\" --tables steps --steps-stride 6 --features \"${F[@]}\" || echo \"an episode failed; it is recorded as failed and left out of the data\"",
+  "collect": "echo '| set | status |' > \"$OUT/summary.md\"; echo '|---|---|' >> \"$OUT/summary.md\"; uv run expliccit campaign status \"$OUT/campaign-train30\" > \"$OUT/status-train30.json\"; echo \"| train30 | $(jq -c . \"$OUT/status-train30.json\") |\" >> \"$OUT/summary.md\"",
+  "parallel": 5,
+  "timeout_minutes": 300
+}

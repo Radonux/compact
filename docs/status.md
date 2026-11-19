@@ -34,7 +34,7 @@ drift less and gain no more ([below](#longer-training)).
 | 1 Setup | done: the estimator of the seven LCFs and the rule graph as releases |
 | 2 Train | bootstrapped from Cubic and BBRv3; reinforcement learning tuned at width 10 and confirmed at widths 7, 10 and 16 over three seeds; against BBRv3 Cubic's width 10 is trained well; longer training did not pay, at either rate |
 | 3 Ground | the latents carry the decision, whether or not the encoder sees the window; beyond it, the queueing delay and the arrival rate; the seed search found two networks that are trained well and decompose |
-| 4 Retrain | UNRUN. Built: `train run` for net1 on any stored label or composite, `train ppo` for net2, live truth for oracles. Not built: labels from fitted formulas beyond the composites. |
+| 4 Retrain | Running for seed 128: the step data for net1 on its five formulas. Built: net1 on fitted formulas, with the features over past steps kept beside strided steps; net2 on net1 with a fixed window, cloned from BBRv3 ([methodology.md](methodology.md#retraining)). UNRUN: net1 on the formulas, net2 on it, the count over m, the oracle and the comparisons. |
 
 ## Training the discovery controller
 
@@ -303,9 +303,9 @@ The two hits, both along their own axes, on 126 validation episodes
   deciding nothing: R^2 of the decision's change -0.76 for seed 128 and
   -0.67 for seed 133, against -0.74 and -0.53 with the window alone.
 - Every formula of both hits reads a feature taken over past steps (a
-  mean, least or most over 240 or 960 ms), so retraining on them in step
-  4 needs labels the repository cannot yet make
-  ([open questions](#open-questions)).
+  mean, least or most over 240 or 960 ms). A campaign now keeps those
+  features beside its strided steps, so net1 can learn the formulas
+  ([architecture.md](architecture.md#fitted-formulas)).
 - Trained well but not decomposed: in the first batch, BBRv3's width 7
   seed 104; in the second, width 10 seeds 111, 115, 116 and 122 and width
   7 seeds 115, 116 and 121; in the third, width 10 seed 138 and width 7
@@ -327,8 +327,8 @@ hit: three batches found two hits, where the pooled share of recovered
 directions, taken as independent, predicted almost none. The fourth batch
 (`exp-controller-seed-search-50`, `experiments/controller-seed-search.json`
 as it now stands) trains BBRv3's seeds 141 to 156 at widths 7 and 10, in
-the same way. UNRUN: the fourth batch, which is training, step 4 on seed
-128, and a release of the first batch's scores.
+the same way. UNRUN: the fourth batch, which is training, and a release
+of the first batch's scores.
 
 `ground.py decompose` on the 18 confirmed controllers
 (`exp-ground-rl-confirm-32`, the window seen) and the 18 with the window
@@ -378,6 +378,24 @@ with the window seen above 0.001. In Cubic's with the window hidden, 25
 of 54 score above 0, at most 0.41, and the window's network alone does
 as well as the formulas.
 
+## Retraining seed 128
+
+The concepts are seed 128's five recovered formulas along its own axes
+(four distinct), in `experiments/specs/concepts-s128.json`, as `decompose`
+printed them. net1 learns them with the estimator's settings
+([methodology.md](methodology.md#retraining)). Its data is net1 v5's
+training set, every 6th step, with the three features the formulas read
+over past steps (the mean queueing delay over 240 ms, the mean capacity
+and the highest buffer fill over 960 ms) kept beside the steps:
+`exp-concepts-data-51` (`experiments/concepts-data.json`), running.
+
+On a smoke campaign the formulas computed from the kept features equal
+those computed from every step (largest difference 6e-8), and formulas 1
+and 4 correlate at 0.90, the pair `decompose` counted as one.
+
+UNRUN: net1 on the formulas, net2 on that net1 from several seeds, the
+count over m, and the comparisons with the hand-picked LCFs.
+
 ## Releases
 
 | Release | What it holds |
@@ -407,6 +425,7 @@ as well as the formulas.
 | `exp-controller-seed-search-48` | The second batch: BBRv3's seeds 109 to 124, widths 7 and 10. Each draw's `decompose-*` scores and its own row in `versus-bbr3`. |
 | `exp-controller-seed-search-49` | The third batch: BBRv3's seeds 125 to 140, widths 7 and 10, as the second. Holds the two hits. |
 | `exp-controller-seed-search-50` | The fourth batch: BBRv3's seeds 141 to 156, widths 7 and 10, as the second. Running. |
+| `exp-concepts-data-51` | Step data for net1 on seed 128's concepts: net1 v5's training set with the features the formulas read. Running. |
 | `exp-steps-broad-30s-9`, `exp-phase0-teachers-1`, `exp-phase0-steps-2` | Old guest; not used. |
 
 ## A fault in earlier episodes
@@ -439,8 +458,7 @@ the fault in episodes with cross flows.
 | Question | Note |
 |---|---|
 | Which path orders the concepts in retraining | The decision's change comes mostly from the decoder's memory, while the latents are explained to 0.80 to 0.86. The latents' path, or ground truth over a longer history, are the candidates. |
-| Labels for fitted formulas | A formula over stored labels becomes a composite with no new data ([architecture.md](architecture.md#composites)). One with a windowed operator over past steps has no such path yet. |
-| The kind of output the retrained net1 states | A value, an interval or a distribution. |
+| An oracle on the concepts | Every formula of the hits reads past steps, which the live truth does not hold ([architecture.md](architecture.md#known-limits)). |
 
 ## Checks
 
