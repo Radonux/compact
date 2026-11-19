@@ -100,6 +100,43 @@ def test_a_download_retries_into_a_clean_directory(
     assert calls == [[], [], []]
 
 
+@pytest.mark.skipif(shutil.which("zstd") is None, reason="needs zstd (GitHub's runners have it)")
+def test_a_release_input_can_be_some_paths_of_its_packed_result(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    out, dist, bin_ = tmp_path / "out", tmp_path / "dist", tmp_path / "bin"
+    for d in ("keep/a", "keep/b", "drop"):
+        (out / d).mkdir(parents=True)
+        (out / d / "x.json").write_text(d * 50)
+    dist.mkdir()
+    bin_.mkdir()
+    pack = 'tar -C "$OUT" -cf - . | zstd -q | split -b 64 -d -a 3 - "$DIST/r.tar.zst.part-"'
+    env = os.environ | {"OUT": str(out), "DIST": str(dist)}
+    subprocess.run(["bash", "-euo", "pipefail", "-c", pack], env=env, check=True)
+    assert len(list(dist.iterdir())) > 1
+    # gh, as the release view and download the command runs: the parts in dist.
+    gh = bin_ / "gh"
+    gh.write_text(
+        "#!/bin/bash\n"
+        'if [ "$2" = view ]; then (cd "$DIST" && ls -r; echo NOTES.md); exit 0; fi\n'
+        'while [ "$1" != --pattern ]; do shift; done; cat "$DIST/$2"\n'
+    )
+    gh.chmod(0o755)
+    into = tmp_path / "in"
+    monkeypatch.setenv("DIST", str(dist))
+    monkeypatch.setenv("PATH", f"{bin_}:{os.environ['PATH']}")
+    experiment.download(experiment.release_download("o/r", "exp-x-1:keep/a,keep/b/", into), into)
+    found = sorted(str(p.relative_to(into)) for p in into.rglob("*.json"))
+    assert found == ["keep/a/x.json", "keep/b/x.json"]
+    assert experiment.release_download("o/r", "exp-x-1", into)[:4] == [
+        "gh",
+        "release",
+        "download",
+        "exp-x-1",
+    ]
+    assert parse(shards=1, inputs={"hit": "release:exp-x-1:keep/a,keep/b"}).inputs
+
+
 def test_a_download_gives_up_after_four_failures(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

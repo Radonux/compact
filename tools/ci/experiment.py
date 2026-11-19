@@ -31,8 +31,10 @@ in upper case. A cell writes only under paths no other cell writes (a
 campaign shard writes shards/K-of-N), so the outputs merge by copying.
 
 Inputs: "release:TAG" is every asset of a release of this repository;
-"run:RUN_ID/NAME" is an artifact of an earlier workflow run. A packed
-result (NAME.tar.zst.part-*) is unpacked into IN/<input>.
+"release:TAG:PATH,..." is only those files or directories of its packed
+result, streamed part by part, so a release larger than the runner's disk
+is never stored; "run:RUN_ID/NAME" is an artifact of an earlier workflow
+run. A packed result (NAME.tar.zst.part-*) is unpacked into IN/<input>.
 
 Usage: python tools/ci/experiment.py plan|prepare|fetch|run|collect|pack FILE_OR_JSON [CELL]
 """
@@ -56,7 +58,10 @@ RESERVED = {"out", "in", "uml", "workers", "cell", "cells", "shard", "shards"}
 
 Name = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*$")]
 Slug = Annotated[str, Field(pattern=r"^[a-z0-9][a-z0-9-]{0,63}$")]
-Ref = Annotated[str, Field(pattern=r"^(release:[A-Za-z0-9._/-]+|run:[0-9]+/[A-Za-z0-9._-]+)$")]
+Ref = Annotated[
+    str,
+    Field(pattern=r"^(release:[A-Za-z0-9._/-]+(:[A-Za-z0-9._/,-]+)?|run:[0-9]+/[A-Za-z0-9._-]+)$"),
+]
 Scalar = str | int | float | bool
 
 
@@ -190,7 +195,7 @@ def fetch(exp: Experiment) -> None:
         tmp = REPO / "in" / f".{name}"
         kind, _, what = ref.partition(":")
         if kind == "release":
-            cmd = ["gh", "release", "download", what, "--dir", str(tmp), "--repo", repo]
+            cmd = release_download(repo, what, tmp)
         else:
             run_id, _, artifact = what.partition("/")
             cmd = [
@@ -208,6 +213,23 @@ def fetch(exp: Experiment) -> None:
         download(cmd, tmp)
         unpack(tmp, REPO / "in" / name)
         tmp.rmdir()
+
+
+def release_download(repo: str, what: str, into: Path) -> list[str]:
+    """The command that downloads release input TAG or TAG:PATH,... into
+    ``into``: every asset, or the parts streamed through zstd and tar,
+    which keeps only the paths named."""
+    tag, _, paths = what.partition(":")
+    if not paths:
+        return ["gh", "release", "download", tag, "--dir", str(into), "--repo", repo]
+    script = (
+        'parts=$(gh release view "$1" --repo "$2" --json assets --jq ".assets[].name"'
+        " | grep -F .tar.zst.part- | sort)\n"
+        'for n in $parts; do gh release download "$1" --repo "$2" --pattern "$n" --output -; done'
+        ' | zstd -dcq | tar -x -C "$3" "${@:4}"'
+    )
+    named = [f"./{p.strip('/')}" for p in paths.split(",")]  # as pack's tar names them
+    return ["bash", "-euo", "pipefail", "-c", script, "_", tag, repo, str(into), *named]
 
 
 def download(cmd: list[str], into: Path) -> None:
