@@ -34,7 +34,7 @@ drift less and gain no more ([below](#longer-training)).
 | 1 Setup | done: the estimator of the seven LCFs and the rule graph as releases |
 | 2 Train | bootstrapped from Cubic and BBRv3; reinforcement learning tuned at width 10 and confirmed at widths 7, 10 and 16 over three seeds; against BBRv3 Cubic's width 10 is trained well; longer training did not pay, at either rate |
 | 3 Ground | the latents carry the decision, whether or not the encoder sees the window; beyond it, the queueing delay and the arrival rate; the seed search found two networks that are trained well and decompose |
-| 4 Retrain | Trained for seed 128: net2 on a net1 of its five formulas, and on the seven LCFs, eight seeds each; reinforcement learning gains little on the formulas and much on the seven LCFs. The comparison with BBRv3 is running. Any hit runs by naming it in one input. Built: net1 on fitted formulas, with the features over past steps kept beside strided steps; net2 on net1 with a fixed window, cloned from BBRv3 ([methodology.md](methodology.md#retraining)). UNRUN: the count over m, the oracle and the comparisons. |
+| 4 Retrain | Seed 128's concepts do not work at m = all at the hit's recipe: of eight seeds of net2 on its five formulas, none is trained well, each within the margin of BBRv3 alone and below it with a competing flow. On the seven LCFs, none is trained well either, each within alone and unresolved with a competing flow. Every cell stopped after 40 to 77 of its 120 iterations. Any hit runs by naming it in one input. Built: net1 on fitted formulas, with the features over past steps kept beside strided steps; net2 on net1 with a fixed window, cloned from BBRv3 ([methodology.md](methodology.md#retraining)). UNRUN: the count over m, the oracle and the comparisons. |
 
 ## Training the discovery controller
 
@@ -443,16 +443,33 @@ the fixed rule's (the rule's own is -0.72), range over the eight seeds:
   improve at their last evaluation.
 - Each cell keeps its best evaluated policy.
 
-The release's `versus-bbr3` measures none of the draws. Its cells did not
-run their policies on the validation episodes, so it lists every draw as
-not trained well with nothing to compare. The cells now run them, and
-`versus_reference.py` refuses a run without rollouts.
-`experiments/concepts-versus-bbr3.json` makes the comparison for this
-release's draws, from their kept policies and the release's own setup.
-It is running.
+The release's own `versus-bbr3` measures none of the draws: its cells
+did not run their policies on the validation episodes, so it lists every
+draw as not trained well with nothing to compare. The cells now run
+them, and `versus_reference.py` refuses a run without rollouts.
+`exp-concepts-versus-bbr3-55` (`experiments/concepts-versus-bbr3.json`)
+makes the comparison: each draw's kept policy, from the release's own
+setup, on the validation episodes of `exp-teachers-val-35`. Log utility
+minus BBRv3's, paired by link, with a bootstrap 95% interval over the 21
+links, ranges over the eight seeds:
 
-UNRUN: whether any draw is trained well, the count over m, and the other
-comparisons.
+| net2 reads | Alone, minus BBRv3 | Within | With a competing flow | Within | Share with a competing flow | Trained well |
+|---|---|---|---|---|---|---|
+| Seed 128's formulas | +0.09 to +0.20 | 8 of 8 | -0.66 to -0.52 | 0 of 8, all below | 0.35 to 0.40 | 0 of 8 |
+| The seven LCFs | +0.22 to +0.32 | 8 of 8 | -0.25 to +0.02 | 0 of 8, all unresolved | 0.47 to 0.57 | 0 of 8 |
+| Seed 128 itself | +0.22 | yes | +0.08 | yes | | yes |
+
+BBRv3's own share is 0.53.
+
+- No draw is trained well. By the rule fixed in the experiment before
+  any draw was scored, seed 128's concepts do not work at m = all at
+  this recipe, and the test links are not read.
+- With a competing flow, every draw on the formulas is below the margin:
+  the top of its interval lies at -0.43 to -0.30.
+- With a competing flow, every draw on the seven LCFs is unresolved: each
+  interval spans -0.1, with means from -0.25 to +0.02.
+
+UNRUN: the count over m, and the other comparisons.
 
 ## Releases
 
@@ -486,6 +503,7 @@ comparisons.
 | `exp-concepts-data-52` | Step data for net1 on seed 128's concepts: net1 v5's training set with the features the formulas read, and net1's spec on them. |
 | `exp-concepts-net1-53` | net1 on seed 128's concepts. Its R^2 for directions 0 and 3 is read with end bins that reach a pole; see above. |
 | `exp-concepts-controller-54` | net2 on that net1 and on the seven LCFs, eight seeds each: the kept policies and the training report. Its `versus-bbr3` measures none of the draws; see above. |
+| `exp-concepts-versus-bbr3-55` | Each draw of `exp-concepts-controller-54` against BBRv3 on the validation episodes, with the rollouts. |
 | `exp-steps-broad-30s-9`, `exp-phase0-teachers-1`, `exp-phase0-steps-2` | Old guest; not used. |
 
 ## A fault in earlier episodes
