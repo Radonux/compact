@@ -34,7 +34,7 @@ drift less and gain no more ([below](#longer-training)).
 | 1 Setup | done: the estimator of the seven LCFs and the rule graph as releases |
 | 2 Train | bootstrapped from Cubic and BBRv3; reinforcement learning tuned at width 10 and confirmed at widths 7, 10 and 16 over three seeds; against BBRv3 Cubic's width 10 is trained well; longer training did not pay, at either rate |
 | 3 Ground | the latents carry the decision, whether or not the encoder sees the window; beyond it, the queueing delay and the arrival rate; the seed search found two networks that are trained well and decompose |
-| 4 Retrain | Seed 128's concepts do not work at m = all at the hit's recipe: of eight seeds of net2 on its five formulas, none is trained well, each within the margin of BBRv3 alone and below it with a competing flow. On the seven LCFs, none is trained well either, each within alone and unresolved with a competing flow. Every cell stopped after 40 to 77 of its 120 iterations. Any hit runs by naming it in one input. Built: net1 on fitted formulas, with the features over past steps kept beside strided steps; net2 on net1 with a fixed window, cloned from BBRv3 ([methodology.md](methodology.md#retraining)). UNRUN: the count over m, the oracle and the comparisons. |
+| 4 Retrain | Seed 128's concepts do not work at m = all at the hit's recipe: of eight seeds of net2 on its five formulas, none is trained well, each within the margin of BBRv3 alone and below it with a competing flow. On the seven LCFs, none is trained well either, each within alone and unresolved with a competing flow. Every cell stopped after 40 to 77 of its 120 iterations. Step 4 rests here by the owner's choice until the seed search finds a network that decomposes fully or nearly. Any hit runs by naming it in one input. Built: net1 on fitted formulas, with the features over past steps kept beside strided steps; net2 on net1 with a fixed window, cloned from BBRv3 ([methodology.md](methodology.md#retraining)). UNRUN: the count over m, the oracle and the comparisons. |
 
 ## Training the discovery controller
 
@@ -327,10 +327,11 @@ The two hits, both along their own axes, on 126 validation episodes
   the four batches), 281 of 1694 directions are recovered (0.17), with a
   median of 7 to recover per network and basis.
 
-The owner carries seed 128 into step 4 and keeps mining for a better
-hit: three batches found two hits, where the pooled share of recovered
-directions, taken as independent, predicted almost none. The fourth
-found none. The fifth batch (`exp-controller-seed-search-56`,
+The owner keeps mining for a better hit: three batches found two hits,
+where the pooled share of recovered directions, taken as independent,
+predicted almost none, and seed 128's concepts did not work in step 4.
+The fourth found none. Mining continues until a network decomposes fully
+or nearly; the owner decides whether it goes to step 4. The fifth batch (`exp-controller-seed-search-56`,
 `experiments/controller-seed-search.json` as it now stands) trains
 BBRv3's seeds 157 to 172 at widths 7 and 10, in the same way. UNRUN: the
 fifth batch, which is training, and a release of the first batch's
@@ -474,6 +475,11 @@ BBRv3's own share is 0.53.
   the top of its interval lies at -0.43 to -0.30.
 - With a competing flow, every draw on the seven LCFs is unresolved: each
   interval spans -0.1, with means from -0.25 to +0.02.
+
+Step 4 rests here by the owner's choice until the seed search finds a
+network that decomposes fully or nearly. Not taken: reinforcement
+learning continued to the full 120 iterations, and seed 133 through
+step 4.
 
 UNRUN: the count over m, and the other comparisons.
 
