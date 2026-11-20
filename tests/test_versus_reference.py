@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+
 from .test_score import shard, spec_json
 
 
@@ -51,3 +53,12 @@ def test_every_controller_is_set_against_bbr3_by_link(tmp_path: Path) -> None:
     assert result["seeds"] == {"stock-bbr3": 1, "ref-cubic": 2, "ctl-cubic-k7": 2}
     md = (tmp_path / "out" / "versus-reference.md").read_text()
     assert "| ctl-cubic-k7 | 2 |" in md and "| no |" in md and "| yes |" in md
+
+
+def test_a_run_without_rollouts_is_refused(tmp_path: Path) -> None:
+    # Read as empty, it would be reported as not trained well.
+    bare = tmp_path / "ctl-seven-s201-s1"
+    bare.mkdir()
+    runs = [_run(tmp_path, "stock-bbr3-s1", 0.5, 0.5, 0.5), bare]
+    with pytest.raises(SystemExit, match="no rollouts"):
+        vr.main(tmp_path / "out", runs)

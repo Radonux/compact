@@ -1,0 +1,13 @@
+{
+  "title": "Step 4's draws of exp-concepts-controller-54 against BBRv3",
+  "description": "The comparison with BBRv3 that exp-concepts-controller-54 was written to make and did not: its cells kept each draw's policy but did not run it on the validation episodes, so its versus-bbr3 had no rollouts of the draws and reads every draw as not trained well, unmeasured (experiments/concepts-controller.json's cells now run them, and versus_reference.py refuses a run without them). One cell streams only the setup and the sixteen kept draws (ctl-*) out of that release, runs each draw's policy.onnx (net1 and net2 in one graph, the window fixed, as the trainer's evaluation runs it) on the validation episodes of exp-teachers-val-35 with ground.py rollouts from the release's own setup (the training links cut to one episode), and sets each draw against BBRv3 on the same episodes with experiments/versus_reference.py. Rule, as fixed in that experiment before any draw was scored: a draw is trained well when the whole 95% interval of its log utility minus BBRv3's lies above -0.1, alone and with a competing flow; the concepts work at m = all when a concept draw is trained well. The test links are not read.",
+  "uml": true,
+  "train": true,
+  "inputs": {
+    "controller": "release:exp-concepts-controller-54:setup,ctl-concepts-s201,ctl-concepts-s202,ctl-concepts-s203,ctl-concepts-s204,ctl-concepts-s205,ctl-concepts-s206,ctl-concepts-s207,ctl-concepts-s208,ctl-seven-s201,ctl-seven-s202,ctl-seven-s203,ctl-seven-s204,ctl-seven-s205,ctl-seven-s206,ctl-seven-s207,ctl-seven-s208",
+    "teachers": "release:exp-teachers-val-35"
+  },
+  "shards": 1,
+  "run": "E=\"$(mktemp -d)\"; for r in \"$IN/controller\"/ctl-*; do R=\"${r##*/}\"; mkdir -p \"$OUT/$R\"; cp \"$r/ppo_spec.json\" \"$r/policy.onnx\" \"$OUT/$R/\"; uv run python experiments/ground.py rollouts \"$OUT/$R\" --links 1 --fit \"$IN/controller/setup/paths/campaign.json\" --score \"$IN/controller/setup/eval/campaign.json\" --build \"$UML\" --workers \"$WORKERS\"; ln -s \"$OUT/$R\" \"$E/$R-s1\"; done; uv run python experiments/versus_reference.py \"$OUT/versus-bbr3\" \"$E\"/* \"$IN/teachers\"/stock-*",
+  "timeout_minutes": 360
+}

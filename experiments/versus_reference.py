@@ -135,6 +135,8 @@ def main(out: Path, runs: list[Path]) -> None:
         if (m := NAME.match(run.name)) is None:
             raise SystemExit(f"{run.name}: not GROUP-sSEED")
         d = [run / "ground" / "score"]
+        if not d[0].is_dir():  # without rollouts a run would read as not trained well
+            raise SystemExit(f"{run}: no rollouts in ground/score")
         found[m["group"]].append(
             {
                 "score": per_pair(score.episode_scores(d, REWARD)),
