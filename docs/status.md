@@ -269,19 +269,20 @@ basis; nothing is found in noise.
 ### The seed search
 
 The concepts come from one network that is trained well and whose
-latents decompose ([methodology](methodology.md#grounding)). Three
+latents decompose ([methodology](methodology.md#grounding)). Four
 batches have run, five draws at a time, and every draw finished. The
-third has two hits.
+third has two hits, the fourth none.
 
 - The first batch (`exp-controller-seed-search-47`) trained seeds 101 to
   108 at each teacher's better recipe, widths 7 and 10: 32 draws, 2.5 to
   4.8 h each. Each draw was set against BBRv3 on its own (the batch's
   collect averages the seeds of each teacher and width) and scored by
   `ground.py decompose` on the session's machine at commit `9eddfc365`.
-- The second (`exp-controller-seed-search-48`) and third
-  (`exp-controller-seed-search-49`) batches dropped Cubic and trained
-  BBRv3's seeds 109 to 124 and 125 to 140 at widths 7 and 10: 32 draws
-  each, in about 21 and 22 h. Each cell scored its own draw with the same
+- The second (`exp-controller-seed-search-48`), third
+  (`exp-controller-seed-search-49`) and fourth
+  (`exp-controller-seed-search-50`) batches dropped Cubic and trained
+  BBRv3's seeds 109 to 124, 125 to 140 and 141 to 156 at widths 7 and
+  10: 32 draws each, in about 21, 22 and 25 h. Each cell scored its own draw with the same
   code, and the collect set each draw against BBRv3 on its own.
 
 | Batch | Teacher | Trained well | Recovered along the axes | Recovered after varimax | Most recovered in one network | Decomposed | Hits |
@@ -290,6 +291,7 @@ third has two hits.
 | 1 | Cubic, window seen | 0 of 16 | 5 of 100 | 2 of 107 | 1 | 0 of 16 | 0 |
 | 2 | BBRv3, window hidden | 7 of 32 | 42 of 210 | 38 of 211 | 6 | 1 of 32 | 0 |
 | 3 | BBRv3, window hidden | 5 of 32 | 50 of 223 | 40 of 229 | 6 | 3 of 32 | 2 |
+| 4 | BBRv3, window hidden | 1 of 32 | 38 of 226 | 28 of 223 | 6 | 1 of 32 | 0 |
 
 The two hits, both along their own axes, on 126 validation episodes
 (about 91,000 decisions each):
@@ -309,26 +311,30 @@ The two hits, both along their own axes, on 126 validation episodes
 - Trained well but not decomposed: in the first batch, BBRv3's width 7
   seed 104; in the second, width 10 seeds 111, 115, 116 and 122 and width
   7 seeds 115, 116 and 121; in the third, width 10 seed 138 and width 7
-  seeds 129 and 138.
-- Decomposed but not trained well, both unresolved with a competing flow:
-  the second batch's width 7 seed 109 (-0.09, -0.28 to +0.10) and the
+  seeds 129 and 138; in the fourth, width 7 seed 147, which recovers 3
+  of its 7 directions along its axes.
+- Decomposed but not trained well, all unresolved with a competing flow:
+  the second batch's width 7 seed 109 (-0.09, -0.28 to +0.10), the
   third's width 10 seed 131 (-0.01, -0.20 to +0.16), which recovers all 6
-  of its directions with 6 formulas.
+  of its directions with 6 formulas, and the fourth's width 7 seed 152
+  (-0.03, -0.20 to +0.13), which recovers all 4 after varimax with 4
+  formulas.
 - Alone, every draw is within the margin of BBRv3 but Cubic's width 7
   seed 106 and width 10 seed 108, which are unresolved. With a competing
   flow, 4 of Cubic's draws and BBRv3's width 10 seed 109 fall below the
   margin. The draws not named here as trained well are unresolved.
-- Over BBRv3's 89 networks with the window hidden (9 earlier, 80 of the
-  three batches), 215 of 1245 directions are recovered (0.17), with a
+- Over BBRv3's 121 networks with the window hidden (9 earlier, 112 of
+  the four batches), 281 of 1694 directions are recovered (0.17), with a
   median of 7 to recover per network and basis.
 
 The owner carries seed 128 into step 4 and keeps mining for a better
 hit: three batches found two hits, where the pooled share of recovered
-directions, taken as independent, predicted almost none. The fourth batch
-(`exp-controller-seed-search-50`, `experiments/controller-seed-search.json`
-as it now stands) trains BBRv3's seeds 141 to 156 at widths 7 and 10, in
-the same way. UNRUN: the fourth batch, which is training, and a release
-of the first batch's scores.
+directions, taken as independent, predicted almost none. The fourth
+found none. The fifth batch (`exp-controller-seed-search-56`,
+`experiments/controller-seed-search.json` as it now stands) trains
+BBRv3's seeds 157 to 172 at widths 7 and 10, in the same way. UNRUN: the
+fifth batch, which is training, and a release of the first batch's
+scores.
 
 `ground.py decompose` on the 18 confirmed controllers
 (`exp-ground-rl-confirm-32`, the window seen) and the 18 with the window
@@ -499,11 +505,12 @@ UNRUN: the count over m, and the other comparisons.
 | `exp-controller-seed-search-47` | The first batch of the seed search: seeds 101 to 108, both teachers, widths 7 and 10. Its `versus-bbr3` averages the seeds of each teacher and width. |
 | `exp-controller-seed-search-48` | The second batch: BBRv3's seeds 109 to 124, widths 7 and 10. Each draw's `decompose-*` scores and its own row in `versus-bbr3`. |
 | `exp-controller-seed-search-49` | The third batch: BBRv3's seeds 125 to 140, widths 7 and 10, as the second. Holds the two hits. |
-| `exp-controller-seed-search-50` | The fourth batch: BBRv3's seeds 141 to 156, widths 7 and 10, as the second. Running. |
+| `exp-controller-seed-search-50` | The fourth batch: BBRv3's seeds 141 to 156, widths 7 and 10, as the second. No hit. |
 | `exp-concepts-data-52` | Step data for net1 on seed 128's concepts: net1 v5's training set with the features the formulas read, and net1's spec on them. |
 | `exp-concepts-net1-53` | net1 on seed 128's concepts. Its R^2 for directions 0 and 3 is read with end bins that reach a pole; see above. |
 | `exp-concepts-controller-54` | net2 on that net1 and on the seven LCFs, eight seeds each: the kept policies and the training report. Its `versus-bbr3` measures none of the draws; see above. |
 | `exp-concepts-versus-bbr3-55` | Each draw of `exp-concepts-controller-54` against BBRv3 on the validation episodes, with the rollouts. |
+| `exp-controller-seed-search-56` | The fifth batch: BBRv3's seeds 157 to 172, widths 7 and 10, as the second. Running. |
 | `exp-steps-broad-30s-9`, `exp-phase0-teachers-1`, `exp-phase0-steps-2` | Old guest; not used. |
 
 ## A fault in earlier episodes
