@@ -339,7 +339,7 @@ predicted almost none, and seed 128's concepts did not work in step 4.
 The fourth and fifth found none. Mining continues until a network
 decomposes fully or nearly; the owner decides whether it goes to step 4.
 The sixth batch (`exp-controller-seed-search-57`,
-`experiments/controller-seed-search.json` as it now stands) trains
+`experiments/controller-seed-search.json` at commit `43af6d096`) trains
 BBRv3's seeds 173 to 188 at widths 7 and 10, in the same way. UNRUN: the
 sixth batch, which is training, and a release of the first batch's
 scores.
