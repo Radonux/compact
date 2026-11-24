@@ -269,9 +269,9 @@ basis; nothing is found in noise.
 ### The seed search
 
 The concepts come from one network that is trained well and whose
-latents decompose ([methodology](methodology.md#grounding)). Seven
+latents decompose ([methodology](methodology.md#grounding)). Eight
 batches have run, five draws at a time, and every draw finished. The
-third has two hits, the fourth to the seventh none.
+third has two hits, the fourth to the eighth none.
 
 - The first batch (`exp-controller-seed-search-47`) trained seeds 101 to
   108 at each teacher's better recipe, widths 7 and 10: 32 draws, 2.5 to
@@ -282,11 +282,12 @@ third has two hits, the fourth to the seventh none.
   (`exp-controller-seed-search-49`), fourth
   (`exp-controller-seed-search-50`), fifth
   (`exp-controller-seed-search-56`), sixth
-  (`exp-controller-seed-search-57`) and seventh
-  (`exp-controller-seed-search-58`) batches dropped Cubic and trained
+  (`exp-controller-seed-search-57`), seventh
+  (`exp-controller-seed-search-58`) and eighth
+  (`exp-controller-seed-search-59`) batches dropped Cubic and trained
   BBRv3's seeds 109 to 124, 125 to 140, 141 to 156, 157 to 172, 173 to
-  188 and 189 to 204 at widths 7 and 10: 32 draws each, in about 21,
-  22, 25, 23, 23 and 22 h. The seventh's first five draws were cancelled
+  188, 189 to 204 and 205 to 220 at widths 7 and 10: 32 draws each, in
+  about 21, 22, 25, 23, 23, 22 and 23 h. The seventh's first five draws were cancelled
   together after 2 h, with no cause in the logs, and a second attempt
   re-ran them in 5 h. Each cell scored its own draw with the same code,
   and the collect set each draw against BBRv3 on its own.
@@ -301,6 +302,7 @@ third has two hits, the fourth to the seventh none.
 | 5 | BBRv3, window hidden | 5 of 32 | 31 of 226 | 22 of 220 | 5 | 0 of 32 | 0 |
 | 6 | BBRv3, window hidden | 7 of 32 | 44 of 208 | 33 of 216 | 4 | 1 of 32 | 0 |
 | 7 | BBRv3, window hidden | 6 of 32 | 34 of 230 | 36 of 228 | 4 | 0 of 32 | 0 |
+| 8 | BBRv3, window hidden | 4 of 32 | 45 of 236 | 24 of 234 | 5 | 0 of 32 | 0 |
 
 The two hits, both along their own axes, on 126 validation episodes
 (about 91,000 decisions each):
@@ -332,7 +334,17 @@ The two hits, both along their own axes, on 126 validation episodes
   would be too few to decompose. In the seventh, width 10 seeds 191,
   193, 199 and 201 and width 7 seeds 199 and 200. Along its axes, width
   7 seed 200 recovers 3 of its 5 directions with 3 formulas; the other
-  two reach R^2 0.02 and 0.16 of ceilings 0.12 and 0.26.
+  two reach R^2 0.02 and 0.16 of ceilings 0.12 and 0.26. In the eighth,
+  width 10 seeds 206, 209, 210 and 220. Along its axes, width 10 seed
+  206 has 4 directions to recover and recovers 3 with 3 formulas (R^2
+  0.20, 0.20 and 0.69 of ceilings 0.12, 0.13 and 0.58); the fourth
+  reaches 0.15 where 0.20 is needed, of a ceiling of 0.25. Its formulas
+  read the mean queueing delay over 240 ms, the least RTT ratio, the
+  least receive rate and the most capacity over 960 ms, and the window.
+- Neither, but close: the eighth batch's width 7 seed 211 (+0.03, -0.14
+  to +0.19 with a competing flow) recovers 4 of its 5 directions along
+  its axes with 3 formulas; the fifth reaches R^2 0.47 where 0.49 is
+  needed, of a ceiling of 0.62.
 - Decomposed but not trained well, all unresolved with a competing flow:
   the second batch's width 7 seed 109 (-0.09, -0.28 to +0.10), the
   third's width 10 seed 131 (-0.01, -0.20 to +0.16), which recovers all 6
@@ -347,19 +359,19 @@ The two hits, both along their own axes, on 126 validation episodes
   seed 106 and width 10 seed 108, which are unresolved. With a competing
   flow, 4 of Cubic's draws, BBRv3's width 10 seeds 109, 168 and 202
   and its width 7 seeds 186 and 202 fall below the margin. The draws not named here as trained well are unresolved.
-- Over BBRv3's 217 networks with the window hidden (9 earlier, 208 of
-  the seven batches), 481 of 3022 directions are recovered (0.16), with a
+- Over BBRv3's 249 networks with the window hidden (9 earlier, 240 of
+  the eight batches), 550 of 3492 directions are recovered (0.16), with a
   median of 7 to recover per network and basis.
 
 The owner keeps mining for a better hit: three batches found two hits,
 where the pooled share of recovered directions, taken as independent,
 predicted almost none, and seed 128's concepts did not work in step 4.
-The fourth to the seventh found none. Mining continues until a network
+The fourth to the eighth found none. Mining continues until a network
 decomposes fully or nearly; the owner decides whether it goes to step 4.
-The eighth batch (`exp-controller-seed-search-59`,
-`experiments/controller-seed-search.json` at commit `23702383e`) trains
-BBRv3's seeds 205 to 220 at widths 7 and 10, in the same way. UNRUN: the
-eighth batch, which is training, and a release of the first batch's
+The ninth batch (`exp-controller-seed-search-60`,
+`experiments/controller-seed-search.json` at commit `5aa6bd0dd`) trains
+BBRv3's seeds 221 to 236 at widths 7 and 10, in the same way. UNRUN: the
+ninth batch, which is training, and a release of the first batch's
 scores.
 
 `ground.py decompose` on the 18 confirmed controllers
@@ -544,7 +556,8 @@ UNRUN: the count over m, and the other comparisons.
 | `exp-controller-seed-search-56` | The fifth batch: BBRv3's seeds 157 to 172, widths 7 and 10, as the second. No hit. |
 | `exp-controller-seed-search-57` | The sixth batch: BBRv3's seeds 173 to 188, widths 7 and 10, as the second. No hit. |
 | `exp-controller-seed-search-58` | The seventh batch: BBRv3's seeds 189 to 204, widths 7 and 10, as the second. No hit. |
-| `exp-controller-seed-search-59` | The eighth batch: BBRv3's seeds 205 to 220, widths 7 and 10, as the second. Running. |
+| `exp-controller-seed-search-59` | The eighth batch: BBRv3's seeds 205 to 220, widths 7 and 10, as the second. No hit. |
+| `exp-controller-seed-search-60` | The ninth batch: BBRv3's seeds 221 to 236, widths 7 and 10, as the second. Running. |
 | `exp-steps-broad-30s-9`, `exp-phase0-teachers-1`, `exp-phase0-steps-2` | Old guest; not used. |
 
 ## A fault in earlier episodes
