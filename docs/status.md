@@ -269,9 +269,9 @@ basis; nothing is found in noise.
 ### The seed search
 
 The concepts come from one network that is trained well and whose
-latents decompose ([methodology](methodology.md#grounding)). Eight
+latents decompose ([methodology](methodology.md#grounding)). Nine
 batches have run, five draws at a time, and every draw finished. The
-third has two hits, the fourth to the eighth none.
+third has two hits, the fourth to the ninth none.
 
 - The first batch (`exp-controller-seed-search-47`) trained seeds 101 to
   108 at each teacher's better recipe, widths 7 and 10: 32 draws, 2.5 to
@@ -283,11 +283,13 @@ third has two hits, the fourth to the eighth none.
   (`exp-controller-seed-search-50`), fifth
   (`exp-controller-seed-search-56`), sixth
   (`exp-controller-seed-search-57`), seventh
-  (`exp-controller-seed-search-58`) and eighth
-  (`exp-controller-seed-search-59`) batches dropped Cubic and trained
+  (`exp-controller-seed-search-58`), eighth
+  (`exp-controller-seed-search-59`) and ninth
+  (`exp-controller-seed-search-60`) batches dropped Cubic and trained
   BBRv3's seeds 109 to 124, 125 to 140, 141 to 156, 157 to 172, 173 to
-  188, 189 to 204 and 205 to 220 at widths 7 and 10: 32 draws each, in
-  about 21, 22, 25, 23, 23, 22 and 23 h. The seventh's first five draws were cancelled
+  188, 189 to 204, 205 to 220 and 221 to 236 at widths 7 and 10: 32
+  draws each, in about 21, 22, 25, 23, 23, 22, 23 and 21 h. The
+  seventh's first five draws were cancelled
   together after 2 h, with no cause in the logs, and a second attempt
   re-ran them in 5 h. Each cell scored its own draw with the same code,
   and the collect set each draw against BBRv3 on its own.
@@ -303,6 +305,7 @@ third has two hits, the fourth to the eighth none.
 | 6 | BBRv3, window hidden | 7 of 32 | 44 of 208 | 33 of 216 | 4 | 1 of 32 | 0 |
 | 7 | BBRv3, window hidden | 6 of 32 | 34 of 230 | 36 of 228 | 4 | 0 of 32 | 0 |
 | 8 | BBRv3, window hidden | 4 of 32 | 45 of 236 | 24 of 234 | 5 | 0 of 32 | 0 |
+| 9 | BBRv3, window hidden | 2 of 32 | 48 of 238 | 34 of 230 | 5 | 2 of 32 | 0 |
 
 The two hits, both along their own axes, on 126 validation episodes
 (about 91,000 decisions each):
@@ -341,6 +344,7 @@ The two hits, both along their own axes, on 126 validation episodes
   reaches 0.15 where 0.20 is needed, of a ceiling of 0.25. Its formulas
   read the mean queueing delay over 240 ms, the least RTT ratio, the
   least receive rate and the most capacity over 960 ms, and the window.
+  In the ninth, width 10 seed 235 and width 7 seed 227.
 - Neither, but close: the eighth batch's width 7 seed 211 (+0.03, -0.14
   to +0.19 with a competing flow) recovers 4 of its 5 directions along
   its axes with 3 formulas; the fifth reaches R^2 0.47 where 0.49 is
@@ -355,23 +359,37 @@ The two hits, both along their own axes, on 126 validation episodes
   and 0.15 of ceilings 0.52, 0.45 and 0.10). Its formulas read the mean
   queueing delay over 240 ms, the flow's highest arrival rate over 240 ms
   and the mean queueing delay on the ACK path over 960 ms.
+- Seed 229 of the ninth batch decomposes at both widths, along its axes,
+  and neither is trained well. Width 10 (+0.24, +0.13 to +0.35 alone;
+  +0.03, -0.14 to +0.18 with a competing flow) recovers all 4 of its
+  directions with 4 formulas (R^2 0.15, 0.43, 0.20 and 0.32 of ceilings
+  0.14, 0.43, 0.20 and 0.31). They read the queueing delay and its mean
+  over 960 ms, the least BDP over 960 ms, the highest arrival rate of
+  all flows at the bottleneck and the mean queueing delay on the ACK path
+  over 240 ms, the random loss rate and the drop fraction; none reads the
+  window. Width 7 (+0.29, +0.20 to +0.37 alone; -0.06, -0.25 to +0.13
+  with a competing flow) recovers all 4 with 4 formulas (R^2 0.24, 0.35,
+  0.54 and 0.09 of ceilings 0.20, 0.34, 0.51 and 0.10), three of which
+  read the window.
 - Alone, every draw is within the margin of BBRv3 but Cubic's width 7
   seed 106 and width 10 seed 108, which are unresolved. With a competing
   flow, 4 of Cubic's draws, BBRv3's width 10 seeds 109, 168 and 202
   and its width 7 seeds 186 and 202 fall below the margin. The draws not named here as trained well are unresolved.
-- Over BBRv3's 249 networks with the window hidden (9 earlier, 240 of
-  the eight batches), 550 of 3492 directions are recovered (0.16), with a
+- Over BBRv3's 281 networks with the window hidden (9 earlier, 272 of
+  the nine batches), 632 of 3960 directions are recovered (0.16), with a
   median of 7 to recover per network and basis.
 
 The owner keeps mining for a better hit: three batches found two hits,
 where the pooled share of recovered directions, taken as independent,
 predicted almost none, and seed 128's concepts did not work in step 4.
-The fourth to the eighth found none. Mining continues until a network
-decomposes fully or nearly; the owner decides whether it goes to step 4.
-The ninth batch (`exp-controller-seed-search-60`,
-`experiments/controller-seed-search.json` at commit `5aa6bd0dd`) trains
-BBRv3's seeds 221 to 236 at widths 7 and 10, in the same way. UNRUN: the
-ninth batch, which is training, and a release of the first batch's
+The fourth to the ninth found none; the ninth's width 10 seed 229
+decomposes fully and misses training well only with a competing flow.
+Mining continues until a network decomposes fully or nearly; the owner
+decides whether it goes to step 4. The tenth batch
+(`exp-controller-seed-search-61`,
+`experiments/controller-seed-search.json` at commit `2f66aa8b2`) trains
+BBRv3's seeds 237 to 252 at widths 7 and 10, in the same way. UNRUN: the
+tenth batch, which is training, and a release of the first batch's
 scores.
 
 `ground.py decompose` on the 18 confirmed controllers
@@ -557,7 +575,8 @@ UNRUN: the count over m, and the other comparisons.
 | `exp-controller-seed-search-57` | The sixth batch: BBRv3's seeds 173 to 188, widths 7 and 10, as the second. No hit. |
 | `exp-controller-seed-search-58` | The seventh batch: BBRv3's seeds 189 to 204, widths 7 and 10, as the second. No hit. |
 | `exp-controller-seed-search-59` | The eighth batch: BBRv3's seeds 205 to 220, widths 7 and 10, as the second. No hit. |
-| `exp-controller-seed-search-60` | The ninth batch: BBRv3's seeds 221 to 236, widths 7 and 10, as the second. Running. |
+| `exp-controller-seed-search-60` | The ninth batch: BBRv3's seeds 221 to 236, widths 7 and 10, as the second. No hit; seed 229 decomposes at both widths and is not trained well. |
+| `exp-controller-seed-search-61` | The tenth batch: BBRv3's seeds 237 to 252, widths 7 and 10, as the second. Running. |
 | `exp-steps-broad-30s-9`, `exp-phase0-teachers-1`, `exp-phase0-steps-2` | Old guest; not used. |
 
 ## A fault in earlier episodes
