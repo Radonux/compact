@@ -269,9 +269,9 @@ basis; nothing is found in noise.
 ### The seed search
 
 The concepts come from one network that is trained well and whose
-latents decompose ([methodology](methodology.md#grounding)). Ten
+latents decompose ([methodology](methodology.md#grounding)). Eleven
 batches have run, five draws at a time, and every draw finished. The
-third has two hits, the fourth to the tenth none.
+third has two hits, the fourth to the eleventh none.
 
 - The first batch (`exp-controller-seed-search-47`) trained seeds 101 to
   108 at each teacher's better recipe, widths 7 and 10: 32 draws, 2.5 to
@@ -285,12 +285,13 @@ third has two hits, the fourth to the tenth none.
   (`exp-controller-seed-search-57`), seventh
   (`exp-controller-seed-search-58`), eighth
   (`exp-controller-seed-search-59`), ninth
-  (`exp-controller-seed-search-60`) and tenth
-  (`exp-controller-seed-search-61`) batches dropped Cubic and trained
+  (`exp-controller-seed-search-60`), tenth
+  (`exp-controller-seed-search-61`) and eleventh
+  (`exp-controller-seed-search-62`) batches dropped Cubic and trained
   BBRv3's seeds 109 to 124, 125 to 140, 141 to 156, 157 to 172, 173 to
-  188, 189 to 204, 205 to 220, 221 to 236 and 237 to 252 at widths 7
-  and 10: 32 draws each, in about 21, 22, 25, 23, 23, 22, 23, 21 and
-  23 h. The
+  188, 189 to 204, 205 to 220, 221 to 236, 237 to 252 and 253 to 268 at
+  widths 7 and 10: 32 draws each, in about 21, 22, 25, 23, 23, 22, 23,
+  21, 23 and 22 h. The
   seventh's first five draws were cancelled
   together after 2 h, with no cause in the logs, and a second attempt
   re-ran them in 5 h. Each cell scored its own draw with the same code,
@@ -309,6 +310,7 @@ third has two hits, the fourth to the tenth none.
 | 8 | BBRv3, window hidden | 4 of 32 | 45 of 236 | 24 of 234 | 5 | 0 of 32 | 0 |
 | 9 | BBRv3, window hidden | 2 of 32 | 48 of 238 | 34 of 230 | 5 | 2 of 32 | 0 |
 | 10 | BBRv3, window hidden | 8 of 32 | 40 of 244 | 27 of 221 | 5 | 1 of 32 | 0 |
+| 11 | BBRv3, window hidden | 5 of 32 | 27 of 248 | 20 of 239 | 5 | 0 of 32 | 0 |
 
 The two hits, both along their own axes, on 126 validation episodes
 (about 91,000 decisions each):
@@ -352,7 +354,8 @@ The two hits, both along their own axes, on 126 validation episodes
   and 252. After varimax, width 7 seed 245 has two directions to
   recover: one is recovered (R^2 0.37 of a ceiling of 0.42), the other
   reaches 0.27 where 0.50 is needed, of a ceiling of 0.63, and two
-  formulas would be too few to decompose.
+  formulas would be too few to decompose. In the eleventh, width 10
+  seed 256 and width 7 seeds 256, 257, 260 and 261.
 - Neither, but close: the eighth batch's width 7 seed 211 (+0.03, -0.14
   to +0.19 with a competing flow) recovers 4 of its 5 directions along
   its axes with 3 formulas; the fifth reaches R^2 0.47 where 0.49 is
@@ -394,24 +397,25 @@ The two hits, both along their own axes, on 126 validation episodes
   none reads the window.
 - Alone, every draw is within the margin of BBRv3 but Cubic's width 7
   seed 106 and width 10 seed 108, which are unresolved. With a competing
-  flow, 4 of Cubic's draws, BBRv3's width 10 seeds 109, 168 and 202
-  and its width 7 seeds 186, 202 and 251 fall below the margin. The draws not named here as trained well are unresolved.
-- Over BBRv3's 313 networks with the window hidden (9 earlier, 304 of
-  the ten batches), 699 of 4425 directions are recovered (0.16), with a
+  flow, 4 of Cubic's draws, BBRv3's width 10 seeds 109, 168, 202 and
+  253 and its width 7 seeds 186, 202, 251 and 255 fall below the
+  margin. The draws not named here as trained well are unresolved.
+- Over BBRv3's 345 networks with the window hidden (9 earlier, 336 of
+  the eleven batches), 746 of 4912 directions are recovered (0.15), with a
   median of 7 to recover per network and basis.
 
 The owner keeps mining for a better hit: three batches found two hits,
 where the pooled share of recovered directions, taken as independent,
 predicted almost none, and seed 128's concepts did not work in step 4.
-The fourth to the tenth found none; the ninth's width 10 seed 229
+The fourth to the eleventh found none; the ninth's width 10 seed 229
 decomposes fully and misses training well only with a competing flow,
 and the tenth's width 7 seed 251 decomposes fully and falls below the
 margin with a competing flow. Mining continues until a network
 decomposes fully or nearly; the owner decides whether it goes to step 4.
-The eleventh batch (`exp-controller-seed-search-62`,
-`experiments/controller-seed-search.json` at commit `b7ee6bda4`) trains
-BBRv3's seeds 253 to 268 at widths 7 and 10, in the same way. UNRUN: the
-eleventh batch, which is training, and a release of the first batch's
+The twelfth batch (`exp-controller-seed-search-63`,
+`experiments/controller-seed-search.json` at commit `7fe99bfb0`) trains
+BBRv3's seeds 269 to 284 at widths 7 and 10, in the same way. UNRUN: the
+twelfth batch, which is training, and a release of the first batch's
 scores.
 
 `ground.py decompose` on the 18 confirmed controllers
@@ -599,7 +603,8 @@ UNRUN: the count over m, and the other comparisons.
 | `exp-controller-seed-search-59` | The eighth batch: BBRv3's seeds 205 to 220, widths 7 and 10, as the second. No hit. |
 | `exp-controller-seed-search-60` | The ninth batch: BBRv3's seeds 221 to 236, widths 7 and 10, as the second. No hit; seed 229 decomposes at both widths and is not trained well. |
 | `exp-controller-seed-search-61` | The tenth batch: BBRv3's seeds 237 to 252, widths 7 and 10, as the second. No hit; width 7 seed 251 decomposes and falls below the margin with a competing flow. |
-| `exp-controller-seed-search-62` | The eleventh batch: BBRv3's seeds 253 to 268, widths 7 and 10, as the second. Running. |
+| `exp-controller-seed-search-62` | The eleventh batch: BBRv3's seeds 253 to 268, widths 7 and 10, as the second. No hit; none decomposes. |
+| `exp-controller-seed-search-63` | The twelfth batch: BBRv3's seeds 269 to 284, widths 7 and 10, as the second. Running. |
 | `exp-steps-broad-30s-9`, `exp-phase0-teachers-1`, `exp-phase0-steps-2` | Old guest; not used. |
 
 ## A fault in earlier episodes
